@@ -1,0 +1,33 @@
+{
+  "name": "auss-backend",
+  "version": "1.0.0",
+  "description": "AUSS Backend - Node.js Express API",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "NODE_ENV=production node src/index.js",
+    "prisma:generate": "npx prisma generate",
+    "prisma:migrate": "npx prisma migrate dev --name init",
+    "prisma:studio": "npx prisma studio"
+  },
+  "keywords": [
+    "auss",
+    "backend",
+    "express"
+  ],
+  "author": "ProjectAuss2026",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^7.2.0",
+    "@prisma/adapter-pg": "^7.2.0",
+    "pg": "^8.11.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "prisma": "^7.2.0",
+    "nodemon": "^3.0.2"
+  }
+}

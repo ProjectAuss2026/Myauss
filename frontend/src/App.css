@@ -1,0 +1,147 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+  padding: 2.5rem 1.5rem 4rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #f8fafc;
+  border-radius: 24px;
+  padding: 3rem;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+}
+
+.hero-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 600px;
+}
+
+.hero h1 {
+  font-size: 2.75rem;
+  margin: 0;
+}
+
+.hero p {
+  margin: 0;
+  color: #cbd5f5;
+  font-size: 1.05rem;
+}
+
+.badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+}
+
+.cta-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.primary,
+.secondary {
+  border: none;
+  padding: 0.85rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.primary {
+  background: #38bdf8;
+  color: #0f172a;
+  box-shadow: 0 12px 24px rgba(56, 189, 248, 0.25);
+}
+
+.secondary {
+  background: rgba(248, 250, 252, 0.1);
+  color: #f8fafc;
+  border: 1px solid rgba(248, 250, 252, 0.25);
+}
+
+.primary:hover,
+.secondary:hover {
+  transform: translateY(-2px);
+}
+
+.features {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.feature-card {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 1.5rem;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.feature-card p {
+  margin: 0;
+  color: #475569;
+}
+
+.info {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  align-items: center;
+}
+
+.info h2 {
+  margin: 0 0 0.5rem;
+}
+
+.info p {
+  margin: 0;
+  color: #475569;
+}
+
+.info-panel {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 1.5rem;
+  display: grid;
+  gap: 1rem;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.info-panel div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.label {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 720px) {
+  .hero {
+    padding: 2.25rem;
+  }
+
+  .hero h1 {
+    font-size: 2.2rem;
+  }
+}
