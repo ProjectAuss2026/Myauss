@@ -136,6 +136,22 @@
   font-size: 0.85rem;
 }
 
+.test-result {
+  margin-top: 1rem;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  padding: 1rem;
+  max-width: 600px;
+}
+
+.test-result pre {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
+
 @media (max-width: 720px) {
   .hero {
     padding: 2.25rem;

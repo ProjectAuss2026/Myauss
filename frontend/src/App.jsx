@@ -1,6 +1,23 @@
+import { useState } from 'react'
 import './App.css'
 
 function App() {
+  const [testResult, setTestResult] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const testBackend = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch('http://localhost:5001/api/test')
+      const data = await response.json()
+      setTestResult(data)
+    } catch (error) {
+      setTestResult({ error: error.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="page">
       <header className="hero">
@@ -14,7 +31,15 @@ function App() {
           <div className="cta-row">
             <button className="primary">Get Started</button>
             <button className="secondary">Learn More</button>
+            <button className="secondary" onClick={testBackend} disabled={loading}>
+              {loading ? 'Testing...' : 'Test Backend'}
+            </button>
           </div>
+          {testResult && (
+            <div className="test-result">
+              <pre>{JSON.stringify(testResult, null, 2)}</pre>
+            </div>
+          )}
         </div>
       </header>
 
