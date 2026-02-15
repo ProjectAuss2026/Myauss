@@ -1,0 +1,25 @@
+{
+  "name": "auss",
+  "version": "1.0.0",
+  "description": "AUSS Full Stack Application",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "server": "cd backend && npm run dev",
+    "start": "cd frontend && npm run dev",
+    "build": "npm --workspace=backend run build & npm --workspace=frontend run build",
+    "install:all": "npm install",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "dev": "echo 'Start the database with: npm run docker:up' && echo 'Then run npm run server in one terminal and npm start in another'"
+  },
+  "keywords": [
+    "auss",
+    "fullstack"
+  ],
+  "author": "ProjectAuss2026",
+  "license": "MIT"
+}
