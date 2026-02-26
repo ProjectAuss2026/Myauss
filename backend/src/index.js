@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import configRoutes from './routes/configRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,14 +23,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'Backend is running' });
 });
 
-app.get('/api/test', (req, res) => {
-  res.json({
-    message: 'Test successful!',
-    timestamp: new Date().toISOString(),
-    port: PORT,
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
+app.use('/api/config', configRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
