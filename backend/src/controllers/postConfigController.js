@@ -1,6 +1,6 @@
 import prisma from '../prismaClient.js';
 
-// POST /api/config
+// Fields that must be present, otherwise "400 Bad Request"
 const REQUIRED_FIELDS = {
   communicationLink: ['platform', 'url'],
   mediaConfig: ['mediaDriveUrl'],
@@ -8,6 +8,7 @@ const REQUIRED_FIELDS = {
   sponsor: ['name', 'sponsorshipPageId'],
 };
 
+// Whitelist of what's accepted
 const ALLOWED_FIELDS = {
   communicationLink: ['platform', 'url', 'isActive'],
   mediaConfig: ['mediaDriveUrl'],
@@ -15,6 +16,7 @@ const ALLOWED_FIELDS = {
   sponsor: ['name', 'logoUrl', 'websiteUrl', 'sponsorshipPageId'],
 };
 
+// POST /api/config
 const postConfigController = async (req, res) => {
   const { type, data } = req.body;
 
@@ -70,7 +72,8 @@ const postConfigController = async (req, res) => {
           include: { sponsors: true },
         });
         break;
-
+      
+      // Checks if sponsorshipPageId you're linking to exists
       case 'sponsor': {
         const pageExists = await prisma.sponsorshipPage.findUnique({
           where: { id: Number(filteredData.sponsorshipPageId) },
@@ -96,12 +99,14 @@ const postConfigController = async (req, res) => {
       created,
     });
   } catch (error) {
+    // Unique constraint violation
     if (error.code === 'P2002') {
       return res.status(409).json({
         error: 'Conflict',
         message: `A ${type} with that value already exists (unique constraint violated).`,
       });
     }
+    // Foreign key constraint failed
     if (error.code === 'P2003') {
       return res.status(400).json({
         error: 'Bad request',

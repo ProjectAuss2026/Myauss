@@ -4,14 +4,17 @@ import prisma from '../prismaClient.js';
 const getConfigController = async (req, res) => {
   try {
     const [communicationLinks, mediaConfig, sponsorshipPages] = await Promise.all([
+      // Sort communication links A-Z by platform
       prisma.communicationLink.findMany({
         orderBy: { platform: 'asc' },
       }),
 
+      // Single global media config row, or null if not set
       prisma.mediaConfig.findFirst({
         orderBy: { updatedAt: 'desc' },
       }),
 
+      // All sponsorship pages, each with their nested sponsors included
       prisma.sponsorshipPage.findMany({
         include: {
           sponsors: {

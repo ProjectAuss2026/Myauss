@@ -10,9 +10,11 @@ const router = Router();
 router.get('/', getConfigController);
 
 // PATCH /api/config
+// Admin only
 router.patch('/', adminAuth, patchConfigController);
 
 // POST /api/config
+// Admin only
 router.post('/', adminAuth, postConfigController);
 
 export default router;

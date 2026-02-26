@@ -1,5 +1,6 @@
 import prisma from '../prismaClient.js';
 
+// Whitelist to strip out fields aren't permitted for that type
 const ALLOWED_FIELDS = {
   communicationLink: ['platform', 'url', 'isActive'],
   mediaConfig: ['mediaDriveUrl'],
@@ -85,12 +86,14 @@ const patchConfigController = async (req, res) => {
       updated,
     });
   } catch (error) {
+    // P2025 means record with that ID doesn't exist
     if (error.code === 'P2025') {
       return res.status(404).json({
         error: 'Not found',
         message: `No ${type} found with id=${id}.`,
       });
     }
+    // P2002 means unique constraint violated to set a platform that already exists
     if (error.code === 'P2002') {
       return res.status(409).json({
         error: 'Conflict',
