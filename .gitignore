@@ -29,3 +29,6 @@ coverage/
 # Prisma
 .env.local
 prisma/.env
+
+# Uploaded images (committed to git so all developers can see them)
+# Delete from DB to remove from repo on next commit
