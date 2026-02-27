@@ -29,7 +29,10 @@ async function sendVerificationCode(email) {
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   pendingCodes.set(email, code);
 
-  console.log(`[OTP] Code for ${email}: ${code}`);
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.log(`[OTP DEV] Code for ${email}: ${code}  ← copy this into the verify step`);
+    return;
+  }
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
