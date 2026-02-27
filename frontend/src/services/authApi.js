@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = '';
 
 async function request(endpoint, options = {}) {
   const res = await fetch(`${API_URL}/api/auth${endpoint}`, {

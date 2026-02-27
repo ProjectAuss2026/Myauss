@@ -10,8 +10,10 @@ function App() {
   const testBackend = async () => {
     setLoading(true)
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || ''
-      const response = await fetch(`${apiUrl}/api/test`)
+      const token = localStorage.getItem('token')
+      const response = await fetch('/api/test', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
       const data = await response.json()
       setTestResult(data)
     } catch (error) {
