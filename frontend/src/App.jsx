@@ -10,7 +10,7 @@ function App() {
   const testBackend = async () => {
     setLoading(true)
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+      const apiUrl = import.meta.env.VITE_API_URL || ''
       const response = await fetch(`${apiUrl}/api/test`)
       const data = await response.json()
       setTestResult(data)

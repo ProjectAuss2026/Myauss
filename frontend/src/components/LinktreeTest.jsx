@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API = import.meta.env.VITE_API_URL || ''
 
 const ROW = { border: '1px solid #333', borderRadius: 8, padding: 12, marginTop: 10 }
 const SECTION = { marginBottom: 32, padding: 16, background: '#1a1a1a', borderRadius: 10 }
