@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import adminAuth from '../middleware/adminAuth.js';
 import getConfigController from '../controllers/getConfigController.js';
 import patchConfigController from '../controllers/patchConfigController.js';
 import postConfigController from '../controllers/postConfigController.js';
+import deleteConfigController from '../controllers/deleteConfigController.js';
 
 const router = Router();
 
@@ -10,11 +10,12 @@ const router = Router();
 router.get('/', getConfigController);
 
 // PATCH /api/config
-// Admin only
-router.patch('/', adminAuth, patchConfigController);
+router.patch('/', patchConfigController);
 
 // POST /api/config
-// Admin only
-router.post('/', adminAuth, postConfigController);
+router.post('/', postConfigController);
+
+// DELETE /api/config
+router.delete('/', deleteConfigController);
 
 export default router;
