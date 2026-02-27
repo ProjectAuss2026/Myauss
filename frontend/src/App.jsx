@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import './App.css'
+import LinktreeTest from './components/LinktreeTest'
 
 function App() {
+  const [page, setPage] = useState('home')
   const [testResult, setTestResult] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -20,6 +22,9 @@ function App() {
   }
 
   return (
+    <>
+      {page === 'linktree' && <LinktreeTest onBack={() => setPage('home')} />}
+      {page === 'home' && (
     <div className="page">
       <header className="hero">
         <div className="hero-content">
@@ -34,6 +39,9 @@ function App() {
             <button className="secondary">Learn More</button>
             <button className="secondary" onClick={testBackend} disabled={loading}>
               {loading ? 'Testing...' : 'Test Backend'}
+            </button>
+            <button className="secondary" onClick={() => setPage('linktree')}>
+              Linktree Test
             </button>
           </div>
           {testResult && (
@@ -83,6 +91,8 @@ function App() {
         </div>
       </section>
     </div>
+      )}
+    </>
   )
 }
 
