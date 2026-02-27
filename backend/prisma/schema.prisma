@@ -9,10 +9,18 @@ datasource db {
   provider = "postgresql"
 }
 
-// Add your models here
-// Example:
-// model User {
-//   id    Int     @id @default(autoincrement())
-//   email String  @unique
-//   name  String?
-// }
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id                    String   @id @default(uuid())
+  email                 String   @unique
+  passwordHash          String
+  role                  Role     @default(USER)
+  isVerified            Boolean  @default(false)
+  lastCodeSentAt        DateTime @default(now())
+  verificationExpiresAt DateTime
+  createdAt             DateTime @default(now())
+}

@@ -1,15 +1,32 @@
 import { useState } from 'react'
+import { Routes, Route, Link, useNavigate } from 'react-router-dom'
+import Login from './pages/Login'
+import Register from './pages/Register'
 import './App.css'
 
-function App() {
+function Home() {
   const [testResult, setTestResult] = useState(null)
   const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
+
+  const user = (() => {
+    try { return JSON.parse(localStorage.getItem('user')) } catch { return null }
+  })()
+
+  const logout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    navigate('/login')
+  }
 
   const testBackend = async () => {
     setLoading(true)
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
-      const response = await fetch(`${apiUrl}/api/test`)
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${apiUrl}/api/test`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
       const data = await response.json()
       setTestResult(data)
     } catch (error) {
@@ -20,7 +37,7 @@ function App() {
   }
 
   return (
-    <div className="page">
+    <>
       <header className="hero">
         <div className="hero-content">
           <span className="badge">AUSS</span>
@@ -30,8 +47,17 @@ function App() {
             strength community updates in one place.
           </p>
           <div className="cta-row">
-            <button className="primary">Get Started</button>
-            <button className="secondary">Learn More</button>
+            {user ? (
+              <>
+                <span className="auth-greeting">Hi, {user.email}</span>
+                <button className="secondary" onClick={logout}>Logout</button>
+              </>
+            ) : (
+              <>
+                <Link to="/login"><button className="primary">Sign In</button></Link>
+                <Link to="/register"><button className="secondary">Register</button></Link>
+              </>
+            )}
             <button className="secondary" onClick={testBackend} disabled={loading}>
               {loading ? 'Testing...' : 'Test Backend'}
             </button>
@@ -82,6 +108,18 @@ function App() {
           </div>
         </div>
       </section>
+    </>
+  )
+}
+
+function App() {
+  return (
+    <div className="page">
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+      </Routes>
     </div>
   )
 }

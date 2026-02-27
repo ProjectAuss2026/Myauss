@@ -3,6 +3,9 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import authController from './controllers/auth.controller.js';
+import { authenticate } from './middleware/authMiddleware.js';
+import './jobs/cleanupUnverified.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,13 +21,17 @@ console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
 app.use(cors());
 app.use(express.json());
 
+// Auth routes
+app.use('/api/auth', authController);
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Backend is running' });
 });
 
-app.get('/api/test', (req, res) => {
+app.get('/api/test', authenticate, (req, res) => {
   res.json({
-    message: 'Test successful!',
+    message: 'Test successful — you are authenticated!',
+    user: req.user,
     timestamp: new Date().toISOString(),
     port: PORT,
     environment: process.env.NODE_ENV || 'development'
