@@ -2,7 +2,7 @@ import prisma from '../prismaClient.js';
 
 // Fields that must be present, otherwise "400 Bad Request"
 const REQUIRED_FIELDS = {
-  communicationLink: ['platform', 'url'],
+  communicationLink: ['platform', 'url', 'imgUrl'],
   mediaConfig: ['mediaDriveUrl'],
   sponsorshipPage: ['pageContent'],
   sponsor: ['name', 'sponsorshipPageId'],
@@ -10,7 +10,7 @@ const REQUIRED_FIELDS = {
 
 // Whitelist of what's accepted
 const ALLOWED_FIELDS = {
-  communicationLink: ['platform', 'url', 'isActive'],
+  communicationLink: ['platform', 'url', 'imgUrl', 'isActive'],
   mediaConfig: ['mediaDriveUrl'],
   sponsorshipPage: ['pageContent'],
   sponsor: ['name', 'logoUrl', 'websiteUrl', 'sponsorshipPageId'],

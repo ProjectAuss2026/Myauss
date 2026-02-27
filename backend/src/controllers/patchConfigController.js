@@ -2,7 +2,7 @@ import prisma from '../prismaClient.js';
 
 // Whitelist to strip out fields aren't permitted for that type
 const ALLOWED_FIELDS = {
-  communicationLink: ['platform', 'url', 'isActive'],
+  communicationLink: ['platform', 'url', 'imgUrl', 'isActive'],
   mediaConfig: ['mediaDriveUrl'],
   sponsorshipPage: ['pageContent'],
   sponsor: ['name', 'logoUrl', 'websiteUrl', 'sponsorshipPageId'],
