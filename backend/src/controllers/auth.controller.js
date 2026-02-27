@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
 import prisma from '../prismaClient.js';
 
 const router = Router();
@@ -10,28 +11,48 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
 
-// ── Stubs for the third-party OTP service ───────────────────────────
-// Replace these with your real provider (e.g. Twilio Verify, Resend, etc.)
-const pendingCodes = new Map(); // email → code  (dev stub only)
+// ── Email transporter (Nodemailer + Gmail SMTP) ─────────────────────
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
-async function thirdPartySendCode(email) {
+// ── OTP helpers ─────────────────────────────────────────────────────
+const pendingCodes = new Map(); // email → code
+
+async function sendVerificationCode(email) {
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   pendingCodes.set(email, code);
-  console.log(`\n========================================`);
-  console.log(`[OTP STUB] Code for ${email}: ${code}`);
-  console.log(`========================================\n`);
-  // e.g. await twilioVerify.send({ to: email, channel: 'email' });
+
+  console.log(`[OTP] Code for ${email}: ${code}`);
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: email,
+    subject: 'AUSS – Your Verification Code',
+    text: `Your verification code is: ${code}\n\nThis code expires in 24 hours.`,
+    html: `
+      <div style="font-family:sans-serif;max-width:420px;margin:auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;">
+        <h2 style="color:#0f172a;margin-top:0;">Auckland Uni Strength Society</h2>
+        <p>Your verification code is:</p>
+        <p style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#2563eb;margin:16px 0;">${code}</p>
+        <p style="color:#64748b;font-size:14px;">This code expires in 24 hours. If you didn't request this, you can safely ignore this email.</p>
+      </div>
+    `,
+  });
 }
 
-async function thirdPartyVerifyCode(email, code) {
+function verifyCode(email, code) {
   const expected = pendingCodes.get(email);
-  console.log(`[OTP STUB] Verifying code "${code}" for ${email} (expected: ${expected})`);
   if (!expected) return false;
   const valid = expected === code;
   if (valid) pendingCodes.delete(email);
   return valid;
-  // e.g. const check = await twilioVerify.check({ to: email, code });
-  // return check.status === 'approved';
 }
 
 // ── Helper ──────────────────────────────────────────────────────────
@@ -72,7 +93,7 @@ router.post('/register', async (req, res) => {
           verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
         },
       });
-      await thirdPartySendCode(email);
+      await sendVerificationCode(email);
       return res.status(200).json({
         message: 'Registration pending. Please verify your email.',
         status: 'PENDING_VERIFICATION',
@@ -91,7 +112,7 @@ router.post('/register', async (req, res) => {
       },
     });
 
-    await thirdPartySendCode(email);
+    await sendVerificationCode(email);
 
     return res.status(200).json({
       message: 'Verification code sent. Please check your email.',
@@ -125,7 +146,7 @@ router.post('/resend-code', async (req, res) => {
       });
     }
 
-    await thirdPartySendCode(email);
+    await sendVerificationCode(email);
 
     await prisma.user.update({
       where: { email },
@@ -147,7 +168,7 @@ router.post('/verify', async (req, res) => {
       return res.status(400).json({ error: 'Email and verification code are required' });
     }
 
-    const isValid = await thirdPartyVerifyCode(email, code);
+    const isValid = verifyCode(email, code);
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid or expired code' });
     }
