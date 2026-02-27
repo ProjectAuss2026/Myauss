@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { Routes, Route, Link, useNavigate } from 'react-router-dom'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import LinktreeTest from './components/LinktreeTest'
 import './App.css'
 
 function Home() {
   const [testResult, setTestResult] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState('home')
   const navigate = useNavigate()
 
   const user = (() => {
@@ -22,9 +24,8 @@ function Home() {
   const testBackend = async () => {
     setLoading(true)
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
       const token = localStorage.getItem('token')
-      const response = await fetch(`${apiUrl}/api/test`, {
+      const response = await fetch('/api/test', {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       const data = await response.json()
@@ -36,8 +37,12 @@ function Home() {
     }
   }
 
+  if (page === 'linktree') {
+    return <LinktreeTest onBack={() => setPage('home')} />
+  }
+
   return (
-    <>
+    <div className="page">
       <header className="hero">
         <div className="hero-content">
           <span className="badge">AUSS</span>
@@ -60,6 +65,9 @@ function Home() {
             )}
             <button className="secondary" onClick={testBackend} disabled={loading}>
               {loading ? 'Testing...' : 'Test Backend'}
+            </button>
+            <button className="secondary" onClick={() => setPage('linktree')}>
+              Linktree Test
             </button>
           </div>
           {testResult && (
@@ -108,19 +116,17 @@ function Home() {
           </div>
         </div>
       </section>
-    </>
+    </div>
   )
 }
 
 function App() {
   return (
-    <div className="page">
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-      </Routes>
-    </div>
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+    </Routes>
   )
 }
 

@@ -24,3 +24,42 @@ model User {
   verificationExpiresAt DateTime
   createdAt             DateTime @default(now())
 }
+// --- COMMUNICATION LINKS ---
+// Stores social media, discord, membership, and email links
+model CommunicationLink {
+  id        Int      @id @default(autoincrement())
+  platform  String   @unique // e.g., 'instagram', 'email', 'discord_invite', 'membership_signup'
+  url       String
+  imgUrl    String
+  isActive  Boolean  @default(true) // Allows admins to temporarily hide a link
+  updatedAt DateTime @updatedAt
+}
+
+// --- MEDIA CONFIG ---
+// Stores global media settings
+model MediaConfig {
+  id            Int      @id @default(autoincrement())
+  mediaDriveUrl String
+  updatedAt     DateTime @updatedAt
+}
+
+// --- SPONSORSHIP CONFIG ---
+// Stores the general text/content for the sponsorship page
+model SponsorshipPage {
+  id          Int       @id @default(autoincrement())
+  pageContent String    @db.Text // Use Text for longer descriptions
+  sponsors    Sponsor[] // Relation to the Sponsor table
+  updatedAt   DateTime  @updatedAt
+}
+
+// Stores individual sponsors (The "Sponsor List")
+model Sponsor {
+  id                Int             @id @default(autoincrement())
+  name              String
+  logoUrl           String?         // Optional: if you want to render logos later
+  websiteUrl        String?
+  sponsorshipPageId Int
+  sponsorshipPage   SponsorshipPage @relation(fields: [sponsorshipPageId], references: [id])
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
