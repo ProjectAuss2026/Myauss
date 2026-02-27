@@ -15,6 +15,7 @@ model CommunicationLink {
   id        Int      @id @default(autoincrement())
   platform  String   @unique // e.g., 'instagram', 'email', 'discord_invite', 'membership_signup'
   url       String
+  imgUrl    String
   isActive  Boolean  @default(true) // Allows admins to temporarily hide a link
   updatedAt DateTime @updatedAt
 }
