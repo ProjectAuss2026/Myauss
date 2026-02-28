@@ -20,7 +20,6 @@ export function authenticate(req, res, next) {
     req.user = decoded; // { userId, email, role }
     next();
   } catch (err) {
-    gitr
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }

@@ -7,7 +7,13 @@ const SECTION = { marginBottom: 32, padding: 16, background: '#1a1a1a', borderRa
 const INPUT = { padding: 8, width: '100%', boxSizing: 'border-box' }
 const COL = { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }
 
-const authHeaders = { 'Content-Type': 'application/json' }
+function getAuthHeaders(json = true) {
+  const token = localStorage.getItem('token')
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (json) headers['Content-Type'] = 'application/json'
+  return headers
+}
 
 function LinktreeTest({ onBack }) {
   // ── Shared ───────────────────────────────────────────────────────────────
@@ -41,9 +47,23 @@ function LinktreeTest({ onBack }) {
 
   // ── Fetch all ─────────────────────────────────────────────────────────────
   const fetchAll = async () => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      setStatus('⚠ You must log in before using this page.')
+      return
+    }
     try {
-      const res = await fetch(`${API}/api/config`)
+      const res = await fetch(`${API}/api/config`, { headers: getAuthHeaders(false) })
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        setStatus(`Error: expected JSON but got ${contentType} (status ${res.status}). Is the backend running?`)
+        return
+      }
       const data = await res.json()
+      if (!res.ok) {
+        setStatus(`Error ${res.status}: ${data.error || data.message || 'Unknown error'}`)
+        return
+      }
       setLinks(data.communicationLinks || [])
       setMediaConfigs(data.mediaConfig ? [data.mediaConfig] : [])
       setSponsorshipPages(data.sponsorshipPages || [])
@@ -60,9 +80,11 @@ function LinktreeTest({ onBack }) {
     try {
       const formData = new FormData()
       formData.append('image', file)
-      const res = await fetch(`${API}/api/upload`, { method: 'POST', body: formData })
+      const res = await fetch(`${API}/api/upload`, { method: 'POST', headers: getAuthHeaders(false), body: formData })
+      const ct = res.headers.get('content-type') || ''
+      if (!ct.includes('application/json')) { setStatus(`Upload error: non-JSON response (status ${res.status})`); return }
       const data = await res.json()
-      if (!res.ok) { setStatus(`Upload error: ${data.message}`); return }
+      if (!res.ok) { setStatus(`Upload error: ${data.error || data.message}`); return }
       onSuccess(data.imgUrl)
       setStatus(`Image uploaded: ${data.imgUrl}`)
     } catch (e) {
@@ -76,11 +98,13 @@ function LinktreeTest({ onBack }) {
   const apiPost = async (type, data, onSuccess) => {
     try {
       const res = await fetch(`${API}/api/config`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: getAuthHeaders(),
         body: JSON.stringify({ type, data }),
       })
+      const ct = res.headers.get('content-type') || ''
+      if (!ct.includes('application/json')) { setStatus(`Error: non-JSON response (status ${res.status})`); return }
       const json = await res.json()
-      if (!res.ok) { setStatus(`Error: ${json.message}`); return }
+      if (!res.ok) { setStatus(`Error: ${json.error || json.message}`); return }
       setStatus(`Created ${type} (id=${json.created.id})`)
       onSuccess()
       fetchAll()
@@ -90,11 +114,13 @@ function LinktreeTest({ onBack }) {
   const apiPatch = async (type, id, data, onSuccess) => {
     try {
       const res = await fetch(`${API}/api/config`, {
-        method: 'PATCH', headers: authHeaders,
+        method: 'PATCH', headers: getAuthHeaders(),
         body: JSON.stringify({ type, id, data }),
       })
+      const ct = res.headers.get('content-type') || ''
+      if (!ct.includes('application/json')) { setStatus(`Error: non-JSON response (status ${res.status})`); return }
       const json = await res.json()
-      if (!res.ok) { setStatus(`Error: ${json.message}`); return }
+      if (!res.ok) { setStatus(`Error: ${json.error || json.message}`); return }
       setStatus(`Updated ${type} (id=${id})`)
       onSuccess()
       fetchAll()
@@ -104,11 +130,13 @@ function LinktreeTest({ onBack }) {
   const apiDelete = async (type, id, label) => {
     try {
       const res = await fetch(`${API}/api/config`, {
-        method: 'DELETE', headers: authHeaders,
+        method: 'DELETE', headers: getAuthHeaders(),
         body: JSON.stringify({ type, id }),
       })
+      const ct = res.headers.get('content-type') || ''
+      if (!ct.includes('application/json')) { setStatus(`Error: non-JSON response (status ${res.status})`); return }
       const json = await res.json()
-      if (!res.ok) { setStatus(`Error: ${json.message}`); return }
+      if (!res.ok) { setStatus(`Error: ${json.error || json.message}`); return }
       setStatus(`Deleted ${label}`)
       fetchAll()
     } catch (e) { setStatus('Error: ' + e.message) }

@@ -9,6 +9,21 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id                    String   @id @default(uuid())
+  email                 String   @unique
+  passwordHash          String
+  role                  Role     @default(USER)
+  isVerified            Boolean  @default(false)
+  lastCodeSentAt        DateTime @default(now())
+  verificationExpiresAt DateTime
+  createdAt             DateTime @default(now())
+}
 // --- COMMUNICATION LINKS ---
 // Stores social media, discord, membership, and email links
 model CommunicationLink {
