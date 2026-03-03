@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router';
 import { ChevronDown, Sparkles, Shield, HeartHandshake } from 'lucide-react';
+import imgGroupPhoto from "/photos/club_photo1.jpg";
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
-
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -22,11 +23,10 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-
   return { ref, inView };
 }
 
-function FadeInSection({ children, className = '', delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
+function FadeIn({ children, className = '', delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
   const { ref, inView } = useInViewCustom({ once: true, margin: '-50px' });
   return (
     <div
@@ -43,176 +43,230 @@ function FadeInSection({ children, className = '', delay = 0 }: { children: Reac
   );
 }
 
-const whyJoinCards = [
+const faqs = [
+  {
+    question: 'Do I need to be a student?',
+    answer: 'Yes, AUSS is exclusively for current Auckland University students. Just bring your student ID when you join!',
+  },
+  {
+    question: 'Is there a membership fee?',
+    answer: 'AUSS has a small annual membership fee of $20 to cover club activities and events. This is separate from gym membership.',
+  },
+  {
+    question: "I've never lifted before. Can I still join?",
+    answer: "Absolutely! We welcome beginners and will teach you everything you need to know. Most of our members started with zero experience.",
+  },
+  {
+    question: 'What equipment do I need?',
+    answer: "Just bring yourself, comfortable workout clothes, and athletic shoes. The Recreation Centre has all the equipment you'll need.",
+  },
+  {
+    question: 'When and where do you train?',
+    answer: 'We train at the Auckland University Recreation Centre on Symonds Street. Sessions run Mon, Wed, Fri 6-8 PM and Sat 10 AM-12 PM.',
+  },
+];
+
+const whyJoinPoints = [
   {
     icon: HeartHandshake,
     title: 'Supportive Community',
-    description: 'Train alongside motivated individuals who share your passion for strength. From beginners to national competitors, everyone is welcome.',
+    text: "Joining AUSS means becoming part of a welcoming and driven community of students who share a passion for strength, fitness, and self-improvement. Whether you're stepping into the gym for the first time or already experienced, you'll find a supportive environment where everyone encourages each other to grow.",
   },
   {
     icon: Sparkles,
-    title: 'Personal Growth',
-    description: 'Develop discipline, resilience, and confidence through strength training. Your journey is about more than just numbers on the bar.',
+    title: 'Learn & Improve',
+    text: 'AUSS provides opportunities to improve your knowledge of strength training through shared experience, guidance from fellow members, and community-based learning. Connect with training partners, attend events, and take part in activities that keep you motivated and consistent throughout the semester.',
   },
   {
     icon: Shield,
-    title: 'Quality Coaching',
-    description: 'Access experienced coaches and knowledge to improve your technique, programming, and competition readiness.',
+    title: 'More Than Lifting',
+    text: "Beyond physical progress, AUSS is about building confidence, friendships, and a sense of belonging at university. It's not just about lifting weights - it's about lifting each other up and creating a strong, positive community both inside and outside the gym.",
   },
 ];
 
-const faqs = [
-  {
-    q: 'Do I need to be experienced to join?',
-    a: 'Absolutely not! AUSS welcomes lifters of all levels. Whether you\'ve never touched a barbell or you\'ve been lifting for years, there\'s a place for you.',
-  },
-  {
-    q: 'What sports does AUSS cover?',
-    a: 'AUSS primarily covers powerlifting, Olympic weightlifting, and strongman. We also support general strength training for those who just want to get stronger.',
-  },
-  {
-    q: 'How much does membership cost?',
-    a: 'Membership is affordable and gives you access to all our events, training sessions, and competitions throughout the year. Check our login page for the latest pricing.',
-  },
-  {
-    q: 'When and where do you train?',
-    a: 'We hold regular training sessions throughout the week at facilities around the University of Auckland. Specific times and locations are shared with members via our social channels.',
-  },
-  {
-    q: 'Can I compete?',
-    a: 'Yes! We run internal competitions and also support members who want to compete at inter-university, regional, and national levels.',
-  },
-];
-
-export function About() {
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+function FaqItem({ faq, index }: { faq: typeof faqs[0]; index: number }) {
+  const [open, setOpen] = useState(false);
 
   return (
-    <div className="bg-black">
-      {/* Intro Section */}
-      <section className="relative py-24 px-6 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#eb7524]/5 to-transparent" />
-        <div className="max-w-[1000px] mx-auto relative">
-          <FadeInSection className="text-center mb-16">
-            <p className="text-[#eb7524] uppercase tracking-[0.25em] mb-4 text-sm" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
-              Our Story
-            </p>
-            <h1
-              className="text-white mb-6"
-              style={{ fontSize: 'clamp(32px, 5vw, 50px)', fontWeight: 700, fontFamily: 'Outfit, sans-serif', lineHeight: '1.15' }}
-            >
-              Auckland University
-              <br />
-              <span className="text-[#eb7524]">Strength Society</span>
-            </h1>
-            <p className="text-white/50 max-w-2xl mx-auto leading-relaxed" style={{ fontSize: '17px', fontFamily: 'Inter, sans-serif' }}>
-              AUSS was founded to bring together strength athletes from across the University of Auckland. Our mission is to create an inclusive, driven environment where people can train, compete, and grow — both as athletes and individuals.
-            </p>
-          </FadeInSection>
+    <FadeIn delay={index * 0.08}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full text-left py-5 flex items-start justify-between gap-4 group cursor-pointer"
+      >
+        <span
+          className="text-white group-hover:text-[#eb7524] transition-colors"
+          style={{ fontSize: '17px', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
+        >
+          {faq.question}
+        </span>
+        <div className="flex-shrink-0 mt-1">
+          <ChevronDown
+            className="w-5 h-5 text-white/40 group-hover:text-[#eb7524] transition-all duration-200"
+            style={{ transform: open ? 'rotate(180deg)' : 'rotate(0)' }}
+          />
+        </div>
+      </button>
+      <div
+        className="overflow-hidden transition-all duration-300 ease-out"
+        style={{
+          maxHeight: open ? '200px' : '0',
+          opacity: open ? 1 : 0,
+        }}
+      >
+        <p
+          className="text-white/50 leading-relaxed pb-4"
+          style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif' }}
+        >
+          {faq.answer}
+        </p>
+      </div>
+      <div className="h-px bg-white/5" />
+    </FadeIn>
+  );
+}
 
-          {/* Group Photo Placeholder */}
-          <FadeInSection delay={0.2}>
-            <div className="rounded-2xl overflow-hidden h-64 md:h-80 bg-gradient-to-br from-[#eb7524]/20 to-[#1a1a1a] flex items-center justify-center border border-white/5">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-[#eb7524]/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                  <HeartHandshake className="w-8 h-8 text-[#eb7524]/60" />
-                </div>
-                <p className="text-white/30 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>AUSS Group Photo</p>
-              </div>
+export function About() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
+
+  return (
+    <div className="bg-black min-h-screen">
+      <div className="max-w-[900px] mx-auto px-6 py-16 md:py-24">
+        {/* About Us Section */}
+        <div
+          style={{
+            opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(30px)',
+            transition: 'opacity 0.7s ease, transform 0.7s ease',
+          }}
+        >
+          <p className="text-[#eb7524] uppercase tracking-[0.25em] mb-4 text-sm" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
+            Our Story
+          </p>
+          <h1
+            className="text-white mb-8"
+            style={{ fontSize: 'clamp(36px, 5vw, 55px)', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
+          >
+            About Us.
+          </h1>
+        </div>
+        <p
+          className="text-white/60 mb-10 leading-relaxed"
+          style={{
+            fontSize: '17px', lineHeight: '1.8', fontFamily: 'Inter, sans-serif',
+            opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+            transition: 'opacity 0.6s ease 0.2s, transform 0.6s ease 0.2s',
+          }}
+        >
+          The Auckland University Strength Society, originally established as the Auckland University Strength & Powerlifting Association (AUSPA), was founded in 2015. It began as a student-led initiative to create a community for University of Auckland students interested in strength training and powerlifting, and has since grown into a broader strength and fitness society supporting members of all experience levels.
+        </p>
+
+        {/* Action Buttons */}
+        <div
+          className="flex gap-3 mb-12 flex-wrap"
+          style={{
+            opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+            transition: 'opacity 0.5s ease 0.35s, transform 0.5s ease 0.35s',
+          }}
+        >
+          <Link to="/meet-the-execs">
+            <div
+              className="bg-[#eb7524] text-white px-7 py-3 rounded-full hover:bg-[#d4691f] transition-all shadow-[0_4px_20px_rgba(235,117,36,0.25)] hover:shadow-[0_8px_30px_rgba(235,117,36,0.35)] hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
+              style={{ fontSize: '16px', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
+            >
+              Meet the Execs
             </div>
-          </FadeInSection>
-        </div>
-      </section>
-
-      {/* Why Join Section */}
-      <section className="py-24 px-6 bg-black">
-        <div className="max-w-[1200px] mx-auto">
-          <FadeInSection className="text-center mb-16">
-            <p className="text-[#eb7524] uppercase tracking-[0.25em] mb-4 text-sm" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
-              Why Join Us
-            </p>
-            <h2
-              className="text-white"
-              style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          </Link>
+          <a href="#faq">
+            <div
+              className="bg-transparent text-white px-7 py-3 rounded-full border border-[#eb7524]/40 hover:border-[#eb7524] hover:bg-[#eb7524]/5 transition-all hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
+              style={{ fontSize: '16px', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
             >
-              Why Join AUSS?
-            </h2>
-          </FadeInSection>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {whyJoinCards.map((card, i) => {
-              const Icon = card.icon;
-              return (
-                <FadeInSection key={card.title} delay={i * 0.1}>
-                  <div className="group bg-[#111] border border-white/5 rounded-2xl p-8 hover:border-[#eb7524]/20 hover:bg-[#141414] transition-all duration-500 h-full text-center">
-                    <div className="w-14 h-14 bg-[#eb7524]/10 rounded-xl flex items-center justify-center mx-auto mb-5 group-hover:bg-[#eb7524]/20 transition-colors duration-500">
-                      <Icon className="w-7 h-7 text-[#eb7524]" />
-                    </div>
-                    <h3
-                      className="text-white mb-3"
-                      style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                    >
-                      {card.title}
-                    </h3>
-                    <p className="text-white/50 leading-relaxed" style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif' }}>
-                      {card.description}
-                    </p>
-                  </div>
-                </FadeInSection>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ Section */}
-      <section className="py-24 px-6 bg-black">
-        <div className="max-w-[800px] mx-auto">
-          <FadeInSection className="text-center mb-16">
-            <p className="text-[#eb7524] uppercase tracking-[0.25em] mb-4 text-sm" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
               FAQ
-            </p>
-            <h2
-              className="text-white"
-              style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-            >
-              Frequently Asked Questions
-            </h2>
-          </FadeInSection>
+            </div>
+          </a>
+        </div>
 
-          <div className="space-y-3">
-            {faqs.map((faq, i) => {
-              const isOpen = openFaq === i;
-              return (
-                <FadeInSection key={i} delay={i * 0.05}>
-                  <div className="bg-[#111] border border-white/5 rounded-xl overflow-hidden hover:border-white/10 transition-colors">
-                    <button
-                      className="w-full flex items-center justify-between p-5 text-left"
-                      onClick={() => setOpenFaq(isOpen ? null : i)}
-                    >
-                      <span className="text-white pr-4" style={{ fontSize: '16px', fontWeight: 500, fontFamily: 'Inter, sans-serif' }}>
-                        {faq.q}
-                      </span>
-                      <ChevronDown
-                        className="w-5 h-5 text-white/40 flex-shrink-0 transition-transform duration-300"
-                        style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                      />
-                    </button>
-                    <div
-                      className="overflow-hidden transition-all duration-300"
-                      style={{ maxHeight: isOpen ? '200px' : '0px', opacity: isOpen ? 1 : 0 }}
-                    >
-                      <p className="px-5 pb-5 text-white/50 leading-relaxed" style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif' }}>
-                        {faq.a}
+        {/* Group Photo */}
+        <div
+          className="mb-24 overflow-hidden rounded-3xl relative group"
+          style={{
+            opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0) scale(1)' : 'translateY(40px) scale(0.98)',
+            transition: 'opacity 0.8s ease 0.4s, transform 0.8s ease 0.4s',
+          }}
+        >
+          <img
+            src={imgGroupPhoto}
+            alt="AUSS group photo"
+            className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-[1.02]"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+        </div>
+
+        {/* Why Join AUSS? */}
+        <FadeIn className="mb-6">
+          <p className="text-[#eb7524] uppercase tracking-[0.25em] mb-4 text-sm" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
+            Benefits
+          </p>
+          <h2
+            className="text-white"
+            style={{ fontSize: '28px', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
+          >
+            Why join AUSS?
+          </h2>
+        </FadeIn>
+
+        <div className="space-y-6 mb-24">
+          {whyJoinPoints.map((point, i) => {
+            const Icon = point.icon;
+            return (
+              <FadeIn key={point.title} delay={i * 0.12}>
+                <div className="bg-[#111] border border-white/5 rounded-2xl p-7 hover:border-[#eb7524]/20 transition-all duration-500 group">
+                  <div className="flex items-start gap-5">
+                    <div className="w-11 h-11 bg-[#eb7524]/10 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-[#eb7524]/20 transition-colors duration-500">
+                      <Icon className="w-5 h-5 text-[#eb7524]" />
+                    </div>
+                    <div>
+                      <h3
+                        className="text-white mb-2"
+                        style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                      >
+                        {point.title}
+                      </h3>
+                      <p
+                        className="text-white/50 leading-relaxed"
+                        style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif' }}
+                      >
+                        {point.text}
                       </p>
                     </div>
                   </div>
-                </FadeInSection>
-              );
-            })}
+                </div>
+              </FadeIn>
+            );
+          })}
+        </div>
+
+        {/* FAQ Section */}
+        <div id="faq" className="scroll-mt-24">
+          <FadeIn className="mb-8">
+            <p className="text-[#eb7524] uppercase tracking-[0.25em] mb-4 text-sm" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
+              Common Questions
+            </p>
+            <h2
+              className="text-white"
+              style={{ fontSize: '28px', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
+            >
+              Frequently Asked Questions
+            </h2>
+          </FadeIn>
+
+          <div className="bg-[#111] border border-white/5 rounded-2xl px-7">
+            {faqs.map((faq, i) => (
+              <FaqItem key={faq.question} faq={faq} index={i} />
+            ))}
           </div>
         </div>
-      </section>
+      </div>
     </div>
   );
 }

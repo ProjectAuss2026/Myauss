@@ -95,9 +95,9 @@ function FadeInSection({ children, className = '', delay = 0 }: { children: Reac
 }
 
 const heroImages = [
-  { alt: 'Strength training', gradient: 'from-[#eb7524]/40 to-[#d4691f]/60', h: 'h-56 md:h-64' },
-  { alt: 'University fitness', gradient: 'from-[#eb7524]/30 to-[#1a1a1a]/80', h: 'h-56 md:h-80' },
-  { alt: 'Powerlifting', gradient: 'from-[#d4691f]/50 to-[#eb7524]/30', h: 'h-56 md:h-64' },
+  { src: "/photos/club_photo2.jpg", alt: 'Strength training', gradient: 'from-[#eb7524]/40 to-[#d4691f]/60', h: 'h-56 md:h-64' },
+  { src: "/photos/club_photo1.jpg", alt: 'Group photo', gradient: 'from-[#eb7524]/30 to-[#1a1a1a]/80', h: 'h-56 md:h-80' },
+  { src: "/photos/club_photo3.jpg", alt: 'Red Bull event', gradient: 'from-[#d4691f]/50 to-[#eb7524]/30', h: 'h-56 md:h-64' },
 ];
 
 export function Home() {
@@ -199,6 +199,13 @@ export function Home() {
                   transition: `opacity 0.7s ease ${0.6 + i * 0.15}s, transform 0.7s ease ${0.6 + i * 0.15}s`,
                 }}
               >
+                {/* Real image */}
+                <img
+                  src={img.src}
+                  alt={img.alt}
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+                  loading="lazy"
+                />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Dumbbell className="w-12 h-12 text-black/20" />
                 </div>

@@ -6,8 +6,6 @@
 @import './theme.css';
 @import './fonts.css';
 
-@custom-variant dark (&:is(.dark *));
-
 :root {
   /* AUSS Brand Colors */
   --auss-orange: #F97316;
