@@ -3,6 +3,8 @@
 
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './theme.css';
+@import './fonts.css';
 
 @custom-variant dark (&:is(.dark *));
 
