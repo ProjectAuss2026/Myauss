@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { Mail, Lock, User, ArrowRight, Eye, EyeOff, ShieldCheck, Users, ChevronLeft } from 'lucide-react';
 
 type AuthView = 'login' | 'register' | 'role-select';
@@ -46,22 +48,82 @@ export function Login() {
   const [regStudentId, setRegStudentId] = useState('');
   const [regExecCode, setRegExecCode] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+
+  const { login } = useAuth();
+  const { showToast } = useToast();
+  const navigate = useNavigate();
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginError(null);
     setSubmitted(true);
-    // Demo only — no real auth
-    setTimeout(() => setSubmitted(false), 2000);
+    try {
+      await login({ email: loginEmail, password: loginPassword });
+      showToast('Successfully signed in. Welcome back!', 'success');
+      navigate('/');
+    } catch (err: any) {
+      if (err.status === 'PENDING_VERIFICATION') {
+        showToast('Please verify your email first', 'info');
+        navigate('/verify', { state: { email: loginEmail } });
+      } else {
+        const msg = err.message || 'Login failed. Please try again.';
+        setLoginError(msg);
+        showToast(msg, 'error');
+      }
+    } finally {
+      setSubmitted(false);
+    }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setRegisterError(null);
+
+    if (regPassword !== regConfirm) {
+      setRegisterError('Passwords do not match.');
+      return;
+    }
+    if (regPassword.length < 6) {
+      setRegisterError('Password must be at least 6 characters.');
+      return;
+    }
+
     setSubmitted(true);
-    setTimeout(() => setSubmitted(false), 2000);
+    try {
+      const body: any = { email: regEmail, password: regPassword, role };
+      if (role === 'executive') {
+        body.execCode = regExecCode;
+      }
+
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!res.ok && data.status !== 'PENDING_VERIFICATION') {
+        const msg = data.error || 'Registration failed.';
+        setRegisterError(msg);
+        showToast(msg, 'error');
+        return;
+      }
+
+      // Navigate to verification page with email in state
+      showToast('Verification code sent to your email', 'success');
+      navigate('/verify', { state: { email: regEmail } });
+    } catch {
+      setRegisterError('Network error. Please try again.');
+      showToast('Network error. Please try again.', 'error');
+    } finally {
+      setSubmitted(false);
+    }
   };
 
   const switchView = (newView: AuthView) => {
@@ -185,6 +247,12 @@ export function Login() {
                   <p className="text-white/40 mb-6" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
                     Welcome back to AUSS
                   </p>
+
+                  {loginError && (
+                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                      {loginError}
+                    </div>
+                  )}
 
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div>
@@ -389,6 +457,12 @@ export function Login() {
                     </div>
                   </div>
 
+                  {registerError && (
+                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                      {registerError}
+                    </div>
+                  )}
+
                   <form onSubmit={handleRegister} className="space-y-4">
                     <div>
                       <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
@@ -548,13 +622,7 @@ export function Login() {
               )}
             </div>
 
-            {/* Demo notice */}
-            <p
-              className="text-center text-white/20 mt-4"
-              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-            >
-              This is a demo interface — no real data is collected or stored.
-            </p>
+
           </div>
         </div>
       </div>

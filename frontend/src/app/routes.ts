@@ -6,6 +6,8 @@ import { Social } from './pages/Social';
 import { MeetTheExecs } from './pages/MeetTheExecs';
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
+import { Verify } from './pages/Verify';
+import { Profile } from './pages/Profile';
 import { Sponsorship } from './pages/Sponsorship';
 
 export const router = createBrowserRouter([
@@ -19,6 +21,8 @@ export const router = createBrowserRouter([
       { path: 'social', Component: Social },
       { path: 'meet-the-execs', Component: MeetTheExecs },
       { path: 'login', Component: Login },
+      { path: 'verify', Component: Verify },
+      { path: 'profile', Component: Profile },
       { path: '*', Component: NotFound },
     ],
   },

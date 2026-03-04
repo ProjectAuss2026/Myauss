@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Menu, X, User, LogOut, ChevronDown } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 
 const imgLogo = "/logo/AUSS_logo.png";
 
@@ -13,9 +15,13 @@ const navLinks = [
 
 export function Navigation() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, isAuthenticated, logout } = useAuth();
+  const { showToast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [profileDropdown, setProfileDropdown] = useState(false);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -76,14 +82,62 @@ export function Navigation() {
               </Link>
             ))}
 
-            <Link to="/login" className="ml-4">
-              <div
-                className="bg-[#eb7524] text-white px-5 py-2 rounded-full text-[15px] hover:bg-[#d4691f] transition-all hover:shadow-[0_4px_20px_rgba(235,117,36,0.4)] hover:scale-[1.03] active:scale-[0.97]"
-                style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
-              >
-                Join AUSS
+            {isAuthenticated ? (
+              <div className="relative ml-4">
+                <button
+                  onClick={() => setProfileDropdown(!profileDropdown)}
+                  className="flex items-center gap-2 cursor-pointer group"
+                >
+                  <div className="w-9 h-9 rounded-full bg-[#eb7524]/15 border border-[#eb7524]/30 flex items-center justify-center group-hover:bg-[#eb7524]/25 transition-all">
+                    <User className="w-4 h-4 text-[#eb7524]" />
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-white/40 transition-transform ${profileDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {profileDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setProfileDropdown(false)} />
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-[#161616] border border-white/10 rounded-xl shadow-[0_16px_48px_rgba(0,0,0,0.6)] z-50 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-white/[0.06]">
+                        <p className="text-white text-sm truncate" style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}>
+                          {user?.email}
+                        </p>
+                        <p className="text-white/40 text-xs mt-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {user?.role === 'ADMIN' ? 'Executive' : 'Member'}
+                        </p>
+                      </div>
+                      <div className="py-1">
+                        <button
+                          onClick={() => { setProfileDropdown(false); navigate('/profile'); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                        >
+                          <User className="w-4 h-4" />
+                          My Profile
+                        </button>
+                        <button
+                          onClick={() => { setProfileDropdown(false); logout(); showToast('You have signed out', 'info'); navigate('/'); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-red-400/80 hover:text-red-400 hover:bg-red-500/5 transition-colors cursor-pointer"
+                          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-            </Link>
+            ) : (
+              <Link to="/login" className="ml-4">
+                <div
+                  className="bg-[#eb7524] text-white px-5 py-2 rounded-full text-[15px] hover:bg-[#d4691f] transition-all hover:shadow-[0_4px_20px_rgba(235,117,36,0.4)] hover:scale-[1.03] active:scale-[0.97]"
+                  style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
+                >
+                  Join AUSS
+                </div>
+              </Link>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -119,14 +173,36 @@ export function Navigation() {
               </div>
             ))}
             <div className="pt-3 mt-2 border-t border-white/10 px-3">
-              <Link
-                to="/login"
-                onClick={() => setMobileMenuOpen(false)}
-                className="block w-full text-center bg-[#eb7524] text-white py-3 rounded-xl hover:bg-[#d4691f] transition-all"
-                style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
-              >
-                Join AUSS
-              </Link>
+              {isAuthenticated ? (
+                <>
+                  <Link
+                    to="/profile"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-3 w-full py-3 text-white/80 hover:text-white transition-colors"
+                    style={{ fontFamily: 'Outfit, sans-serif' }}
+                  >
+                    <User className="w-4 h-4" />
+                    My Profile
+                  </Link>
+                  <button
+                    onClick={() => { setMobileMenuOpen(false); logout(); showToast('You have signed out', 'info'); navigate('/'); }}
+                    className="flex items-center gap-3 w-full py-3 text-red-400/80 hover:text-red-400 transition-colors cursor-pointer"
+                    style={{ fontFamily: 'Outfit, sans-serif' }}
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                </>
+              ) : (
+                <Link
+                  to="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block w-full text-center bg-[#eb7524] text-white py-3 rounded-xl hover:bg-[#d4691f] transition-all"
+                  style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
+                >
+                  Join AUSS
+                </Link>
+              )}
             </div>
           </div>
         </div>

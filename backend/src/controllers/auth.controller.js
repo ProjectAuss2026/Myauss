@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import prisma from '../prismaClient.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
 const SALT_ROUNDS = 10;
@@ -70,12 +71,25 @@ function generateToken(user) {
 // ── POST /auth/register ─────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role, execCode } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Determine the user role
+    let userRole = 'USER';
+    if (role === 'executive') {
+      const expectedCode = process.env.EXEC_CODE;
+      if (!expectedCode) {
+        return res.status(500).json({ error: 'Executive registration is not configured' });
+      }
+      if (!execCode || execCode !== expectedCode) {
+        return res.status(403).json({ error: 'Invalid executive invitation code' });
+      }
+      userRole = 'ADMIN';
     }
 
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -92,6 +106,7 @@ router.post('/register', async (req, res) => {
         where: { email },
         data: {
           passwordHash,
+          role: userRole,
           lastCodeSentAt: new Date(),
           verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
         },
@@ -109,6 +124,7 @@ router.post('/register', async (req, res) => {
       data: {
         email,
         passwordHash,
+        role: userRole,
         isVerified: false,
         lastCodeSentAt: new Date(),
         verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
@@ -224,6 +240,22 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── GET /auth/me ────────────────────────────────────────────────────
+router.get('/me', authenticate, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    return res.status(200).json({
+      user: { id: user.id, email: user.email, role: user.role },
+    });
+  } catch (err) {
+    console.error('Me error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
