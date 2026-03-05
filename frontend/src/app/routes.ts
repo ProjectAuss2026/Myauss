@@ -8,6 +8,7 @@ import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
 import { Verify } from './pages/Verify';
 import { Profile } from './pages/Profile';
+import { ManageLinks } from './pages/ManageLinks';
 import { Sponsorship } from './pages/Sponsorship';
 
 export const router = createBrowserRouter([
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
       { path: 'login', Component: Login },
       { path: 'verify', Component: Verify },
       { path: 'profile', Component: Profile },
+      { path: 'manage', Component: ManageLinks },
       { path: '*', Component: NotFound },
     ],
   },

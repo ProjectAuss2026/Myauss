@@ -4,6 +4,9 @@ interface AuthUser {
   id: string;
   email: string;
   role: string;
+  firstName: string | null;
+  lastName: string | null;
+  studentId: string | null;
 }
 
 interface LoginCredentials {
@@ -16,7 +19,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  login: (credentials: LoginCredentials) => Promise<void>;
+  login: (credentials: LoginCredentials) => Promise<AuthUser>;
+  /** Store token + user from external auth flows (e.g. email verification) */
+  setUserFromToken: (token: string, user: AuthUser) => void;
   logout: () => void;
   clearError: () => void;
 }
@@ -90,6 +95,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
     setUser(data.user);
+    return data.user as AuthUser;
+  }, []);
+
+  const setUserFromToken = useCallback((token: string, userData: AuthUser) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(userData));
+    setUser(userData);
   }, []);
 
   const logout = useCallback(() => {
@@ -111,6 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         error,
         login,
+        setUserFromToken,
         logout,
         clearError,
       }}

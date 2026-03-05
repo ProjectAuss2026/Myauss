@@ -68,12 +68,29 @@ function generateToken(user) {
   );
 }
 
+function formatUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    firstName: user.info?.firstName || null,
+    lastName: user.info?.lastName || null,
+    studentId: user.info?.studentId || null,
+  };
+}
+
 // ── POST /auth/register ─────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, role, execCode } = req.body;
+    const { email, password, role, execCode, firstName, lastName, studentId } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
+    }
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: 'First name and last name are required' });
+    }
+    if (!studentId) {
+      return res.status(400).json({ error: 'Student ID is required' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -86,10 +103,12 @@ router.post('/register', async (req, res) => {
       if (!expectedCode) {
         return res.status(500).json({ error: 'Executive registration is not configured' });
       }
-      if (!execCode || execCode !== expectedCode) {
+      if (!execCode || String(execCode).trim() !== String(expectedCode).trim()) {
+        console.log('[EXEC] Code mismatch — received:', JSON.stringify(execCode), 'expected:', JSON.stringify(expectedCode));
         return res.status(403).json({ error: 'Invalid executive invitation code' });
       }
       userRole = 'ADMIN';
+      console.log('[EXEC] Valid exec code — assigning ADMIN role');
     }
 
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -109,6 +128,12 @@ router.post('/register', async (req, res) => {
           role: userRole,
           lastCodeSentAt: new Date(),
           verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
+          info: {
+            upsert: {
+              create: { firstName, lastName, studentId },
+              update: { firstName, lastName, studentId },
+            },
+          },
         },
       });
       await sendVerificationCode(email);
@@ -128,6 +153,9 @@ router.post('/register', async (req, res) => {
         isVerified: false,
         lastCodeSentAt: new Date(),
         verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
+        info: {
+          create: { firstName, lastName, studentId },
+        },
       },
     });
 
@@ -195,12 +223,13 @@ router.post('/verify', async (req, res) => {
     const user = await prisma.user.update({
       where: { email },
       data: { isVerified: true },
+      include: { info: true },
     });
 
     const token = generateToken(user);
     return res.status(200).json({
       token,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: formatUser(user),
     });
   } catch (err) {
     console.error('Verify error:', err);
@@ -216,7 +245,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email }, include: { info: true } });
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -236,7 +265,7 @@ router.post('/login', async (req, res) => {
     const token = generateToken(user);
     return res.status(200).json({
       token,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: formatUser(user),
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -247,12 +276,12 @@ router.post('/login', async (req, res) => {
 // ── GET /auth/me ────────────────────────────────────────────────────
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { info: true } });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     return res.status(200).json({
-      user: { id: user.id, email: user.email, role: user.role },
+      user: formatUser(user),
     });
   } catch (err) {
     console.error('Me error:', err);

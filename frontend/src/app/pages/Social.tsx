@@ -18,9 +18,9 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ExternalLink, Camera, ArrowRight } from 'lucide-react';
-import { usePublicConfig } from '../../lib/usePublicConfig';
-import { buildSocialCards } from '../../lib/socialCards';
+import { ExternalLink, Camera, ArrowRight, Globe } from 'lucide-react';
+import { findPlatform } from '../pages/ManageLinks';
+import type { IconType } from 'react-icons';
 
 // ─── Intersection-observer scroll hook ──────────────────────────────────────
 // `once: true` (default) disconnects after the first intersection.
@@ -81,16 +81,34 @@ export function Social() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
 
-  // TODO: Once GET /api/public-config is implemented, this hook will
-  // automatically use live data instead of the fallback defaults.
-  const { config, loading } = usePublicConfig();
+  // Media drive URL — placeholder until managed from DB/config
+  const mediaDriveUrl = '#';
 
-  // Derive the 6 social card models from the config's communications block.
-  // `config` is NEVER null — see usePublicConfig for fallback strategy.
-  const socialCards = buildSocialCards(config.communications);
-
-  // Media drive URL from config — no hardcoded links in the component.
-  const mediaDriveUrl = config.communications.media_drive_url;
+  // ── Fetch communication links from DB ──────────────────────────────────
+  interface DbLink {
+    id: number;
+    platform: string;
+    url: string;
+    imgUrl: string;
+    description: string | null;
+    isActive: boolean;
+  }
+  const [dbLinks, setDbLinks] = useState<DbLink[]>([]);
+  const [dbLinksLoading, setDbLinksLoading] = useState(true);
+  useEffect(() => {
+    fetch('/api/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.communicationLinks) {
+          const filtered = (data.communicationLinks as DbLink[]).filter(
+            (l) => l.isActive
+          );
+          setDbLinks(filtered);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setDbLinksLoading(false));
+  }, []);
 
   return (
     <div className="bg-black min-h-screen">
@@ -196,7 +214,7 @@ export function Social() {
         </div>
       </section>
 
-      {/* ── Social Platform Cards (config-driven, always exactly 6) ────── */}
+      {/* ── Social Platform Cards (DB-driven) ────────────────────────── */}
       <section className="px-6 pb-24">
         <div className="max-w-[1200px] mx-auto">
           <FadeIn className="text-center mb-12">
@@ -208,19 +226,9 @@ export function Social() {
             </p>
           </FadeIn>
 
-          {/*
-           * Grid sizing strategy (equal cards):
-           * - 1 col mobile, 2 cols md, 3 cols lg → 6 cards fill 2 complete rows.
-           * - `items-stretch` forces every grid cell to the same row height.
-           * - Each card uses `h-full` + `flex flex-col` so the CTA row is pushed
-           *   to the bottom via `flex-1` on the description, keeping card content
-           *   visually aligned regardless of description length.
-           * - Equal `gap-5` (20 px) between all cards in both axes.
-           */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
-            {loading
-              ? /* Skeleton cards while config loads (always 6) to prevent layout shift */
-                Array.from({ length: 6 }).map((_, i) => (
+            {dbLinksLoading
+              ? Array.from({ length: 6 }).map((_, i) => (
                   <div
                     key={i}
                     className="bg-[#111] border border-white/[0.06] rounded-2xl p-7 animate-pulse h-full"
@@ -237,68 +245,82 @@ export function Social() {
                     <div className="h-4 w-24 bg-white/5 rounded" />
                   </div>
                 ))
-              : socialCards.map((card, i) => {
-                  const Icon = card.icon;
-                  return (
-                    <FadeIn key={card.key} delay={i * 0.08}>
-                      {/*
-                       * Card link: `h-full` fills the stretched grid cell.
-                       * Email uses no target since mailto: opens the mail client.
-                       */}
-                      <a
-                        href={card.href}
-                        target={card.key === 'email' ? undefined : '_blank'}
-                        rel={card.key === 'email' ? undefined : 'noopener noreferrer'}
-                        className="block group h-full"
-                      >
-                        {/*
-                         * Equal-height strategy: outer <a> + inner div both use
-                         * `h-full`. `flex flex-col` + `flex-1` on the description
-                         * pushes the CTA to the card bottom regardless of text length.
-                         */}
-                        <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-7 h-full flex flex-col hover:border-white/10 transition-all duration-500 hover:-translate-y-1 relative overflow-hidden">
-                          {/* Hover glow — brand-colored blob behind the card */}
-                          <div
-                            className="absolute -top-20 -right-20 w-40 h-40 rounded-full blur-[80px] opacity-0 group-hover:opacity-100 transition-opacity duration-700"
-                            style={{ backgroundColor: card.brandColor + '15' }}
-                          />
-                          <div className="relative flex flex-col flex-1">
-                            {/* Icon + platform name row */}
-                            <div className="flex items-center gap-4 mb-4">
-                              <div
-                                className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 transition-all duration-500 group-hover:scale-110"
-                                style={{ backgroundColor: card.brandColor + '12' }}
-                              >
-                                <Icon className="w-7 h-7" style={{ color: card.brandColor }} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="text-white mb-0.5" style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-                                  {card.label}
-                                </h3>
-                                <p className="text-white/30 truncate" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                                  {card.handle}
-                                </p>
-                              </div>
+              : dbLinks.length === 0
+              ? (
+                <div className="col-span-full text-center py-12">
+                  <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>
+                    No social links added yet.
+                  </p>
+                </div>
+              )
+              : dbLinks.map((link, i) => {
+                const platform = findPlatform(link.platform);
+                const brandColor = platform?.color ?? '#eb7524';
+                const IconComp: IconType | null = platform?.icon ?? null;
+
+                return (
+                  <FadeIn key={link.id} delay={i * 0.08}>
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block group h-full"
+                    >
+                      <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-7 h-full flex flex-col hover:border-white/10 transition-all duration-500 hover:-translate-y-1 relative overflow-hidden">
+                        <div
+                          className="absolute -top-20 -right-20 w-40 h-40 rounded-full blur-[80px] opacity-0 group-hover:opacity-100 transition-opacity duration-700"
+                          style={{ backgroundColor: brandColor + '15' }}
+                        />
+                        <div className="relative flex flex-col flex-1">
+                          <div className="flex items-center gap-4 mb-4">
+                            <div
+                              className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 transition-all duration-500 group-hover:scale-110 overflow-hidden"
+                              style={{ backgroundColor: brandColor + '12' }}
+                            >
+                              {link.imgUrl === '__builtin__' && IconComp ? (
+                                <IconComp className="w-7 h-7" style={{ color: brandColor }} />
+                              ) : link.imgUrl && link.imgUrl !== '__builtin__' ? (
+                                <img
+                                  src={link.imgUrl}
+                                  alt={link.platform}
+                                  className="w-8 h-8 object-contain"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                />
+                              ) : IconComp ? (
+                                <IconComp className="w-7 h-7" style={{ color: brandColor }} />
+                              ) : (
+                                <Globe className="w-7 h-7 text-white/30" />
+                              )}
                             </div>
-
-                            {/* Description (flex-1 pushes the CTA to the card bottom) */}
-                            <p className="text-white/45 mb-6 flex-1" style={{ fontSize: '14px', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' }}>
-                              {card.description}
-                            </p>
-
-                            {/* CTA row — always at the bottom thanks to flex layout */}
-                            <div className="flex items-center gap-2 group-hover:gap-3 transition-all duration-300 mt-auto">
-                              <span style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif', color: card.brandColor }}>
-                                {card.cta}
-                              </span>
-                              <ExternalLink className="w-4 h-4 transition-all duration-300 group-hover:translate-x-0.5" style={{ color: card.brandColor }} />
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-white mb-0.5" style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                                {link.platform}
+                              </h3>
+                              <p className="text-white/30 truncate" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                                {link.url}
+                              </p>
                             </div>
                           </div>
+
+                          {/* Description */}
+                          {link.description && (
+                            <p className="text-white/45 mb-6 flex-1" style={{ fontSize: '14px', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' }}>
+                              {link.description}
+                            </p>
+                          )}
+
+                          <div className="flex items-center gap-2 group-hover:gap-3 transition-all duration-300 mt-auto">
+                            <span style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif', color: brandColor }}>
+                              Visit
+                            </span>
+                            <ExternalLink className="w-4 h-4 transition-all duration-300 group-hover:translate-x-0.5" style={{ color: brandColor }} />
+                          </div>
                         </div>
-                      </a>
-                    </FadeIn>
-                  );
-                })}
+                      </div>
+                    </a>
+                  </FadeIn>
+                );
+              })}
           </div>
         </div>
       </section>

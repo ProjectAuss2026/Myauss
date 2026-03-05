@@ -30,7 +30,7 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
 export function Verify() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { setUserFromToken } = useAuth();
   const { showToast } = useToast();
 
   const email = (location.state as any)?.email || '';
@@ -142,9 +142,8 @@ export function Verify() {
         return;
       }
 
-      // Success — store token and user
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      // Success — update auth context (triggers nav re-render)
+      setUserFromToken(data.token, data.user);
       setSuccess(true);
       showToast('Email verified! Welcome to AUSS', 'success');
 

@@ -41,7 +41,8 @@ export function Login() {
   // Form states
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [regName, setRegName] = useState('');
+  const [regFirstName, setRegFirstName] = useState('');
+  const [regLastName, setRegLastName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
@@ -64,8 +65,10 @@ export function Login() {
     setLoginError(null);
     setSubmitted(true);
     try {
-      await login({ email: loginEmail, password: loginPassword });
-      showToast('Successfully signed in. Welcome back!', 'success');
+      const u = await login({ email: loginEmail, password: loginPassword });
+      showToast(`Welcome back, ${u?.firstName || 'there'}!`, 'success');
+      // Allow React to commit the auth state update before navigating
+      await new Promise((r) => setTimeout(r, 0));
       navigate('/');
     } catch (err: any) {
       if (err.status === 'PENDING_VERIFICATION') {
@@ -96,7 +99,7 @@ export function Login() {
 
     setSubmitted(true);
     try {
-      const body: any = { email: regEmail, password: regPassword, role };
+      const body: any = { email: regEmail, password: regPassword, role, firstName: regFirstName, lastName: regLastName, studentId: regStudentId };
       if (role === 'executive') {
         body.execCode = regExecCode;
       }
@@ -464,21 +467,40 @@ export function Login() {
                   )}
 
                   <form onSubmit={handleRegister} className="space-y-4">
-                    <div>
-                      <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        Full Name
-                      </label>
-                      <div className="relative">
-                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-                        <input
-                          type="text"
-                          value={regName}
-                          onChange={(e) => setRegName(e.target.value)}
-                          placeholder="Your full name"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
-                          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                          required
-                        />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                          First Name
+                        </label>
+                        <div className="relative">
+                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                          <input
+                            type="text"
+                            value={regFirstName}
+                            onChange={(e) => setRegFirstName(e.target.value)}
+                            placeholder="First name"
+                            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                          Last Name
+                        </label>
+                        <div className="relative">
+                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                          <input
+                            type="text"
+                            value={regLastName}
+                            onChange={(e) => setRegLastName(e.target.value)}
+                            placeholder="Last name"
+                            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                            required
+                          />
+                        </div>
                       </div>
                     </div>
 

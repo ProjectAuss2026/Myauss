@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut } from 'lucide-react';
+import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut, Hash, User, Settings } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -60,6 +60,9 @@ export function Profile() {
 
   const isExec = user.role === 'ADMIN';
   const roleLabel = isExec ? 'Executive' : 'Member';
+  const fullName = user.firstName && user.lastName
+    ? `${user.firstName} ${user.lastName}`
+    : user.email;
 
   return (
     <div className="bg-black min-h-screen relative overflow-hidden">
@@ -119,7 +122,7 @@ export function Profile() {
                     className="text-white"
                     style={{ fontSize: '24px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
                   >
-                    {roleLabel}
+                    {fullName}
                   </h1>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -140,6 +143,18 @@ export function Profile() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
                     <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
+                      <User className="w-5 h-5 text-[#eb7524]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white/40 text-xs mb-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>Name</p>
+                      <p className="text-white truncate" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
+                        {fullName}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
+                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
                       <Mail className="w-5 h-5 text-[#eb7524]" />
                     </div>
                     <div className="min-w-0">
@@ -149,6 +164,20 @@ export function Profile() {
                       </p>
                     </div>
                   </div>
+
+                  {user.studentId && (
+                    <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
+                      <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
+                        <Hash className="w-5 h-5 text-[#eb7524]" />
+                      </div>
+                      <div>
+                        <p className="text-white/40 text-xs mb-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>Student ID</p>
+                        <p className="text-white" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
+                          {user.studentId}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
                     <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
@@ -180,9 +209,19 @@ export function Profile() {
                 </div>
 
                 {/* Sign out */}
+                {isExec && (
+                  <Link
+                    to="/manage"
+                    className="w-full mt-6 flex items-center justify-center gap-2 py-3 rounded-xl bg-[#eb7524]/10 border border-[#eb7524]/20 text-[#eb7524] hover:bg-[#eb7524]/15 hover:border-[#eb7524]/30 transition-all"
+                    style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
+                  >
+                    <Settings className="w-4 h-4" />
+                    Manage Links
+                  </Link>
+                )}
                 <button
                   onClick={handleLogout}
-                  className="w-full mt-6 flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 text-white/60 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all cursor-pointer"
+                  className={`w-full ${isExec ? 'mt-3' : 'mt-6'} flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 text-white/60 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all cursor-pointer`}
                   style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
                 >
                   <LogOut className="w-4 h-4" />
