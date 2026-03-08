@@ -15,24 +15,35 @@ enum Role {
 }
 
 model User {
-  id                    String   @id @default(uuid())
-  email                 String   @unique
+  id                    String    @id @default(uuid())
+  email                 String    @unique
   passwordHash          String
-  role                  Role     @default(USER)
-  isVerified            Boolean  @default(false)
-  lastCodeSentAt        DateTime @default(now())
+  role                  Role      @default(USER)
+  isVerified            Boolean   @default(false)
+  lastCodeSentAt        DateTime  @default(now())
   verificationExpiresAt DateTime
-  createdAt             DateTime @default(now())
+  createdAt             DateTime  @default(now())
+  info                  UserInfo?
+}
+
+model UserInfo {
+  id        String @id @default(uuid())
+  firstName String
+  lastName  String
+  studentId String
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 // --- COMMUNICATION LINKS ---
 // Stores social media, discord, membership, and email links
 model CommunicationLink {
-  id        Int      @id @default(autoincrement())
-  platform  String   @unique // e.g., 'instagram', 'email', 'discord_invite', 'membership_signup'
-  url       String
-  imgUrl    String
-  isActive  Boolean  @default(true) // Allows admins to temporarily hide a link
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  platform    String   @unique // e.g., 'instagram', 'email', 'discord_invite', 'membership_signup'
+  url         String
+  imgUrl      String
+  description String?  @db.VarChar(150) // Short description shown on the social card
+  isActive    Boolean  @default(true) // Allows admins to temporarily hide a link
+  updatedAt   DateTime @updatedAt
 }
 
 // --- MEDIA CONFIG ---

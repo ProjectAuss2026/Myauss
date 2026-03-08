@@ -42,8 +42,8 @@ const uploadController = (req, res) => {
     return res.status(400).json({ error: 'Bad request', message: 'No file uploaded.' });
   }
 
-  const host = `${req.protocol}://${req.get('host')}`;
-  const imgUrl = `${host}/uploads/${req.file.filename}`;
+  // Return a relative path — works behind both Vite proxy and production reverse proxy
+  const imgUrl = `/uploads/${req.file.filename}`;
 
   return res.status(201).json({ imgUrl });
 };

@@ -1,0 +1,696 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
+  Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
+  Loader2,
+} from 'lucide-react';
+
+function useInViewCustom(options?: { once?: boolean; margin?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          if (options?.once !== false) obs.disconnect();
+        }
+      },
+      { rootMargin: options?.margin || '0px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return { ref, inView };
+}
+
+// ── Types ──
+interface Sponsor {
+  id: string;
+  name: string;
+  tier: 'Gold' | 'Silver' | 'Bronze';
+  description: string;
+  website: string;
+}
+
+interface MediaItem {
+  id: string;
+  src: string;
+  alt: string;
+  label: string;
+}
+
+// ── Default data ──
+const defaultSponsors: Sponsor[] = [
+  { id: '1', name: 'IronGrip Supplements', tier: 'Gold', description: 'Premium sports nutrition partner providing supplements and recovery products for all AUSS members.', website: 'https://example.com' },
+  { id: '2', name: 'LiftWear NZ', tier: 'Gold', description: 'Official apparel sponsor outfitting our competition team with high-performance lifting gear.', website: 'https://example.com' },
+  { id: '3', name: 'BarBend Athletics', tier: 'Silver', description: 'Equipment sponsor providing competition-grade barbells and plates for our training sessions.', website: 'https://example.com' },
+  { id: '4', name: 'FuelBox Meals', tier: 'Silver', description: 'Meal prep partner keeping our athletes fuelled with macro-balanced meals throughout the semester.', website: 'https://example.com' },
+  { id: '5', name: 'UoA Recreation Centre', tier: 'Bronze', description: 'Our home gym and venue partner for all AUSS training sessions and internal competitions.', website: 'https://example.com' },
+  { id: '6', name: 'PhysioFirst NZ', tier: 'Bronze', description: 'Sports physiotherapy partner offering discounted recovery and injury prevention sessions for members.', website: 'https://example.com' },
+];
+
+const defaultMedia: MediaItem[] = [
+  { id: '1', src: 'https://images.unsplash.com/photo-1770026136797-18659700b5b9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Powerlifting deadlift session', label: 'Powerlifting Competition 2025' },
+  { id: '2', src: 'https://images.unsplash.com/photo-1761034114082-c2d63456a82a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Group training session', label: 'Training Session' },
+  { id: '3', src: 'https://images.unsplash.com/photo-1765109375988-912ce5ba5ffd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Team celebration', label: 'Team Event' },
+  { id: '4', src: 'https://images.unsplash.com/photo-1624513764372-a4eb7b334c62?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Squat rack workout', label: 'Gym Session' },
+  { id: '5', src: 'https://images.unsplash.com/photo-1688521010890-0e58abbaf755?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Chalk hands barbell', label: 'Meet Day' },
+];
+
+const tierColors: Record<string, string> = { Gold: '#eb7524', Silver: '#94a3b8', Bronze: '#b87333' };
+
+type Tab = 'sponsors' | 'media';
+
+// ── Shared field styles ──
+const inputCls = "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all";
+const labelStyle: React.CSSProperties = { fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 };
+
+export function Admin() {
+  const { user, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
+  const navigate = useNavigate();
+  const [mounted, setMounted] = useState(false);
+  const [tab, setTab] = useState<Tab>('sponsors');
+
+  // Sponsor state
+  const [sponsors, setSponsors] = useState<Sponsor[]>(defaultSponsors);
+  const [editingSponsor, setEditingSponsor] = useState<Sponsor | null>(null);
+  const [showSponsorForm, setShowSponsorForm] = useState(false);
+
+  // Media state
+  const [media, setMedia] = useState<MediaItem[]>(defaultMedia);
+  const [editingMedia, setEditingMedia] = useState<MediaItem | null>(null);
+  const [showMediaForm, setShowMediaForm] = useState(false);
+
+  useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
+
+  // ── Access control ──
+  // Wait for auth to resolve before making any redirect decisions.
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!isAuthenticated) {
+      // Not logged in → send to login page
+      navigate('/login', { replace: true });
+      return;
+    }
+
+    if (!isAdmin) {
+      // Logged in but not an admin → send to homepage
+      navigate('/', { replace: true });
+    }
+  }, [isLoading, isAuthenticated, isAdmin, navigate]);
+
+  // ── Loading state ──
+  // Show a spinner while auth is being resolved to prevent flash of content
+  // or premature redirects.
+  if (isLoading) {
+    return (
+      <div className="bg-black min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-[#eb7524] animate-spin" />
+      </div>
+    );
+  }
+
+  // ── Guard: never render admin UI for non-admin users ──
+  if (!isAuthenticated || !isAdmin) {
+    return null;
+  }
+
+  // ── Sponsor CRUD ──
+  // TODO (backend): Replace local state mutations with API calls.
+  //   - POST /api/admin/sponsors        → create sponsor
+  //   - PUT  /api/admin/sponsors/:id    → update sponsor
+  //   - DELETE /api/admin/sponsors/:id  → delete sponsor
+  // All admin API routes must verify the JWT and enforce role === 'ADMIN'
+  // server-side, regardless of frontend guards.
+  const saveSponsor = (sponsor: Sponsor) => {
+    if (sponsors.find((s) => s.id === sponsor.id)) {
+      setSponsors((prev) => prev.map((s) => (s.id === sponsor.id ? sponsor : s)));
+    } else {
+      setSponsors((prev) => [...prev, { ...sponsor, id: Date.now().toString() }]);
+    }
+    setEditingSponsor(null);
+    setShowSponsorForm(false);
+  };
+
+  const deleteSponsor = (id: string) => {
+    setSponsors((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  // ── Media CRUD ──
+  // TODO (backend): Replace local state mutations with API calls.
+  //   - POST /api/admin/media        → create media item
+  //   - PUT  /api/admin/media/:id    → update media item
+  //   - DELETE /api/admin/media/:id  → delete media item
+  // All admin API routes must verify the JWT and enforce role === 'ADMIN'.
+  const saveMedia = (item: MediaItem) => {
+    if (media.find((m) => m.id === item.id)) {
+      setMedia((prev) => prev.map((m) => (m.id === item.id ? item : m)));
+    } else {
+      setMedia((prev) => [...prev, { ...item, id: Date.now().toString() }]);
+    }
+    setEditingMedia(null);
+    setShowMediaForm(false);
+  };
+
+  const deleteMedia = (id: string) => {
+    setMedia((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  return (
+    <div className="bg-black min-h-screen">
+      {/* Hero bar */}
+      <section
+        className="relative py-12 md:py-16 px-6 overflow-hidden"
+        style={{
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+          transition: 'opacity 0.6s ease, transform 0.6s ease',
+        }}
+      >
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] rounded-full blur-[150px]" style={{ backgroundColor: 'rgba(235,117,36,0.06)' }} />
+        </div>
+        <div className="max-w-[1200px] mx-auto relative">
+          <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(235,117,36,0.15)' }}>
+                <Shield className="w-5 h-5 text-[#eb7524]" />
+              </div>
+              <div>
+                <h1 className="text-white" style={{ fontSize: 'clamp(24px, 4vw, 36px)', fontWeight: 700, fontFamily: 'Outfit, sans-serif', lineHeight: 1.2 }}>
+                  Admin Dashboard
+                </h1>
+                <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                  Logged in as <span className="text-[#eb7524]">{user?.email}</span>
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all cursor-pointer"
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-2">
+            {([
+              { key: 'sponsors' as Tab, label: 'Sponsors', icon: Star },
+              { key: 'media' as Tab, label: 'Photo Drive', icon: Camera },
+            ]).map((t) => {
+              const Icon = t.icon;
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                    active
+                      ? 'bg-[#eb7524] text-white shadow-[0_4px_20px_rgba(235,117,36,0.3)]'
+                      : 'bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08]'
+                  }`}
+                  style={{ fontSize: '14px', fontWeight: active ? 600 : 400, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  <Icon className="w-4 h-4" />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Content */}
+      <section className="px-6 pb-24">
+        <div className="max-w-[1200px] mx-auto">
+          {tab === 'sponsors' && (
+            <SponsorManager
+              sponsors={sponsors}
+              onSave={saveSponsor}
+              onDelete={deleteSponsor}
+              editing={editingSponsor}
+              setEditing={setEditingSponsor}
+              showForm={showSponsorForm}
+              setShowForm={setShowSponsorForm}
+            />
+          )}
+          {tab === 'media' && (
+            <MediaManager
+              media={media}
+              onSave={saveMedia}
+              onDelete={deleteMedia}
+              editing={editingMedia}
+              setEditing={setEditingMedia}
+              showForm={showMediaForm}
+              setShowForm={setShowMediaForm}
+            />
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Sponsor Manager
+// ═══════════════════════════════════════════════
+
+function SponsorManager({
+  sponsors, onSave, onDelete, editing, setEditing, showForm, setShowForm,
+}: {
+  sponsors: Sponsor[];
+  onSave: (s: Sponsor) => void;
+  onDelete: (id: string) => void;
+  editing: Sponsor | null;
+  setEditing: (s: Sponsor | null) => void;
+  showForm: boolean;
+  setShowForm: (v: boolean) => void;
+}) {
+  const grouped = {
+    Gold: sponsors.filter((s) => s.tier === 'Gold'),
+    Silver: sponsors.filter((s) => s.tier === 'Silver'),
+    Bronze: sponsors.filter((s) => s.tier === 'Bronze'),
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Manage Sponsors
+          </h2>
+          <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {sponsors.length} sponsor{sponsors.length !== 1 ? 's' : ''} across {Object.values(grouped).filter((g) => g.length > 0).length} tiers
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setEditing(null);
+            setShowForm(true);
+          }}
+          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          <Plus className="w-4 h-4" />
+          Add Sponsor
+        </button>
+      </div>
+
+      {/* Form modal */}
+      {(showForm || editing) && (
+        <SponsorForm
+          initial={editing}
+          onSave={onSave}
+          onCancel={() => { setEditing(null); setShowForm(false); }}
+        />
+      )}
+
+      {/* Sponsor list by tier */}
+      {(['Gold', 'Silver', 'Bronze'] as const).map((tier) => {
+        const items = grouped[tier];
+        if (items.length === 0) return null;
+        const color = tierColors[tier];
+        return (
+          <div key={tier} className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-1 h-5 rounded-full" style={{ backgroundColor: color }} />
+              <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                {tier} Sponsors
+              </h3>
+              <span className="px-2.5 py-0.5 rounded-full text-xs" style={{ backgroundColor: color + '18', color, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                {items.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {items.map((sponsor) => (
+                <SponsorCard
+                  key={sponsor.id}
+                  sponsor={sponsor}
+                  onEdit={() => { setEditing(sponsor); setShowForm(false); }}
+                  onDelete={() => onDelete(sponsor.id)}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {sponsors.length === 0 && (
+        <div className="text-center py-16">
+          <Star className="w-12 h-12 text-white/10 mx-auto mb-4" />
+          <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No sponsors added yet</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SponsorCard({ sponsor, onEdit, onDelete }: { sponsor: Sponsor; onEdit: () => void; onDelete: () => void }) {
+  const color = tierColors[sponsor.tier];
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  return (
+    <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-6 group hover:border-white/10 transition-all duration-300">
+      <div className="flex items-center justify-between mb-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: color + '15' }}>
+          <span style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif', color }}>{sponsor.name.charAt(0)}</span>
+        </div>
+        <span className="px-2.5 py-0.5 rounded-full border text-xs" style={{ borderColor: color + '40', color, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>
+          {sponsor.tier}
+        </span>
+      </div>
+      <h4 className="text-white mb-1" style={{ fontSize: '17px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>{sponsor.name}</h4>
+      <p className="text-white/35 mb-4" style={{ fontSize: '13px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}>
+        {sponsor.description.length > 100 ? sponsor.description.slice(0, 100) + '...' : sponsor.description}
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onEdit}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
+          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+        >
+          <Edit3 className="w-3 h-3" />
+          Edit
+        </button>
+        {confirmDelete ? (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onDelete}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >
+            <Trash2 className="w-3 h-3" />
+            Delete
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; onSave: (s: Sponsor) => void; onCancel: () => void }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [tier, setTier] = useState<Sponsor['tier']>(initial?.tier || 'Gold');
+  const [description, setDescription] = useState(initial?.description || '');
+  const [website, setWebsite] = useState(initial?.website || '');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({ id: initial?.id || '', name, tier, description, website });
+  };
+
+  return (
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7 mb-8">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          {initial ? 'Edit Sponsor' : 'Add New Sponsor'}
+        </h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Sponsor Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. IronGrip Supplements" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} required />
+        </div>
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Tier</label>
+          <div className="flex gap-2">
+            {(['Gold', 'Silver', 'Bronze'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTier(t)}
+                className={`flex-1 py-2.5 rounded-xl border transition-all cursor-pointer ${
+                  tier === t ? 'border-transparent' : 'border-white/10 bg-white/[0.03] text-white/40 hover:bg-white/[0.06]'
+                }`}
+                style={{
+                  fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif',
+                  ...(tier === t ? { backgroundColor: tierColors[t] + '20', color: tierColors[t], borderColor: tierColors[t] + '40' } : {}),
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Brief description of the sponsor's involvement..."
+            rows={3}
+            className={inputCls + ' resize-none'}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            required
+          />
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Website URL</label>
+          <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://example.com" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
+        </div>
+        <div className="md:col-span-2 flex gap-3 justify-end pt-2">
+          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+            Cancel
+          </button>
+          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            <Save className="w-4 h-4" />
+            {initial ? 'Update' : 'Add'} Sponsor
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Media Manager
+// ═══════════════════════════════════════════════
+
+function MediaManager({
+  media, onSave, onDelete, editing, setEditing, showForm, setShowForm,
+}: {
+  media: MediaItem[];
+  onSave: (m: MediaItem) => void;
+  onDelete: (id: string) => void;
+  editing: MediaItem | null;
+  setEditing: (m: MediaItem | null) => void;
+  showForm: boolean;
+  setShowForm: (v: boolean) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Manage Photo Drive
+          </h2>
+          <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {media.length} photo{media.length !== 1 ? 's' : ''} in the drive
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setEditing(null);
+            setShowForm(true);
+          }}
+          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          <Plus className="w-4 h-4" />
+          Add Photo
+        </button>
+      </div>
+
+      {/* Form */}
+      {(showForm || editing) && (
+        <MediaForm
+          initial={editing}
+          onSave={onSave}
+          onCancel={() => { setEditing(null); setShowForm(false); }}
+        />
+      )}
+
+      {/* Media Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {media.map((item) => (
+          <MediaCard
+            key={item.id}
+            item={item}
+            onEdit={() => { setEditing(item); setShowForm(false); }}
+            onDelete={() => onDelete(item.id)}
+          />
+        ))}
+      </div>
+
+      {media.length === 0 && (
+        <div className="text-center py-16">
+          <ImageIcon className="w-12 h-12 text-white/10 mx-auto mb-4" />
+          <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No photos added yet</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MediaCard({ item, onEdit, onDelete }: { item: MediaItem; onEdit: () => void; onDelete: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <div className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden group hover:border-white/10 transition-all duration-300">
+      <div className="relative h-[180px] overflow-hidden">
+        {imgError ? (
+          <div className="w-full h-full flex items-center justify-center bg-white/[0.02]">
+            <ImageIcon className="w-8 h-8 text-white/10" />
+          </div>
+        ) : (
+          <img
+            src={item.src}
+            alt={item.alt}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={() => setImgError(true)}
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+        <div className="absolute bottom-3 left-3 right-3">
+          <p className="text-white/80 truncate" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{item.label}</p>
+        </div>
+      </div>
+      <div className="p-4 flex items-center gap-2">
+        <button
+          onClick={onEdit}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
+          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+        >
+          <Edit3 className="w-3 h-3" />
+          Edit
+        </button>
+        {confirmDelete ? (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onDelete}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >
+            <Trash2 className="w-3 h-3" />
+            Delete
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; onSave: (m: MediaItem) => void; onCancel: () => void }) {
+  const [src, setSrc] = useState(initial?.src || '');
+  const [alt, setAlt] = useState(initial?.alt || '');
+  const [label, setLabel] = useState(initial?.label || '');
+  const [preview, setPreview] = useState(initial?.src || '');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({ id: initial?.id || '', src, alt, label });
+  };
+
+  return (
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7 mb-8">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          {initial ? 'Edit Photo' : 'Add New Photo'}
+        </h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="md:col-span-2">
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Image URL</label>
+            <input
+              value={src}
+              onChange={(e) => { setSrc(e.target.value); setPreview(e.target.value); }}
+              placeholder="https://images.unsplash.com/..."
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Label</label>
+            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Powerlifting Competition 2025" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} required />
+          </div>
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Alt Text</label>
+            <input value={alt} onChange={(e) => setAlt(e.target.value)} placeholder="Descriptive alt text for accessibility" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} required />
+          </div>
+        </div>
+
+        {/* Preview */}
+        {preview && (
+          <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
+            <img src={preview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          </div>
+        )}
+
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+            Cancel
+          </button>
+          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            <Save className="w-4 h-4" />
+            {initial ? 'Update' : 'Add'} Photo
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

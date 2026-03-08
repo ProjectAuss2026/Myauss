@@ -42,8 +42,10 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// Config & upload routes (protected — must be logged in)
-app.use('/api/config', authenticate, configRoutes);
+// Config routes — GET is public, mutating routes are protected per-route
+app.use('/api/config', configRoutes);
+
+// Upload route (protected — must be logged in)
 app.use('/api/upload', authenticate, uploadRoutes);
 
 app.listen(PORT, () => {

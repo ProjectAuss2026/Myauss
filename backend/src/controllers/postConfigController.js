@@ -10,7 +10,7 @@ const REQUIRED_FIELDS = {
 
 // Whitelist of what's accepted
 const ALLOWED_FIELDS = {
-  communicationLink: ['platform', 'url', 'imgUrl', 'isActive'],
+  communicationLink: ['platform', 'url', 'imgUrl', 'description', 'isActive'],
   mediaConfig: ['mediaDriveUrl'],
   sponsorshipPage: ['pageContent'],
   sponsor: ['name', 'logoUrl', 'websiteUrl', 'sponsorshipPageId'],
@@ -48,6 +48,14 @@ const postConfigController = async (req, res) => {
   const filteredData = {};
   for (const field of ALLOWED_FIELDS[type]) {
     if (field in data) filteredData[field] = data[field];
+  }
+
+  // Validate description length for communicationLink
+  if (type === 'communicationLink' && filteredData.description && filteredData.description.length > 150) {
+    return res.status(400).json({
+      error: 'Bad request',
+      message: 'Description must be 150 characters or fewer.',
+    });
   }
 
   try {

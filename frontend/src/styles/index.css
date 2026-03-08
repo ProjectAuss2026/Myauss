@@ -1,0 +1,119 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './theme.css';
+@import './fonts.css';
+
+:root {
+  /* AUSS Brand Colors */
+  --auss-orange: #F97316;
+  --auss-orange-dark: #EA580C;
+  --auss-orange-light: #FB923C;
+  --auss-black: #0A0A0A;
+  --auss-black-light: #171717;
+  --auss-white: #FFFFFF;
+  --auss-white-80: rgba(255, 255, 255, 0.8);
+  --auss-white-10: rgba(255, 255, 255, 0.1);
+  --auss-grey: #64748B;
+  --auss-grey-dark: #475569;
+
+  /* Spacing System (8px base) */
+  --spacing-1: 8px;
+  --spacing-2: 16px;
+  --spacing-3: 24px;
+  --spacing-4: 32px;
+  --spacing-5: 40px;
+  --spacing-6: 48px;
+  --spacing-8: 64px;
+  --spacing-10: 80px;
+  --spacing-12: 96px;
+
+  /* Border Radius */
+  --card-radius: 20px;
+  --button-radius: 12px;
+
+  /* Shadows */
+  --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.1);
+  --shadow-button: 0 2px 8px rgba(249, 115, 22, 0.3);
+
+  /* Typography Scale */
+  --text-hero: 64px;
+  --text-section: 40px;
+  --text-card-title: 24px;
+  --text-base: 16px;
+  --text-small: 14px;
+  --text-uppercase: 12px;
+
+  /* Font Weights */
+  --font-bold: 700;
+  --font-semibold: 600;
+  --font-medium: 500;
+  --font-regular: 400;
+
+  /* Layout */
+  --max-width: 1200px;
+  --section-spacing: 100px;
+
+  --font-size: 16px;
+  --background: #0A0A0A;
+  --foreground: #fafafa;
+  --card: #171717;
+  --card-foreground: #fafafa;
+  --primary: #F97316;
+  --primary-foreground: #ffffff;
+  --secondary: #262626;
+  --secondary-foreground: #fafafa;
+  --muted: #262626;
+  --muted-foreground: #a1a1aa;
+  --accent: #262626;
+  --accent-foreground: #fafafa;
+  --destructive: #d4183d;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: transparent;
+  --ring: #F97316;
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  }
+
+  html {
+    font-size: var(--font-size);
+    scroll-behavior: smooth;
+  }
+}
