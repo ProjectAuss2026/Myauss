@@ -9,6 +9,7 @@ import { Login } from './pages/Login';
 import { Verify } from './pages/Verify';
 import { Profile } from './pages/Profile';
 import { ManageLinks } from './pages/ManageLinks';
+import { Admin } from './pages/Admin';
 import { Sponsorship } from './pages/Sponsorship';
 
 export const router = createBrowserRouter([
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
       { path: 'verify', Component: Verify },
       { path: 'profile', Component: Profile },
       { path: 'manage', Component: ManageLinks },
+      { path: 'admin', Component: Admin },
       { path: '*', Component: NotFound },
     ],
   },

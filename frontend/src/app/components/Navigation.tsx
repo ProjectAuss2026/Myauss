@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ChevronDown, Settings } from 'lucide-react';
+import { Menu, X, User, LogOut, ChevronDown, Settings, Shield } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 
@@ -116,14 +116,24 @@ export function Navigation() {
                           My Profile
                         </button>
                         {user?.role === 'ADMIN' && (
-                          <button
-                            onClick={() => { setProfileDropdown(false); navigate('/manage'); }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-[#eb7524]/80 hover:text-[#eb7524] hover:bg-[#eb7524]/5 transition-colors cursor-pointer"
-                            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                          >
-                            <Settings className="w-4 h-4" />
-                            Manage Links
-                          </button>
+                          <>
+                            <button
+                              onClick={() => { setProfileDropdown(false); navigate('/admin'); }}
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-[#eb7524]/80 hover:text-[#eb7524] hover:bg-[#eb7524]/5 transition-colors cursor-pointer"
+                              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                            >
+                              <Shield className="w-4 h-4" />
+                              Sponsor & Photo Drive
+                            </button>
+                            <button
+                              onClick={() => { setProfileDropdown(false); navigate('/manage'); }}
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-[#eb7524]/80 hover:text-[#eb7524] hover:bg-[#eb7524]/5 transition-colors cursor-pointer"
+                              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                            >
+                              <Settings className="w-4 h-4" />
+                              Manage Links
+                            </button>
+                          </>
                         )}
                         <button
                           onClick={() => { setProfileDropdown(false); logout(); showToast('You have signed out', 'info'); navigate('/'); }}
@@ -195,15 +205,26 @@ export function Navigation() {
                     My Profile
                   </Link>
                   {user?.role === 'ADMIN' && (
-                    <Link
-                      to="/manage"
-                      onClick={() => setMobileMenuOpen(false)}
-                      className="flex items-center gap-3 w-full py-3 text-[#eb7524]/80 hover:text-[#eb7524] transition-colors"
-                      style={{ fontFamily: 'Outfit, sans-serif' }}
-                    >
-                      <Settings className="w-4 h-4" />
-                      Manage Links
-                    </Link>
+                    <>
+                      <Link
+                        to="/admin"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="flex items-center gap-3 w-full py-3 text-[#eb7524]/80 hover:text-[#eb7524] transition-colors"
+                        style={{ fontFamily: 'Outfit, sans-serif' }}
+                      >
+                        <Shield className="w-4 h-4" />
+                        Sponsor & Photo Drive
+                      </Link>
+                      <Link
+                        to="/manage"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="flex items-center gap-3 w-full py-3 text-[#eb7524]/80 hover:text-[#eb7524] transition-colors"
+                        style={{ fontFamily: 'Outfit, sans-serif' }}
+                      >
+                        <Settings className="w-4 h-4" />
+                        Manage Links
+                      </Link>
+                    </>
                   )}
                   <button
                     onClick={() => { setMobileMenuOpen(false); logout(); showToast('You have signed out', 'info'); navigate('/'); }}
