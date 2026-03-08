@@ -17,6 +17,8 @@ interface LoginCredentials {
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
+  /** True when the user's role is 'ADMIN'. Derived from user.role. */
+  isAdmin: boolean;
   isLoading: boolean;
   error: string | null;
   login: (credentials: LoginCredentials) => Promise<AuthUser>;
@@ -120,6 +122,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         isAuthenticated: !!user,
+        /**
+         * TODO (backend): Currently derived from user.role on the client.
+         * Backend should enforce admin-only access on all admin API routes
+         * independently of this flag (e.g. middleware that checks JWT role claim).
+         */
+        isAdmin: user?.role === 'ADMIN',
         isLoading,
         error,
         login,
