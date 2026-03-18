@@ -74,3 +74,18 @@ model Sponsor {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 }
+
+// --- ACTIVITIES ---
+// Stores upcoming/past club events and activities
+model Activity {
+  id           Int      @id @default(autoincrement())
+  title        String
+  description  String   @db.Text
+  startTime    DateTime
+  endTime      DateTime
+  imageUrl     String?
+  externalLink String?
+  isPublished  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
