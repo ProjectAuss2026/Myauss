@@ -11,6 +11,7 @@ const navLinks = [
   { to: '/about', label: 'About' },
   { to: '/sponsorship', label: 'Sponsorship' },
   { to: '/social', label: 'Social' },
+  { to: '/activities', label: 'Activities' },
 ];
 
 export function Navigation() {
@@ -123,7 +124,7 @@ export function Navigation() {
                               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
                             >
                               <Shield className="w-4 h-4" />
-                              Sponsor & Photo Drive
+                              Admin Dashboard
                             </button>
                             <button
                               onClick={() => { setProfileDropdown(false); navigate('/manage'); }}

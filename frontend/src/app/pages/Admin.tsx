@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
-  Loader2,
+  Loader2, Calendar, Clock,
 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -44,6 +44,16 @@ interface MediaItem {
   label: string;
 }
 
+interface Activity {
+  id: string;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  imageUrl: string;
+  status: 'upcoming' | 'ongoing' | 'archived';
+}
+
 // ── Default data ──
 const defaultSponsors: Sponsor[] = [
   { id: '1', name: 'IronGrip Supplements', tier: 'Gold', description: 'Premium sports nutrition partner providing supplements and recovery products for all AUSS members.', website: 'https://example.com' },
@@ -62,9 +72,18 @@ const defaultMedia: MediaItem[] = [
   { id: '5', src: 'https://images.unsplash.com/photo-1688521010890-0e58abbaf755?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Chalk hands barbell', label: 'Meet Day' },
 ];
 
+const defaultActivities: Activity[] = [
+  { id: '1', title: 'Weekly Training Session', description: 'Regular strength training session for all members', startTime: '2026-03-25T18:00:00', endTime: '2026-03-25T20:00:00', imageUrl: 'https://images.unsplash.com/photo-1765109375988-912ce5ba5ffd', status: 'upcoming', },
+  { id: '2', title: 'Powerlifting Competition', description: 'Internal club powerlifting competition', startTime: '2026-04-10T09:00:00', endTime: '2026-04-10T17:00:00', imageUrl: 'https://images.unsplash.com/photo-1770026136797-18659700b5b9', status: 'upcoming', },
+  { id: '3', title: 'Advanced Beginner Workshop', description: 'Introduction to proper form and technique', startTime: '2026-03-15T17:00:00', endTime: '2026-03-15T18:30:00', imageUrl: 'https://images.unsplash.com/photo-1761034114082-c2d63456a82a', status: 'archived', },
+  { id: '4', title: 'Monthly Social Meetup', description: 'Connect with fellow members in a casual setting. Grab some food and drinks while we discuss our recent achievements and upcoming plans.', startTime: '2026-03-28T19:00:00', endTime: '2026-03-28T21:00:00', imageUrl: 'https://images.unsplash.com/photo-1624513764372-a4eb7b334c62', status: 'ongoing',},
+];
+
 const tierColors: Record<string, string> = { Gold: '#eb7524', Silver: '#94a3b8', Bronze: '#b87333' };
 
-type Tab = 'sponsors' | 'media';
+const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
+
+type Tab = 'sponsors' | 'media' | 'activities';
 
 // ── Shared field styles ──
 const inputCls = "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all";
@@ -85,6 +104,11 @@ export function Admin() {
   const [media, setMedia] = useState<MediaItem[]>(defaultMedia);
   const [editingMedia, setEditingMedia] = useState<MediaItem | null>(null);
   const [showMediaForm, setShowMediaForm] = useState(false);
+
+  // Activity state
+  const [activities, setActivities] = useState<Activity[]>(defaultActivities);
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+  const [showActivityForm, setShowActivityForm] = useState(false);
 
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
 
@@ -162,6 +186,21 @@ export function Admin() {
     setMedia((prev) => prev.filter((m) => m.id !== id));
   };
 
+  // ── Activity CRUD ──
+  const saveActivity = (activity: Activity) => {
+    if (activities.find((a) => a.id === activity.id)) {
+      setActivities((prev) => prev.map((a) => (a.id === activity.id ? activity : a)));
+    } else {
+      setActivities((prev) => [...prev, { ...activity, id: Date.now().toString() }]);
+    }
+    setEditingActivity(null);
+    setShowActivityForm(false);
+  };
+
+  const deleteActivity = (id: string) => {
+    setActivities((prev) => prev.filter((a) => a.id !== id));
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -210,6 +249,7 @@ export function Admin() {
           <div className="flex gap-2">
             {([
               { key: 'sponsors' as Tab, label: 'Sponsors', icon: Star },
+              { key: 'activities' as Tab, label: 'Activities', icon: Calendar },
               { key: 'media' as Tab, label: 'Photo Drive', icon: Camera },
             ]).map((t) => {
               const Icon = t.icon;
@@ -257,6 +297,17 @@ export function Admin() {
               setEditing={setEditingMedia}
               showForm={showMediaForm}
               setShowForm={setShowMediaForm}
+            />
+          )}
+          {tab === 'activities' && (
+            <ActivityManager
+              activities={activities}
+              onSave={saveActivity}
+              onDelete={deleteActivity}
+              editing={editingActivity}
+              setEditing={setEditingActivity}
+              showForm={showActivityForm}
+              setShowForm={setShowActivityForm}
             />
           )}
         </div>
@@ -688,6 +739,339 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
           <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
             <Save className="w-4 h-4" />
             {initial ? 'Update' : 'Add'} Photo
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Activity Manager
+// ═══════════════════════════════════════════════
+
+function ActivityManager({
+  activities, onSave, onDelete, editing, setEditing, showForm, setShowForm,
+}: {
+  activities: Activity[];
+  onSave: (a: Activity) => void;
+  onDelete: (id: string) => void;
+  editing: Activity | null;
+  setEditing: (a: Activity | null) => void;
+  showForm: boolean;
+  setShowForm: (v: boolean) => void;
+}) {
+  const grouped = {
+    upcoming: activities.filter((a) => a.status === 'upcoming'),
+    ongoing: activities.filter((a) => a.status === 'ongoing'),
+    archived: activities.filter((a) => a.status === 'archived'),
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Manage Activities
+          </h2>
+          <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'} ({grouped.upcoming.length} upcoming, {grouped.ongoing.length} ongoing, {grouped.archived.length} archived)
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setEditing(null);
+            setShowForm(true);
+          }}
+          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          <Plus className="w-4 h-4" />
+          Add Activity
+        </button>
+      </div>
+
+      {/* Form */}
+      {(showForm || editing) && (
+        <ActivityForm
+          initial={editing}
+          onSave={onSave}
+          onCancel={() => { setEditing(null); setShowForm(false); }}
+        />
+      )}
+
+      {/* Activities by status */}
+      {(['ongoing', 'upcoming', 'archived'] as const).map((status) => {
+        const items = grouped[status];
+        const color = statusColors[status];
+        const labels = { upcoming: 'Upcoming', ongoing: 'Ongoing', archived: 'Archived' };
+
+        return (
+          <div key={status} className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-1 h-5 rounded-full" style={{ backgroundColor: color }} />
+              <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                {labels[status]} Activities
+              </h3>
+              <span className="px-2.5 py-0.5 rounded-full text-xs" style={{ backgroundColor: color + '18', color, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                {items.length}
+              </span>
+            </div>
+            {items.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {items.map((activity) => (
+                  <ActivityCard
+                    key={activity.id}
+                    activity={activity}
+                    onEdit={() => { setEditing(activity); setShowForm(false); }}
+                    onDelete={() => onDelete(activity.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 rounded-xl border border-white/[0.06]">
+                <p className="text-white/30" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>No {labels[status].toLowerCase()} activities</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {activities.length === 0 && (
+        <div className="text-center py-16">
+          <Calendar className="w-12 h-12 text-white/10 mx-auto mb-4" />
+          <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No activities added yet</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => void }) {
+  const color = statusColors[activity.status];
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  return (
+    <div className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden group hover:border-white/10 transition-all duration-300">
+      {/* Image */}
+      <div className="relative h-[180px] overflow-hidden">
+        {imgError ? (
+          <div className="w-full h-full flex items-center justify-center bg-white/[0.02]">
+            <Calendar className="w-8 h-8 text-white/10" />
+          </div>
+        ) : (
+          <img
+            src={activity.imageUrl}
+            alt={activity.title}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={() => setImgError(true)}
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+        <div className="absolute top-3 right-3">
+          <span className="px-2.5 py-1 rounded-full text-xs font-semibold" style={{ backgroundColor: color + '25', color, fontFamily: 'Inter, sans-serif' }}>
+            {activity.status.charAt(0).toUpperCase() + activity.status.slice(1)}
+          </span>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-4">
+        <h4 className="text-white mb-1 truncate" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          {activity.title}
+        </h4>
+        <p className="text-white/35 mb-3 line-clamp-2" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+          {activity.description}
+        </p>
+
+        {/* Date/Time */}
+        <div className="bg-white/[0.03] rounded-lg p-2 mb-3 border border-white/[0.05]">
+          <div className="flex items-center gap-1.5 text-white/50" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+            <Clock className="w-3 h-3" />
+            <span>{formatDate(activity.startTime)} · {formatTime(activity.startTime)}</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onEdit}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >
+            <Edit3 className="w-3 h-3" />
+            Edit
+          </button>
+          {confirmDelete ? (
+            <button
+              onClick={onDelete}
+              className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              Confirm Delete
+            </button>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              <Trash2 className="w-3 h-3" />
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null; onSave: (a: Activity) => void; onCancel: () => void }) {
+  const [title, setTitle] = useState(initial?.title || '');
+  const [description, setDescription] = useState(initial?.description || '');
+  const [startTime, setStartTime] = useState(initial?.startTime?.split('T').join('T') || '');
+  const [endTime, setEndTime] = useState(initial?.endTime?.split('T').join('T') || '');
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
+  const [status, setStatus] = useState<Activity['status']>(initial?.status || 'upcoming');
+  const [preview, setPreview] = useState(initial?.imageUrl || '');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !description || !startTime || !endTime) {
+      alert('Please fill all required fields');
+      return;
+    }
+    onSave({
+      id: initial?.id || '',
+      title,
+      description,
+      startTime,
+      endTime,
+      imageUrl: imageUrl || 'https://images.unsplash.com/photo-1770026136797-18659700b5b9',
+      status,
+    });
+  };
+
+  return (
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7 mb-8">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          {initial ? 'Edit Activity' : 'Add New Activity'}
+        </h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Activity Title *</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Weekly Training Session"
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Status</label>
+            <div className="flex gap-2">
+              {(['upcoming', 'ongoing', 'archived'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setStatus(s)}
+                  className={`flex-1 py-2.5 rounded-xl border transition-all cursor-pointer text-xs ${
+                    status === s ? 'border-transparent' : 'border-white/10 bg-white/[0.03] text-white/40 hover:bg-white/[0.06]'
+                  }`}
+                  style={{
+                    fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif',
+                    ...(status === s ? { backgroundColor: statusColors[s] + '20', color: statusColors[s], borderColor: statusColors[s] + '40' } : {}),
+                  }}
+                >
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Description *</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe the activity..."
+            rows={3}
+            className={inputCls + ' resize-none'}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            required
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Start Date/Time *</label>
+            <input
+              type="datetime-local"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>End Date/Time *</label>
+            <input
+              type="datetime-local"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              required
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Image URL</label>
+          <input
+            value={imageUrl}
+            onChange={(e) => { setImageUrl(e.target.value); setPreview(e.target.value); }}
+            placeholder="https://images.unsplash.com/..."
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+          />
+        </div>
+
+        {/* Preview */}
+        {preview && (
+          <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
+            <img src={preview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          </div>
+        )}
+
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+            Cancel
+          </button>
+          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            <Save className="w-4 h-4" />
+            {initial ? 'Update' : 'Add'} Activity
           </button>
         </div>
       </form>
