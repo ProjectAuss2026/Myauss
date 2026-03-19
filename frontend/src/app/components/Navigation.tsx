@@ -174,7 +174,7 @@ export function Navigation() {
         <div
           className="md:hidden overflow-hidden transition-all duration-300 ease-out"
           style={{
-            maxHeight: mobileMenuOpen ? '400px' : '0',
+            maxHeight: mobileMenuOpen ? '500px' : '0',
             opacity: mobileMenuOpen ? 1 : 0,
           }}
         >
@@ -214,7 +214,7 @@ export function Navigation() {
                         style={{ fontFamily: 'Outfit, sans-serif' }}
                       >
                         <Shield className="w-4 h-4" />
-                        Sponsor & Photo Drive
+                        Admin Dashboard
                       </Link>
                       <Link
                         to="/manage"
