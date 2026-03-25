@@ -1180,7 +1180,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         description,
         startTime,
         endTime,
-        imageUrl: imageUrl || 'https://images.unsplash.com/photo-1770026136797-18659700b5b9',
+        imageUrl: imageUrl,
         externalLink,
         status,
       });
