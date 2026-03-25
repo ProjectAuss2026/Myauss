@@ -1,63 +1,74 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { Calendar, Clock, MapPin, ArrowRight } from 'lucide-react';
+import { Calendar, Clock, MapPin, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 
 interface Activity {
-  id: string;
+  id: number;
   title: string;
   description: string;
   startTime: string;
   endTime: string;
   imageUrl: string;
+  externalLink?: string;
   status: 'upcoming' | 'ongoing' | 'archived';
 }
 
-// Sample activities data - in production, this would come from the backend API
-const sampleActivities: Activity[] = [
-  {
-    id: '1',
-    title: 'Weekly Training Session',
-    description: 'Regular strength training session for all members. Join us for a productive workout session where we focus on compound movements and proper form.',
-    startTime: '2026-03-25T18:00:00',
-    endTime: '2026-03-25T20:00:00',
-    imageUrl: 'https://images.unsplash.com/photo-1765109375988-912ce5ba5ffd',
-    status: 'upcoming',
-  },
-  {
-    id: '2',
-    title: 'Powerlifting Competition',
-    description: 'Internal club powerlifting competition. This is our premier event where members compete in squat, bench press, and deadlift.',
-    startTime: '2026-04-10T09:00:00',
-    endTime: '2026-04-10T17:00:00',
-    imageUrl: 'https://images.unsplash.com/photo-1770026136797-18659700b5b9',
-    status: 'upcoming',
-  },
-  {
-    id: '3',
-    title: 'Advanced Technique Workshop',
-    description: 'Learn advanced lifting techniques from experienced coaches. Perfect for members looking to improve their form and lift heavier weights.',
-    startTime: '2026-04-01T17:00:00',
-    endTime: '2026-04-01T18:30:00',
-    imageUrl: 'https://images.unsplash.com/photo-1761034114082-c2d63456a82a',
-    status: 'upcoming',
-  },
-  {
-    id: '4',
-    title: 'Monthly Social Meetup',
-    description: 'Connect with fellow members in a casual setting. Grab some food and drinks while we discuss our recent achievements and upcoming plans.',
-    startTime: '2026-03-28T19:00:00',
-    endTime: '2026-03-28T21:00:00',
-    imageUrl: 'https://images.unsplash.com/photo-1624513764372-a4eb7b334c62',
-    status: 'ongoing',
-  },
-];
+// ── Activity helper ──
+function deriveActivityStatus(activity: any): 'upcoming' | 'ongoing' | 'archived' {
+  const now = new Date();
+  const startTime = new Date(activity.startTime);
+  const endTime = new Date(activity.endTime);
+  
+  if (!activity.isPublished || now > endTime) return 'archived';
+  if (now >= startTime && now < endTime) return 'ongoing';
+  return 'upcoming';
+}
+
+function mapActivity(activity: any): Activity {
+  return {
+    id: activity.id,
+    title: activity.title,
+    description: activity.description,
+    startTime: activity.startTime,
+    endTime: activity.endTime,
+    imageUrl: activity.imageUrl,
+    externalLink: activity.externalLink,
+    status: deriveActivityStatus(activity),
+  };
+}
 
 export function Activities() {
   const [mounted, setMounted] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Fetch activities from backend
+  useEffect(() => {
+    const loadActivities = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch(`/api/activities`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch activities: ${response.statusText}`);
+        }
+        const data = await response.json();
+        setActivities(data.map(mapActivity));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load activities');
+        console.error('Error loading activities:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadActivities();
+  }, []);
   
   // Filter out archived activities
-  const visibleActivities = sampleActivities.filter(a => a.status !== 'archived');
+  const visibleActivities = activities.filter(a => a.status !== 'archived');
   
   // Separate upcoming and ongoing activities
   const upcomingActivities = visibleActivities.filter(a => a.status === 'upcoming');
@@ -98,6 +109,42 @@ export function Activities() {
     
     if (days > 0) return `${days}d ${hours}h`;
     return `${hours}h`;
+  };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="bg-black min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-[#eb7524] animate-spin mx-auto mb-4" />
+          <p className="text-white/60" style={{ fontFamily: 'Inter, sans-serif' }}>Loading activities...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="bg-black min-h-screen flex items-center justify-center px-6">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <h2 className="text-white mb-2" style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Unable to Load Activities
+          </h2>
+          <p className="text-white/60 mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>
+            {error}
+          </p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-6 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+            style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (

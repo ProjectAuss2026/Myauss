@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
-  Loader2, Calendar, Clock,
+  Loader2, Calendar, Clock, AlertCircle,
 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -45,13 +45,17 @@ interface MediaItem {
 }
 
 interface Activity {
-  id: string;
+  id: number;
   title: string;
   description: string;
   startTime: string;
   endTime: string;
   imageUrl: string;
+  externalLink?: string;
+  isPublished?: boolean;
   status: 'upcoming' | 'ongoing' | 'archived';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // ── Default data ──
@@ -72,12 +76,7 @@ const defaultMedia: MediaItem[] = [
   { id: '5', src: 'https://images.unsplash.com/photo-1688521010890-0e58abbaf755?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Chalk hands barbell', label: 'Meet Day' },
 ];
 
-const defaultActivities: Activity[] = [
-  { id: '1', title: 'Weekly Training Session', description: 'Regular strength training session for all members', startTime: '2026-03-25T18:00:00', endTime: '2026-03-25T20:00:00', imageUrl: 'https://images.unsplash.com/photo-1765109375988-912ce5ba5ffd', status: 'upcoming', },
-  { id: '2', title: 'Powerlifting Competition', description: 'Internal club powerlifting competition', startTime: '2026-04-10T09:00:00', endTime: '2026-04-10T17:00:00', imageUrl: 'https://images.unsplash.com/photo-1770026136797-18659700b5b9', status: 'upcoming', },
-  { id: '3', title: 'Advanced Beginner Workshop', description: 'Introduction to proper form and technique', startTime: '2026-03-15T17:00:00', endTime: '2026-03-15T18:30:00', imageUrl: 'https://images.unsplash.com/photo-1761034114082-c2d63456a82a', status: 'archived', },
-  { id: '4', title: 'Monthly Social Meetup', description: 'Connect with fellow members in a casual setting. Grab some food and drinks while we discuss our recent achievements and upcoming plans.', startTime: '2026-03-28T19:00:00', endTime: '2026-03-28T21:00:00', imageUrl: 'https://images.unsplash.com/photo-1624513764372-a4eb7b334c62', status: 'ongoing',},
-];
+const defaultActivities: Activity[] = [];
 
 const tierColors: Record<string, string> = { Gold: '#eb7524', Silver: '#94a3b8', Bronze: '#b87333' };
 
@@ -88,6 +87,46 @@ type Tab = 'sponsors' | 'media' | 'activities';
 // ── Shared field styles ──
 const inputCls = "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all";
 const labelStyle: React.CSSProperties = { fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 };
+
+// ── Activity helpers ──
+function deriveActivityStatus(activity: Activity): 'upcoming' | 'ongoing' | 'archived' {
+  const now = new Date();
+  const startTime = new Date(activity.startTime);
+  const endTime = new Date(activity.endTime);
+  
+  if (!activity.isPublished || now > endTime) return 'archived';
+  if (now >= startTime && now < endTime) return 'ongoing';
+  return 'upcoming';
+}
+
+function mapActivity(activity: any): Activity {
+  return {
+    ...activity,
+    status: deriveActivityStatus(activity),
+  };
+}
+
+/**
+ * Format ISO datetime string for datetime-local input (YYYY-MM-DDTHH:mm)
+ */
+function formatToDatetimeLocal(dateStr?: string): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+/**
+ * Convert datetime-local format to ISO string
+ */
+function datetimeLocalToISO(datetimeLocal: string): string {
+  if (!datetimeLocal) return '';
+  return `${datetimeLocal}:00`; // Convert YYYY-MM-DDTHH:mm to YYYY-MM-DDTHH:mm:00
+}
 
 export function Admin() {
   const { user, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
@@ -106,9 +145,11 @@ export function Admin() {
   const [showMediaForm, setShowMediaForm] = useState(false);
 
   // Activity state
-  const [activities, setActivities] = useState<Activity[]>(defaultActivities);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [showActivityForm, setShowActivityForm] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
 
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
 
@@ -128,6 +169,43 @@ export function Admin() {
       navigate('/', { replace: true });
     }
   }, [isLoading, isAuthenticated, isAdmin, navigate]);
+
+  // ── Load activities from backend ──
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+
+    const loadActivities = async () => {
+      try {
+        setActivityLoading(true);
+        setActivityError(null);
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setActivityError('No authentication token found');
+          return;
+        }
+        
+        const response = await fetch(`/api/activities/all`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch activities: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        setActivities(data.map(mapActivity));
+      } catch (err) {
+        setActivityError(err instanceof Error ? err.message : 'Failed to load activities');
+        console.error('Error loading activities:', err);
+      } finally {
+        setActivityLoading(false);
+      }
+    };
+
+    loadActivities();
+  }, [isAdmin, user]);
 
   // ── Loading state ──
   // Show a spinner while auth is being resolved to prevent flash of content
@@ -187,18 +265,99 @@ export function Admin() {
   };
 
   // ── Activity CRUD ──
-  const saveActivity = (activity: Activity) => {
-    if (activities.find((a) => a.id === activity.id)) {
-      setActivities((prev) => prev.map((a) => (a.id === activity.id ? activity : a)));
-    } else {
-      setActivities((prev) => [...prev, { ...activity, id: Date.now().toString() }]);
+  const saveActivity = async (activity: Activity) => {
+    try {
+      setActivityError(null);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setActivityError('No authentication token found');
+        return;
+      }
+
+      // Map status to isPublished (archived = not published)
+      const isPublished = activity.status !== 'archived';
+
+      const payload = {
+        title: activity.title,
+        description: activity.description,
+        startTime: datetimeLocalToISO(activity.startTime),
+        endTime: datetimeLocalToISO(activity.endTime),
+        imageUrl: activity.imageUrl,
+        externalLink: activity.externalLink || '',
+        isPublished,
+      };
+
+      if (activity.id > 0) {
+        // Update existing
+        const response = await fetch(`/api/activities/${activity.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to update activity: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const updated = mapActivity(data);
+        setActivities((prev) =>
+          prev.map((a) => (a.id === activity.id ? updated : a))
+        );
+      } else {
+        // Create new
+        const response = await fetch(`/api/activities`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to create activity: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const created = mapActivity(data);
+        setActivities((prev) => [...prev, created]);
+      }
+
+      setEditingActivity(null);
+      setShowActivityForm(false);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to save activity';
+      setActivityError(errMsg);
+      console.error('Error saving activity:', err);
     }
-    setEditingActivity(null);
-    setShowActivityForm(false);
   };
 
-  const deleteActivity = (id: string) => {
-    setActivities((prev) => prev.filter((a) => a.id !== id));
+  const deleteActivity = async (id: number) => {
+    try {
+      setActivityError(null);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setActivityError('No authentication token found');
+        return;
+      }
+
+      const response = await fetch(`/api/activities/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to delete activity: ${response.statusText}`);
+      }
+      
+      setActivities((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to delete activity';
+      setActivityError(errMsg);
+      console.error('Error deleting activity:', err);
+    }
   };
 
   const handleLogout = () => {
@@ -308,6 +467,8 @@ export function Admin() {
               setEditing={setEditingActivity}
               showForm={showActivityForm}
               setShowForm={setShowActivityForm}
+              activityLoading={activityLoading}
+              activityError={activityError}
             />
           )}
         </div>
@@ -752,14 +913,17 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
 
 function ActivityManager({
   activities, onSave, onDelete, editing, setEditing, showForm, setShowForm,
+  activityLoading, activityError,
 }: {
   activities: Activity[];
-  onSave: (a: Activity) => void;
-  onDelete: (id: string) => void;
+  onSave: (a: Activity) => Promise<void> | void;
+  onDelete: (id: number) => Promise<void> | void;
   editing: Activity | null;
   setEditing: (a: Activity | null) => void;
   showForm: boolean;
   setShowForm: (v: boolean) => void;
+  activityLoading?: boolean;
+  activityError?: string | null;
 }) {
   const grouped = {
     upcoming: activities.filter((a) => a.status === 'upcoming'),
@@ -783,13 +947,34 @@ function ActivityManager({
             setEditing(null);
             setShowForm(true);
           }}
-          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]"
+          disabled={activityLoading}
+          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
         >
           <Plus className="w-4 h-4" />
           Add Activity
         </button>
       </div>
+
+      {/* Error alert */}
+      {activityError && (
+        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-red-200" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {activityError}
+          </p>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {activityLoading && (
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-center gap-3">
+          <Loader2 className="w-5 h-5 text-[#eb7524] animate-spin" />
+          <p className="text-white/60" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            Loading activities...
+          </p>
+        </div>
+      )}
 
       {/* Form */}
       {(showForm || editing) && (
@@ -847,10 +1032,11 @@ function ActivityManager({
   );
 }
 
-function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => void }) {
+function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => Promise<void> | void }) {
   const color = statusColors[activity.status];
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -860,6 +1046,15 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  const handleDelete = async () => {
+    try {
+      setIsDeleting(true);
+      await onDelete();
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -907,7 +1102,8 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
         <div className="flex items-center gap-2">
           <button
             onClick={onEdit}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
+            disabled={isDeleting}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
           >
             <Edit3 className="w-3 h-3" />
@@ -915,16 +1111,25 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
           </button>
           {confirmDelete ? (
             <button
-              onClick={onDelete}
-              className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
             >
-              Confirm Delete
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Confirm Delete'
+              )}
             </button>
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+              disabled={isDeleting}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
             >
               <Trash2 className="w-3 h-3" />
@@ -937,30 +1142,51 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
   );
 }
 
-function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null; onSave: (a: Activity) => void; onCancel: () => void }) {
+function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null; onSave: (a: Activity) => Promise<void> | void; onCancel: () => void }) {
   const [title, setTitle] = useState(initial?.title || '');
   const [description, setDescription] = useState(initial?.description || '');
-  const [startTime, setStartTime] = useState(initial?.startTime?.split('T').join('T') || '');
-  const [endTime, setEndTime] = useState(initial?.endTime?.split('T').join('T') || '');
+  const [startTime, setStartTime] = useState(formatToDatetimeLocal(initial?.startTime));
+  const [endTime, setEndTime] = useState(formatToDatetimeLocal(initial?.endTime));
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
-  const [status, setStatus] = useState<Activity['status']>(initial?.status || 'upcoming');
+  const [externalLink, setExternalLink] = useState(initial?.externalLink || '');
+  const [isPublished, setIsPublished] = useState(initial?.isPublished !== false);
   const [preview, setPreview] = useState(initial?.imageUrl || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !description || !startTime || !endTime) {
       alert('Please fill all required fields');
       return;
     }
-    onSave({
-      id: initial?.id || '',
-      title,
-      description,
-      startTime,
-      endTime,
-      imageUrl: imageUrl || 'https://images.unsplash.com/photo-1770026136797-18659700b5b9',
-      status,
-    });
+
+    try {
+      setIsSubmitting(true);
+      
+      // Derive status from times and isPublished
+      const now = new Date();
+      const start = new Date(datetimeLocalToISO(startTime));
+      const end = new Date(datetimeLocalToISO(endTime));
+      let status: Activity['status'] = 'upcoming';
+      if (!isPublished || now > end) {
+        status = 'archived';
+      } else if (now >= start && now < end) {
+        status = 'ongoing';
+      }
+      
+      await onSave({
+        id: initial?.id || 0, // 0 means new record
+        title,
+        description,
+        startTime,
+        endTime,
+        imageUrl: imageUrl || 'https://images.unsplash.com/photo-1770026136797-18659700b5b9',
+        externalLink,
+        status,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -987,25 +1213,19 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
             />
           </div>
           <div>
-            <label className="block text-white/60 mb-1.5" style={labelStyle}>Status</label>
-            <div className="flex gap-2">
-              {(['upcoming', 'ongoing', 'archived'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStatus(s)}
-                  className={`flex-1 py-2.5 rounded-xl border transition-all cursor-pointer text-xs ${
-                    status === s ? 'border-transparent' : 'border-white/10 bg-white/[0.03] text-white/40 hover:bg-white/[0.06]'
-                  }`}
-                  style={{
-                    fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif',
-                    ...(status === s ? { backgroundColor: statusColors[s] + '20', color: statusColors[s], borderColor: statusColors[s] + '40' } : {}),
-                  }}
-                >
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </button>
-              ))}
-            </div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Published</label>
+            <button
+              type="button"
+              onClick={() => setIsPublished(!isPublished)}
+              className={`w-full py-2.5 rounded-xl border transition-all cursor-pointer ${
+                isPublished
+                  ? 'bg-[#10b981]/20 border-[#10b981]/40 text-[#10b981]'
+                  : 'bg-red-500/10 border-red-500/30 text-red-400'
+              }`}
+              style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
+            >
+              {isPublished ? '✓ Published' : '○ Unpublished'}
+            </button>
           </div>
         </div>
 
@@ -1058,6 +1278,17 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
           />
         </div>
 
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>External Link</label>
+          <input
+            value={externalLink}
+            onChange={(e) => setExternalLink(e.target.value)}
+            placeholder="https://example.com"
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+          />
+        </div>
+
         {/* Preview */}
         {preview && (
           <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
@@ -1066,12 +1297,21 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         )}
 
         <div className="flex gap-3 justify-end pt-2">
-          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
             Cancel
           </button>
-          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-            <Save className="w-4 h-4" />
-            {initial ? 'Update' : 'Add'} Activity
+          <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                {initial ? 'Update' : 'Add'} Activity
+              </>
+            )}
           </button>
         </div>
       </form>
