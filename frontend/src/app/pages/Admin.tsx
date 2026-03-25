@@ -128,6 +128,29 @@ function datetimeLocalToISO(datetimeLocal: string): string {
   return `${datetimeLocal}:00`; // Convert YYYY-MM-DDTHH:mm to YYYY-MM-DDTHH:mm:00
 }
 
+/**
+ * Upload image file to /api/upload
+ */
+async function uploadActivityImage(file: File): Promise<string> {
+  const token = localStorage.getItem('token');
+  const formData = new FormData();
+  formData.append('image', file);
+  
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || 'Upload failed');
+  }
+  
+  const data = await response.json();
+  return data.path || data.url || data.imgUrl;
+}
+
 export function Admin() {
   const { user, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
   const navigate = useNavigate();
@@ -1110,21 +1133,31 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
             Edit
           </button>
           {confirmDelete ? (
-            <button
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Confirm Delete'
-              )}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Deleting
+                  </>
+                ) : (
+                  'Confirm'
+                )}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                disabled={isDeleting}
+                className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >
+                Cancel
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
@@ -1152,6 +1185,26 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   const [isPublished, setIsPublished] = useState(initial?.isPublished !== false);
   const [preview, setPreview] = useState(initial?.imageUrl || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const url = await uploadActivityImage(file);
+      setImageUrl(url);
+      setPreview(url);
+    } catch (err: any) {
+      setUploadError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1268,14 +1321,41 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         </div>
 
         <div>
-          <label className="block text-white/60 mb-1.5" style={labelStyle}>Image URL</label>
-          <input
-            value={imageUrl}
-            onChange={(e) => { setImageUrl(e.target.value); setPreview(e.target.value); }}
-            placeholder="https://images.unsplash.com/..."
-            className={inputCls}
-            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-          />
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Activity Image</label>
+          <div className="flex gap-3 mb-2">
+            <input 
+              ref={fileRef}
+              type="file" 
+              accept="image/*" 
+              onChange={handleFileUpload} 
+              className="hidden" 
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] text-white hover:bg-white/[0.06] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Camera className="w-4 h-4" />
+                  {imageUrl ? 'Change Image' : 'Upload Image'}
+                </>
+              )}
+            </button>
+          </div>
+          {uploadError && (
+            <p className="text-red-400 text-xs mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>{uploadError}</p>
+          )}
+          {imageUrl && (
+            <p className="text-white/40 text-xs truncate" style={{ fontFamily: 'Inter, sans-serif' }}>{imageUrl}</p>
+          )}
         </div>
 
         <div>
