@@ -358,11 +358,16 @@ function ActivityCard({
         </div>
 
         {/* Learn More Button */}
-        <button className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all" style={{ 
-          fontSize: '13px',
-          fontFamily: 'Outfit, sans-serif',
-          fontWeight: 500
-        }}>
+        <button 
+          onClick={() => activity.externalLink && window.open(activity.externalLink, '_blank')}
+          disabled={!activity.externalLink}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed" 
+          style={{ 
+            fontSize: '13px',
+            fontFamily: 'Outfit, sans-serif',
+            fontWeight: 500
+          }}
+        >
           Learn More
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
@@ -443,11 +448,16 @@ function ActivityCardLarge({ activity }: { activity: Activity }) {
           </div>
 
           {/* CTA */}
-          <button className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all" style={{ 
-            fontSize: '14px',
-            fontFamily: 'Outfit, sans-serif',
-            fontWeight: 600
-          }}>
+          <button 
+            onClick={() => activity.externalLink && window.open(activity.externalLink, '_blank')}
+            disabled={!activity.externalLink}
+            className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all disabled:opacity-50 disabled:cursor-not-allowed" 
+            style={{ 
+              fontSize: '14px',
+              fontFamily: 'Outfit, sans-serif',
+              fontWeight: 600
+            }}
+          >
             Join Event
             <ArrowRight className="w-4 h-4" />
           </button>
