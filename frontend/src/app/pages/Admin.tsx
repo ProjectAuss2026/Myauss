@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
-  Loader2,
+  Loader2, Calendar, Clock, AlertCircle,
 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -44,6 +44,20 @@ interface MediaItem {
   label: string;
 }
 
+interface Activity {
+  id: number;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  imageUrl: string;
+  externalLink?: string;
+  isPublished?: boolean;
+  status: 'upcoming' | 'ongoing' | 'archived';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // ── Default data ──
 const defaultSponsors: Sponsor[] = [
   { id: '1', name: 'IronGrip Supplements', tier: 'Gold', description: 'Premium sports nutrition partner providing supplements and recovery products for all AUSS members.', website: 'https://example.com' },
@@ -62,13 +76,80 @@ const defaultMedia: MediaItem[] = [
   { id: '5', src: 'https://images.unsplash.com/photo-1688521010890-0e58abbaf755?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Chalk hands barbell', label: 'Meet Day' },
 ];
 
+const defaultActivities: Activity[] = [];
+
 const tierColors: Record<string, string> = { Gold: '#eb7524', Silver: '#94a3b8', Bronze: '#b87333' };
 
-type Tab = 'sponsors' | 'media';
+const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
+
+type Tab = 'sponsors' | 'media' | 'activities';
 
 // ── Shared field styles ──
 const inputCls = "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all";
 const labelStyle: React.CSSProperties = { fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 };
+
+// ── Activity helpers ──
+function deriveActivityStatus(activity: Activity): 'upcoming' | 'ongoing' | 'archived' {
+  const now = new Date();
+  const startTime = new Date(activity.startTime);
+  const endTime = new Date(activity.endTime);
+  
+  if (!activity.isPublished || now > endTime) return 'archived';
+  if (now >= startTime && now < endTime) return 'ongoing';
+  return 'upcoming';
+}
+
+function mapActivity(activity: any): Activity {
+  return {
+    ...activity,
+    status: deriveActivityStatus(activity),
+  };
+}
+
+/**
+ * Format ISO datetime string for datetime-local input (YYYY-MM-DDTHH:mm)
+ */
+function formatToDatetimeLocal(dateStr?: string): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+/**
+ * Convert datetime-local format to ISO string
+ */
+function datetimeLocalToISO(datetimeLocal: string): string {
+  if (!datetimeLocal) return '';
+  return `${datetimeLocal}:00`; // Convert YYYY-MM-DDTHH:mm to YYYY-MM-DDTHH:mm:00
+}
+
+/**
+ * Upload image file to /api/upload
+ */
+async function uploadActivityImage(file: File): Promise<string> {
+  const token = localStorage.getItem('token');
+  const formData = new FormData();
+  formData.append('image', file);
+  
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || 'Upload failed');
+  }
+  
+  const data = await response.json();
+  return data.path || data.url || data.imgUrl;
+}
 
 export function Admin() {
   const { user, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
@@ -85,6 +166,13 @@ export function Admin() {
   const [media, setMedia] = useState<MediaItem[]>(defaultMedia);
   const [editingMedia, setEditingMedia] = useState<MediaItem | null>(null);
   const [showMediaForm, setShowMediaForm] = useState(false);
+
+  // Activity state
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+  const [showActivityForm, setShowActivityForm] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
 
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
 
@@ -104,6 +192,43 @@ export function Admin() {
       navigate('/', { replace: true });
     }
   }, [isLoading, isAuthenticated, isAdmin, navigate]);
+
+  // ── Load activities from backend ──
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+
+    const loadActivities = async () => {
+      try {
+        setActivityLoading(true);
+        setActivityError(null);
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setActivityError('No authentication token found');
+          return;
+        }
+        
+        const response = await fetch(`/api/activities/all`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch activities: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        setActivities(data.map(mapActivity));
+      } catch (err) {
+        setActivityError(err instanceof Error ? err.message : 'Failed to load activities');
+        console.error('Error loading activities:', err);
+      } finally {
+        setActivityLoading(false);
+      }
+    };
+
+    loadActivities();
+  }, [isAdmin, user]);
 
   // ── Loading state ──
   // Show a spinner while auth is being resolved to prevent flash of content
@@ -162,6 +287,102 @@ export function Admin() {
     setMedia((prev) => prev.filter((m) => m.id !== id));
   };
 
+  // ── Activity CRUD ──
+  const saveActivity = async (activity: Activity) => {
+    try {
+      setActivityError(null);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setActivityError('No authentication token found');
+        return;
+      }
+
+      // Map status to isPublished (archived = not published)
+      const isPublished = activity.status !== 'archived';
+
+      const payload = {
+        title: activity.title,
+        description: activity.description,
+        startTime: datetimeLocalToISO(activity.startTime),
+        endTime: datetimeLocalToISO(activity.endTime),
+        imageUrl: activity.imageUrl,
+        externalLink: activity.externalLink || '',
+        isPublished,
+      };
+
+      if (activity.id > 0) {
+        // Update existing
+        const response = await fetch(`/api/activities/${activity.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to update activity: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const updated = mapActivity(data);
+        setActivities((prev) =>
+          prev.map((a) => (a.id === activity.id ? updated : a))
+        );
+      } else {
+        // Create new
+        const response = await fetch(`/api/activities`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to create activity: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const created = mapActivity(data);
+        setActivities((prev) => [...prev, created]);
+      }
+
+      setEditingActivity(null);
+      setShowActivityForm(false);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to save activity';
+      setActivityError(errMsg);
+      console.error('Error saving activity:', err);
+    }
+  };
+
+  const deleteActivity = async (id: number) => {
+    try {
+      setActivityError(null);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setActivityError('No authentication token found');
+        return;
+      }
+
+      const response = await fetch(`/api/activities/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to delete activity: ${response.statusText}`);
+      }
+      
+      setActivities((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to delete activity';
+      setActivityError(errMsg);
+      console.error('Error deleting activity:', err);
+    }
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -210,6 +431,7 @@ export function Admin() {
           <div className="flex gap-2">
             {([
               { key: 'sponsors' as Tab, label: 'Sponsors', icon: Star },
+              { key: 'activities' as Tab, label: 'Activities', icon: Calendar },
               { key: 'media' as Tab, label: 'Photo Drive', icon: Camera },
             ]).map((t) => {
               const Icon = t.icon;
@@ -257,6 +479,19 @@ export function Admin() {
               setEditing={setEditingMedia}
               showForm={showMediaForm}
               setShowForm={setShowMediaForm}
+            />
+          )}
+          {tab === 'activities' && (
+            <ActivityManager
+              activities={activities}
+              onSave={saveActivity}
+              onDelete={deleteActivity}
+              editing={editingActivity}
+              setEditing={setEditingActivity}
+              showForm={showActivityForm}
+              setShowForm={setShowActivityForm}
+              activityLoading={activityLoading}
+              activityError={activityError}
             />
           )}
         </div>
@@ -310,13 +545,17 @@ function SponsorManager({
         </button>
       </div>
 
-      {/* Form modal */}
+      {/* Form Modal */}
       {(showForm || editing) && (
-        <SponsorForm
-          initial={editing}
-          onSave={onSave}
-          onCancel={() => { setEditing(null); setShowForm(false); }}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <SponsorForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setEditing(null); setShowForm(false); }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Sponsor list by tier */}
@@ -430,7 +669,7 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
   };
 
   return (
-    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7 mb-8">
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
           {initial ? 'Edit Sponsor' : 'Add New Sponsor'}
@@ -534,13 +773,17 @@ function MediaManager({
         </button>
       </div>
 
-      {/* Form */}
+      {/* Form Modal */}
       {(showForm || editing) && (
-        <MediaForm
-          initial={editing}
-          onSave={onSave}
-          onCancel={() => { setEditing(null); setShowForm(false); }}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <MediaForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setEditing(null); setShowForm(false); }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Media Grid */}
@@ -688,6 +931,471 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
           <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
             <Save className="w-4 h-4" />
             {initial ? 'Update' : 'Add'} Photo
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Activity Manager
+// ═══════════════════════════════════════════════
+
+function ActivityManager({
+  activities, onSave, onDelete, editing, setEditing, showForm, setShowForm,
+  activityLoading, activityError,
+}: {
+  activities: Activity[];
+  onSave: (a: Activity) => Promise<void> | void;
+  onDelete: (id: number) => Promise<void> | void;
+  editing: Activity | null;
+  setEditing: (a: Activity | null) => void;
+  showForm: boolean;
+  setShowForm: (v: boolean) => void;
+  activityLoading?: boolean;
+  activityError?: string | null;
+}) {
+  const grouped = {
+    upcoming: activities.filter((a) => a.status === 'upcoming'),
+    ongoing: activities.filter((a) => a.status === 'ongoing'),
+    archived: activities.filter((a) => a.status === 'archived'),
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Manage Activities
+          </h2>
+          <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'} ({grouped.upcoming.length} upcoming, {grouped.ongoing.length} ongoing, {grouped.archived.length} archived)
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setEditing(null);
+            setShowForm(true);
+          }}
+          disabled={activityLoading}
+          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          <Plus className="w-4 h-4" />
+          Add Activity
+        </button>
+      </div>
+
+      {/* Error alert */}
+      {activityError && (
+        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-red-200" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {activityError}
+          </p>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {activityLoading && (
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-center gap-3">
+          <Loader2 className="w-5 h-5 text-[#eb7524] animate-spin" />
+          <p className="text-white/60" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            Loading activities...
+          </p>
+        </div>
+      )}
+
+      {/* Form Modal */}
+      {(showForm || editing) && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <ActivityForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setEditing(null); setShowForm(false); }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Activities by status */}
+      {(['ongoing', 'upcoming', 'archived'] as const).map((status) => {
+        const items = grouped[status];
+        const color = statusColors[status];
+        const labels = { upcoming: 'Upcoming', ongoing: 'Ongoing', archived: 'Archived' };
+
+        return (
+          <div key={status} className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-1 h-5 rounded-full" style={{ backgroundColor: color }} />
+              <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                {labels[status]} Activities
+              </h3>
+              <span className="px-2.5 py-0.5 rounded-full text-xs" style={{ backgroundColor: color + '18', color, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                {items.length}
+              </span>
+            </div>
+            {items.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {items.map((activity) => (
+                  <ActivityCard
+                    key={activity.id}
+                    activity={activity}
+                    onEdit={() => { setEditing(activity); setShowForm(false); }}
+                    onDelete={() => onDelete(activity.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 rounded-xl border border-white/[0.06]">
+                <p className="text-white/30" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>No {labels[status].toLowerCase()} activities</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {activities.length === 0 && (
+        <div className="text-center py-16">
+          <Calendar className="w-12 h-12 text-white/10 mx-auto mb-4" />
+          <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No activities added yet</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => Promise<void> | void }) {
+  const color = statusColors[activity.status];
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [imgError, setImgError] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  const handleDelete = async () => {
+    try {
+      setIsDeleting(true);
+      await onDelete();
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden group hover:border-white/10 transition-all duration-300">
+      {/* Image */}
+      <div className="relative h-[180px] overflow-hidden">
+        {imgError ? (
+          <div className="w-full h-full flex items-center justify-center bg-white/[0.02]">
+            <Calendar className="w-8 h-8 text-white/10" />
+          </div>
+        ) : (
+          <img
+            src={activity.imageUrl}
+            alt={activity.title}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={() => setImgError(true)}
+          />
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="p-4">
+        <h4 className="text-white mb-3 truncate" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          {activity.title}
+        </h4>
+
+
+        {/* Date/Time */}
+        <div className="bg-white/[0.03] rounded-lg p-2 mb-3 border border-white/[0.05]">
+          <div className="flex items-center gap-1.5 text-white/50" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+            <Clock className="w-3 h-3" />
+            <span>{formatDate(activity.startTime)} · {formatTime(activity.startTime)}</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onEdit}
+            disabled={isDeleting}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >
+            <Edit3 className="w-3 h-3" />
+            Edit
+          </button>
+          {confirmDelete ? (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Deleting
+                  </>
+                ) : (
+                  'Confirm'
+                )}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                disabled={isDeleting}
+                className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              disabled={isDeleting}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              <Trash2 className="w-3 h-3" />
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null; onSave: (a: Activity) => Promise<void> | void; onCancel: () => void }) {
+  const [title, setTitle] = useState(initial?.title || '');
+  const [description, setDescription] = useState(initial?.description || '');
+  const [startTime, setStartTime] = useState(formatToDatetimeLocal(initial?.startTime));
+  const [endTime, setEndTime] = useState(formatToDatetimeLocal(initial?.endTime));
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
+  const [externalLink, setExternalLink] = useState(initial?.externalLink || '');
+  const [isPublished, setIsPublished] = useState(initial?.isPublished !== false);
+  const [preview, setPreview] = useState(initial?.imageUrl || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const url = await uploadActivityImage(file);
+      setImageUrl(url);
+      setPreview(url);
+    } catch (err: any) {
+      setUploadError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !description || !startTime || !endTime) {
+      alert('Please fill all required fields');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      
+      // Derive status from times and isPublished
+      const now = new Date();
+      const start = new Date(datetimeLocalToISO(startTime));
+      const end = new Date(datetimeLocalToISO(endTime));
+      let status: Activity['status'] = 'upcoming';
+      if (!isPublished || now > end) {
+        status = 'archived';
+      } else if (now >= start && now < end) {
+        status = 'ongoing';
+      }
+      
+      await onSave({
+        id: initial?.id || 0, // 0 means new record
+        title,
+        description,
+        startTime,
+        endTime,
+        imageUrl: imageUrl,
+        externalLink,
+        status,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          {initial ? 'Edit Activity' : 'Add New Activity'}
+        </h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Activity Title *</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Weekly Training Session"
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Published</label>
+            <button
+              type="button"
+              onClick={() => setIsPublished(!isPublished)}
+              className={`w-full py-2.5 rounded-xl border transition-all cursor-pointer ${
+                isPublished
+                  ? 'bg-[#10b981]/20 border-[#10b981]/40 text-[#10b981]'
+                  : 'bg-red-500/10 border-red-500/30 text-red-400'
+              }`}
+              style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
+            >
+              {isPublished ? '✓ Published' : '○ Unpublished'}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Description *</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe the activity..."
+            rows={3}
+            className={inputCls + ' resize-none'}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            required
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>Start Date/Time *</label>
+            <input
+              type="datetime-local"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-white/60 mb-1.5" style={labelStyle}>End Date/Time *</label>
+            <input
+              type="datetime-local"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              required
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Activity Image</label>
+          <div className="flex gap-3 mb-2">
+            <input 
+              ref={fileRef}
+              type="file" 
+              accept="image/*" 
+              onChange={handleFileUpload} 
+              className="hidden" 
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] text-white hover:bg-white/[0.06] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Camera className="w-4 h-4" />
+                  {imageUrl ? 'Change Image' : 'Upload Image'}
+                </>
+              )}
+            </button>
+          </div>
+          {uploadError && (
+            <p className="text-red-400 text-xs mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>{uploadError}</p>
+          )}
+          {imageUrl && (
+            <p className="text-white/40 text-xs truncate" style={{ fontFamily: 'Inter, sans-serif' }}>{imageUrl}</p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>External Link</label>
+          <input
+            value={externalLink}
+            onChange={(e) => setExternalLink(e.target.value)}
+            placeholder="https://example.com"
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+          />
+        </div>
+
+        {/* Preview */}
+        {preview && (
+          <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
+            <img src={preview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          </div>
+        )}
+
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+            Cancel
+          </button>
+          <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                {initial ? 'Update' : 'Add'} Activity
+              </>
+            )}
           </button>
         </div>
       </form>

@@ -8,6 +8,7 @@ import { authenticate } from './middleware/authMiddleware.js';
 import './jobs/cleanupUnverified.js';
 import configRoutes from './routes/configRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
+import activityRoutes from './routes/activityRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,6 +48,9 @@ app.use('/api/config', configRoutes);
 
 // Upload route (protected — must be logged in)
 app.use('/api/upload', authenticate, uploadRoutes);
+
+// Activity routes — GET is public, POST/DELETE are admin only
+app.use('/api/activities', activityRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

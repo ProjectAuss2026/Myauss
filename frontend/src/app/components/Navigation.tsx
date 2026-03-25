@@ -11,6 +11,7 @@ const navLinks = [
   { to: '/about', label: 'About' },
   { to: '/sponsorship', label: 'Sponsorship' },
   { to: '/social', label: 'Social' },
+  { to: '/activities', label: 'Activities' },
 ];
 
 export function Navigation() {
@@ -123,7 +124,7 @@ export function Navigation() {
                               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
                             >
                               <Shield className="w-4 h-4" />
-                              Sponsor & Photo Drive
+                              Admin Dashboard
                             </button>
                             <button
                               onClick={() => { setProfileDropdown(false); navigate('/manage'); }}
@@ -173,7 +174,7 @@ export function Navigation() {
         <div
           className="md:hidden overflow-hidden transition-all duration-300 ease-out"
           style={{
-            maxHeight: mobileMenuOpen ? '400px' : '0',
+            maxHeight: mobileMenuOpen ? '500px' : '0',
             opacity: mobileMenuOpen ? 1 : 0,
           }}
         >
@@ -213,7 +214,7 @@ export function Navigation() {
                         style={{ fontFamily: 'Outfit, sans-serif' }}
                       >
                         <Shield className="w-4 h-4" />
-                        Sponsor & Photo Drive
+                        Admin Dashboard
                       </Link>
                       <Link
                         to="/manage"
