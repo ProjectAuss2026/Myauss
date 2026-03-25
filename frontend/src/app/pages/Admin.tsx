@@ -545,13 +545,17 @@ function SponsorManager({
         </button>
       </div>
 
-      {/* Form modal */}
+      {/* Form Modal */}
       {(showForm || editing) && (
-        <SponsorForm
-          initial={editing}
-          onSave={onSave}
-          onCancel={() => { setEditing(null); setShowForm(false); }}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <SponsorForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setEditing(null); setShowForm(false); }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Sponsor list by tier */}
@@ -665,7 +669,7 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
   };
 
   return (
-    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7 mb-8">
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
           {initial ? 'Edit Sponsor' : 'Add New Sponsor'}
@@ -769,13 +773,17 @@ function MediaManager({
         </button>
       </div>
 
-      {/* Form */}
+      {/* Form Modal */}
       {(showForm || editing) && (
-        <MediaForm
-          initial={editing}
-          onSave={onSave}
-          onCancel={() => { setEditing(null); setShowForm(false); }}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <MediaForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setEditing(null); setShowForm(false); }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Media Grid */}
@@ -999,13 +1007,17 @@ function ActivityManager({
         </div>
       )}
 
-      {/* Form */}
+      {/* Form Modal */}
       {(showForm || editing) && (
-        <ActivityForm
-          initial={editing}
-          onSave={onSave}
-          onCancel={() => { setEditing(null); setShowForm(false); }}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <ActivityForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setEditing(null); setShowForm(false); }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Activities by status */}
@@ -1096,22 +1108,14 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
             onError={() => setImgError(true)}
           />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
-        <div className="absolute top-3 right-3">
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold" style={{ backgroundColor: color + '25', color, fontFamily: 'Inter, sans-serif' }}>
-            {activity.status.charAt(0).toUpperCase() + activity.status.slice(1)}
-          </span>
-        </div>
       </div>
 
       {/* Content */}
       <div className="p-4">
-        <h4 className="text-white mb-1 truncate" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+        <h4 className="text-white mb-3 truncate" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
           {activity.title}
         </h4>
-        <p className="text-white/35 mb-3 line-clamp-2" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
-          {activity.description}
-        </p>
+
 
         {/* Date/Time */}
         <div className="bg-white/[0.03] rounded-lg p-2 mb-3 border border-white/[0.05]">
@@ -1243,7 +1247,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   };
 
   return (
-    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7 mb-8">
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
           {initial ? 'Edit Activity' : 'Add New Activity'}

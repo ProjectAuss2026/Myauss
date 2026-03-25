@@ -317,9 +317,9 @@ function ActivityCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
         <div className="absolute top-3 right-3">
           <span className="px-2.5 py-1 rounded-full text-xs font-semibold" style={{ 
-            backgroundColor: 'rgba(0, 0, 0, 0.65)',
-            border: '2px solid rgba(255, 255, 255, 0.1)',
-            color: '#ffffff',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            border: '1px solid rgba(59, 130, 246, 0.65)',
+            color: '#3b82f6',
             fontFamily: 'Inter, sans-serif'
           }}>
             {getTimeUntil(activity.startTime)}
@@ -408,7 +408,8 @@ function ActivityCardLarge({ activity }: { activity: Activity }) {
           <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-black/50 via-transparent to-transparent" />
           <div className="absolute top-3 right-3">
             <span className="px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2" style={{ 
-              backgroundColor: 'rgba(16, 185, 129, 0.2)',
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              border: '1px solid rgb(16, 185, 129, 0.65)',
               color: '#10b981',
               fontFamily: 'Inter, sans-serif'
             }}>
@@ -442,7 +443,7 @@ function ActivityCardLarge({ activity }: { activity: Activity }) {
             <div className="space-y-2">
               <div className="flex items-center gap-3 text-white/60" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
                 <Clock className="w-5 h-5 text-[#eb7524]" />
-                <span>Starting at {formatTime(activity.startTime)}</span>
+                <span>Started at {formatTime(activity.startTime)}</span>
               </div>
             </div>
           </div>
