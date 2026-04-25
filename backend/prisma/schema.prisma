@@ -86,6 +86,23 @@ model Activity {
   imageUrl     String?
   externalLink String?
   isPublished  Boolean  @default(true)
+  capacity     Int? // null = unlimited capacity
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  rsvps        Rsvp[]
+}
+
+// --- RSVPS ---
+// Stores RSVP submissions for activities/events
+model Rsvp {
+  id         Int      @id @default(autoincrement())
+  activityId Int
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  name       String
+  email      String
+  studentId  String
+  createdAt  DateTime @default(now())
+
+  @@unique([activityId, email])
+  @@index([activityId])
 }
