@@ -81,10 +81,7 @@ export function Social() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
 
-  // Media drive URL — placeholder until managed from DB/config
-  const mediaDriveUrl = '#';
-
-  // ── Fetch communication links from DB ──────────────────────────────────
+  // ── Fetch communication links + media drive URL from DB ───────────────
   interface DbLink {
     id: number;
     platform: string;
@@ -95,6 +92,8 @@ export function Social() {
   }
   const [dbLinks, setDbLinks] = useState<DbLink[]>([]);
   const [dbLinksLoading, setDbLinksLoading] = useState(true);
+  // Media drive URL — sourced from DB via /api/config (mediaConfig.mediaDriveUrl).
+  const [mediaDriveUrl, setMediaDriveUrl] = useState<string | null>(null);
   useEffect(() => {
     fetch('/api/config')
       .then((r) => (r.ok ? r.json() : null))
@@ -104,6 +103,10 @@ export function Social() {
             (l) => l.isActive
           );
           setDbLinks(filtered);
+        }
+        const url = data?.mediaConfig?.mediaDriveUrl;
+        if (typeof url === 'string' && url.trim()) {
+          setMediaDriveUrl(url.trim());
         }
       })
       .catch(() => {})
@@ -198,17 +201,27 @@ export function Social() {
                   Feel free to download and share!
                 </p>
               </div>
-              {/* TODO: Backend will provide media_drive_url — currently uses placeholder */}
-              <a
-                href={mediaDriveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 bg-[#eb7524] text-white px-8 py-3.5 rounded-xl hover:bg-[#d4691f] transition-all flex-shrink-0"
-                style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-              >
-                Open Drive
-                <ArrowRight className="w-4 h-4" />
-              </a>
+              {/* Drive URL is loaded from /api/config (mediaConfig.mediaDriveUrl). */}
+              {mediaDriveUrl ? (
+                <a
+                  href={mediaDriveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 bg-[#eb7524] text-white px-8 py-3.5 rounded-xl hover:bg-[#d4691f] transition-all flex-shrink-0"
+                  style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Open Drive
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-2 bg-white/[0.04] border border-white/10 text-white/50 px-8 py-3.5 rounded-xl flex-shrink-0"
+                  style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                  aria-disabled="true"
+                >
+                  {dbLinksLoading ? 'Loading…' : 'Photo drive link unavailable'}
+                </span>
+              )}
             </div>
           </FadeIn>
         </div>

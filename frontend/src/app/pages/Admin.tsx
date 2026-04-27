@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
-  Loader2, Calendar, Clock, AlertCircle,
+  Loader2, Calendar, Clock, AlertCircle, Link as LinkIcon, CheckCircle2,
 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -735,6 +735,214 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
 }
 
 // ═══════════════════════════════════════════════
+// Photo Drive Link Panel — edit & save the singleton MediaConfig.mediaDriveUrl
+// ═══════════════════════════════════════════════
+
+function isValidUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function PhotoDriveLinkPanel() {
+  const [configId, setConfigId] = useState<number | null>(null);
+  const [url, setUrl] = useState('');
+  const [savedUrl, setSavedUrl] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setLoadError(null);
+        const res = await fetch('/api/config');
+        if (!res.ok) throw new Error(`Failed to load config: ${res.statusText}`);
+        const data = await res.json();
+        if (cancelled) return;
+        const mc = data?.mediaConfig;
+        if (mc && typeof mc.id === 'number') {
+          setConfigId(mc.id);
+          setUrl(mc.mediaDriveUrl ?? '');
+          setSavedUrl(mc.mediaDriveUrl ?? '');
+        } else {
+          setConfigId(null);
+          setUrl('');
+          setSavedUrl('');
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : 'Failed to load Photo Drive link');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const dirty = url !== savedUrl;
+
+  const handleSave = async () => {
+    setValidationError(null);
+    setSaveError(null);
+    setSavedFlash(false);
+
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setValidationError('Photo Drive link cannot be empty');
+      return;
+    }
+    if (!isValidUrl(trimmed)) {
+      setValidationError('Please enter a valid http(s) URL');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/config', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          type: 'mediaConfig',
+          ...(configId != null ? { id: configId } : {}),
+          data: { mediaDriveUrl: trimmed },
+        }),
+      });
+
+      if (!res.ok) {
+        let message = `Save failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+          else if (body?.error) message = body.error;
+        } catch { /* ignore body parse errors */ }
+        throw new Error(message);
+      }
+
+      const body = await res.json();
+      const returned = body?.updated;
+      const newUrl = (returned && typeof returned.mediaDriveUrl === 'string')
+        ? returned.mediaDriveUrl
+        : trimmed;
+      if (returned && typeof returned.id === 'number') {
+        setConfigId(returned.id);
+      }
+      setUrl(newUrl);
+      setSavedUrl(newUrl);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2500);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save Photo Drive link');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-8 bg-[#111] border border-white/[0.06] rounded-2xl p-6">
+      <div className="flex items-start gap-3 mb-4">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(235,117,36,0.12)' }}>
+          <LinkIcon className="w-5 h-5 text-[#eb7524]" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-white" style={{ fontSize: '17px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Photo Drive Link
+          </h3>
+          <p className="text-white/45" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+            The external URL the visitor-facing &ldquo;Open Drive&rdquo; button links to.
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-white/50" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading current link...
+        </div>
+      ) : (
+        <>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>URL</label>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => { setUrl(e.target.value); setValidationError(null); setSaveError(null); }}
+              placeholder="https://danbainvisuals.pixieset.com/auss/landing/"
+              className={inputCls + ' flex-1'}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              disabled={saving}
+            />
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !dirty}
+              className="flex items-center justify-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#eb7524]"
+              style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? 'Saving...' : 'Save Link'}
+            </button>
+          </div>
+
+          {savedUrl && (
+            <div className="mt-3 flex items-center gap-2 text-white/40" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              <ExternalLink className="w-3.5 h-3.5" />
+              <a
+                href={savedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[#eb7524] transition-colors break-all"
+              >
+                {savedUrl}
+              </a>
+            </div>
+          )}
+
+          {validationError && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{validationError}</p>
+            </div>
+          )}
+          {saveError && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{saveError}</p>
+            </div>
+          )}
+          {loadError && !saveError && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{loadError}</p>
+            </div>
+          )}
+          {savedFlash && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
+              <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+              <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                Photo Drive link saved successfully.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
 // Media Manager
 // ═══════════════════════════════════════════════
 
@@ -751,6 +959,9 @@ function MediaManager({
 }) {
   return (
     <div>
+      {/* Photo Drive external link editor */}
+      <PhotoDriveLinkPanel />
+
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
           <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>

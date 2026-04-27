@@ -12,10 +12,10 @@ const ALLOWED_FIELDS = {
 const patchConfigController = async (req, res) => {
   const { type, id, data } = req.body;
 
-  if (!type || !id || !data || typeof data !== 'object') {
+  if (!type || !data || typeof data !== 'object') {
     return res.status(400).json({
       error: 'Bad request',
-      message: '`type`, `id`, and `data` fields are all required.',
+      message: '`type` and `data` fields are required.',
     });
   }
 
@@ -27,11 +27,27 @@ const patchConfigController = async (req, res) => {
     });
   }
 
-  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: '`id` must be a positive integer.',
-    });
+  // `mediaConfig` is a singleton: id is optional. For all other types id is required.
+  if (type !== 'mediaConfig') {
+    if (id === undefined || id === null) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: '`id` is required.',
+      });
+    }
+    if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: '`id` must be a positive integer.',
+      });
+    }
+  } else if (id !== undefined && id !== null) {
+    if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: '`id` must be a positive integer.',
+      });
+    }
   }
 
   // Strip any keys not in the whitelist
@@ -66,12 +82,51 @@ const patchConfigController = async (req, res) => {
         });
         break;
 
-      case 'mediaConfig':
-        updated = await prisma.mediaConfig.update({
-          where: { id },
-          data: filteredData,
-        });
+      case 'mediaConfig': {
+        const newUrl = typeof filteredData.mediaDriveUrl === 'string'
+          ? filteredData.mediaDriveUrl.trim()
+          : '';
+        if (!newUrl) {
+          return res.status(400).json({
+            error: 'Bad request',
+            message: 'Photo Drive URL is required.',
+          });
+        }
+        try {
+          const parsed = new URL(newUrl);
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            return res.status(400).json({
+              error: 'Bad request',
+              message: 'Photo Drive URL must use http or https.',
+            });
+          }
+        } catch {
+          return res.status(400).json({
+            error: 'Bad request',
+            message: 'Invalid Photo Drive URL.',
+          });
+        }
+
+        if (id) {
+          updated = await prisma.mediaConfig.update({
+            where: { id },
+            data: { mediaDriveUrl: newUrl },
+          });
+        } else {
+          const existing = await prisma.mediaConfig.findFirst();
+          if (existing) {
+            updated = await prisma.mediaConfig.update({
+              where: { id: existing.id },
+              data: { mediaDriveUrl: newUrl },
+            });
+          } else {
+            updated = await prisma.mediaConfig.create({
+              data: { mediaDriveUrl: newUrl },
+            });
+          }
+        }
         break;
+      }
 
       case 'sponsorshipPage':
         updated = await prisma.sponsorshipPage.update({
@@ -90,7 +145,9 @@ const patchConfigController = async (req, res) => {
     }
 
     return res.status(200).json({
-      message: `${type} with id=${id} updated successfully.`,
+      message: id
+        ? `${type} with id=${id} updated successfully.`
+        : `${type} saved successfully.`,
       updated,
     });
   } catch (error) {
