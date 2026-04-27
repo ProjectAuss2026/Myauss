@@ -88,6 +88,114 @@ type Tab = 'sponsors' | 'media' | 'activities';
 const inputCls = "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all";
 const labelStyle: React.CSSProperties = { fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 };
 
+// ── Shared validation helpers ──
+function isHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function wordCount(value: string): number {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+const fieldErrorCls = 'mt-1.5 text-red-400';
+const fieldErrorStyle: React.CSSProperties = { fontSize: '12px', fontFamily: 'Inter, sans-serif' };
+
+// ── Reusable confirmation dialog ──
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = 'Save Changes',
+  cancelLabel = 'Cancel',
+  busy = false,
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, busy, onCancel]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+      onClick={() => { if (!busy) onCancel(); }}
+    >
+      <div
+        className="bg-[#111] border border-white/10 rounded-2xl max-w-md w-full p-6"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(235,117,36,0.12)' }}>
+            <AlertCircle className="w-5 h-5 text-[#eb7524]" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-white mb-1" style={{ fontSize: '17px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+              {title}
+            </h3>
+            <div className="text-white/60" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.55 }}>
+              {message}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-3 justify-end pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/70 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          >
+            {busy ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                {confirmLabel}
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Activity helpers ──
 function deriveActivityStatus(activity: Activity): 'upcoming' | 'ongoing' | 'archived' {
   const now = new Date();
@@ -663,9 +771,45 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
   const [description, setDescription] = useState(initial?.description || '');
   const [website, setWebsite] = useState(initial?.website || '');
 
+  type SErrors = Partial<Record<'name' | 'description' | 'website', string>>;
+  const [errors, setErrors] = useState<SErrors>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const validate = (): SErrors => {
+    const e: SErrors = {};
+    if (!name.trim()) e.name = 'Sponsor name is required';
+    if (!description.trim()) e.description = 'Description is required';
+    else if (wordCount(description) < 5) e.description = 'Description must be at least 5 words';
+    if (website.trim() && !isHttpUrl(website.trim())) e.website = 'Website URL must be a valid http or https URL';
+    return e;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ id: initial?.id || '', name, tier, description, website });
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    const e2 = validate();
+    setErrors(e2);
+    if (Object.keys(e2).length > 0) return;
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmedSave = async () => {
+    try {
+      setSubmitting(true);
+      setSubmitError(null);
+      await onSave({ id: initial?.id || '', name: name.trim(), tier, description: description.trim(), website: website.trim() });
+      setErrors({});
+      setConfirmOpen(false);
+      setSubmitSuccess(initial ? 'Sponsor updated successfully.' : 'Sponsor added successfully.');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to save sponsor. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -678,10 +822,11 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
           <X className="w-5 h-5" />
         </button>
       </div>
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5" noValidate>
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Sponsor Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. IronGrip Supplements" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} required />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. IronGrip Supplements" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
+          {errors.name && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.name}</p>}
         </div>
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Tier</label>
@@ -709,27 +854,58 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Brief description of the sponsor's involvement..."
+            placeholder="Brief description of the sponsor's involvement (at least 5 words)..."
             rows={3}
             className={inputCls + ' resize-none'}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-            required
           />
+          {errors.description && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.description}</p>}
         </div>
         <div className="md:col-span-2">
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Website URL</label>
           <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://example.com" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
+          {errors.website && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.website}</p>}
         </div>
+
+        {submitError && (
+          <div className="md:col-span-2 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitError}</p>
+          </div>
+        )}
+        {submitSuccess && (
+          <div className="md:col-span-2 flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
+            <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+            <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitSuccess}</p>
+          </div>
+        )}
+
         <div className="md:col-span-2 flex gap-3 justify-end pt-2">
-          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+          <button type="button" onClick={onCancel} disabled={submitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
             Cancel
           </button>
-          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          <button type="submit" disabled={submitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
             <Save className="w-4 h-4" />
             {initial ? 'Update' : 'Add'} Sponsor
           </button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={initial ? 'Update this sponsor?' : 'Add this sponsor?'}
+        message={
+          <>
+            You&rsquo;re about to {initial ? 'update' : 'publish'} <span className="text-white/85">&ldquo;{name.trim()}&rdquo;</span> at the <span className="text-white/85">{tier}</span> tier.
+            <br />
+            Continue?
+          </>
+        }
+        confirmLabel={initial ? 'Save Changes' : 'Add Sponsor'}
+        busy={submitting}
+        onConfirm={handleConfirmedSave}
+        onCancel={() => { if (!submitting) setConfirmOpen(false); }}
+      />
     </div>
   );
 }
@@ -737,15 +913,6 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
 // ═══════════════════════════════════════════════
 // Photo Drive Link Panel — edit & save the singleton MediaConfig.mediaDriveUrl
 // ═══════════════════════════════════════════════
-
-function isValidUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
 
 function PhotoDriveLinkPanel() {
   const [configId, setConfigId] = useState<number | null>(null);
@@ -757,6 +924,7 @@ function PhotoDriveLinkPanel() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -790,7 +958,8 @@ function PhotoDriveLinkPanel() {
 
   const dirty = url !== savedUrl;
 
-  const handleSave = async () => {
+  // Step 1: validate, then open the confirmation dialog.
+  const handleSaveClick = () => {
     setValidationError(null);
     setSaveError(null);
     setSavedFlash(false);
@@ -800,10 +969,16 @@ function PhotoDriveLinkPanel() {
       setValidationError('Photo Drive link cannot be empty');
       return;
     }
-    if (!isValidUrl(trimmed)) {
-      setValidationError('Please enter a valid http(s) URL');
+    if (!isHttpUrl(trimmed)) {
+      setValidationError('Please enter a valid http or https URL');
       return;
     }
+    setConfirmOpen(true);
+  };
+
+  // Step 2: actually persist the change after the admin confirms.
+  const handleConfirmSave = async () => {
+    const trimmed = url.trim();
 
     try {
       setSaving(true);
@@ -841,6 +1016,7 @@ function PhotoDriveLinkPanel() {
       }
       setUrl(newUrl);
       setSavedUrl(newUrl);
+      setConfirmOpen(false);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 2500);
     } catch (err) {
@@ -886,7 +1062,7 @@ function PhotoDriveLinkPanel() {
             />
             <button
               type="button"
-              onClick={handleSave}
+              onClick={handleSaveClick}
               disabled={saving || !dirty}
               className="flex items-center justify-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#eb7524]"
               style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
@@ -938,6 +1114,22 @@ function PhotoDriveLinkPanel() {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Update Photo Drive link?"
+        message={
+          <>
+            The visitor-facing &ldquo;Open Drive&rdquo; button will point to:
+            <br />
+            <span className="text-white/85 break-all">{url.trim()}</span>
+          </>
+        }
+        confirmLabel="Save Link"
+        busy={saving}
+        onConfirm={handleConfirmSave}
+        onCancel={() => { if (!saving) setConfirmOpen(false); }}
+      />
     </div>
   );
 }
@@ -1090,9 +1282,46 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
   const [label, setLabel] = useState(initial?.label || '');
   const [preview, setPreview] = useState(initial?.src || '');
 
+  type MErrors = Partial<Record<'src' | 'alt' | 'label', string>>;
+  const [errors, setErrors] = useState<MErrors>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const validate = (): MErrors => {
+    const e: MErrors = {};
+    const trimmedSrc = src.trim();
+    if (!trimmedSrc) e.src = 'Image URL is required';
+    else if (!isHttpUrl(trimmedSrc)) e.src = 'Image URL must be a valid http or https URL';
+    if (!label.trim()) e.label = 'Label is required';
+    if (!alt.trim()) e.alt = 'Alt text is required';
+    return e;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ id: initial?.id || '', src, alt, label });
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    const e2 = validate();
+    setErrors(e2);
+    if (Object.keys(e2).length > 0) return;
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmedSave = async () => {
+    try {
+      setSubmitting(true);
+      setSubmitError(null);
+      await onSave({ id: initial?.id || '', src: src.trim(), alt: alt.trim(), label: label.trim() });
+      setErrors({});
+      setConfirmOpen(false);
+      setSubmitSuccess(initial ? 'Photo updated successfully.' : 'Photo added successfully.');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to save photo. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -1105,7 +1334,7 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
           <X className="w-5 h-5" />
         </button>
       </div>
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div className="md:col-span-2">
             <label className="block text-white/60 mb-1.5" style={labelStyle}>Image URL</label>
@@ -1115,16 +1344,18 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
               placeholder="https://images.unsplash.com/..."
               className={inputCls}
               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-              required
             />
+            {errors.src && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.src}</p>}
           </div>
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>Label</label>
-            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Powerlifting Competition 2025" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} required />
+            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Powerlifting Competition 2025" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
+            {errors.label && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.label}</p>}
           </div>
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>Alt Text</label>
-            <input value={alt} onChange={(e) => setAlt(e.target.value)} placeholder="Descriptive alt text for accessibility" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} required />
+            <input value={alt} onChange={(e) => setAlt(e.target.value)} placeholder="Descriptive alt text for accessibility" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
+            {errors.alt && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.alt}</p>}
           </div>
         </div>
 
@@ -1135,16 +1366,45 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
           </div>
         )}
 
+        {submitError && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitError}</p>
+          </div>
+        )}
+        {submitSuccess && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
+            <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+            <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitSuccess}</p>
+          </div>
+        )}
+
         <div className="flex gap-3 justify-end pt-2">
-          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+          <button type="button" onClick={onCancel} disabled={submitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
             Cancel
           </button>
-          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          <button type="submit" disabled={submitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
             <Save className="w-4 h-4" />
             {initial ? 'Update' : 'Add'} Photo
           </button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={initial ? 'Update this photo?' : 'Add this photo?'}
+        message={
+          <>
+            You&rsquo;re about to {initial ? 'update' : 'add'} <span className="text-white/85">&ldquo;{label.trim() || 'this photo'}&rdquo;</span> in the Photo Drive list.
+            <br />
+            Continue?
+          </>
+        }
+        confirmLabel={initial ? 'Save Changes' : 'Add Photo'}
+        busy={submitting}
+        onConfirm={handleConfirmedSave}
+        onCancel={() => { if (!submitting) setConfirmOpen(false); }}
+      />
     </div>
   );
 }
@@ -1404,6 +1664,38 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Inline validation + confirmation state
+  type Errors = Partial<Record<'title' | 'description' | 'startTime' | 'endTime' | 'imageUrl' | 'externalLink', string>>;
+  const [errors, setErrors] = useState<Errors>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const validate = (): Errors => {
+    const e: Errors = {};
+    if (!title.trim()) e.title = 'Title is required';
+    if (!description.trim()) e.description = 'Description is required';
+    else if (wordCount(description) < 5) e.description = 'Description must be at least 5 words';
+    if (!startTime) e.startTime = 'Start date/time is required';
+    if (!endTime) e.endTime = 'End date/time is required';
+    if (startTime && endTime) {
+      const start = new Date(datetimeLocalToISO(startTime));
+      const end = new Date(datetimeLocalToISO(endTime));
+      if (Number.isNaN(start.getTime())) e.startTime = 'Start date/time is invalid';
+      if (Number.isNaN(end.getTime())) e.endTime = 'End date/time is invalid';
+      if (!e.startTime && !e.endTime && end <= start) {
+        e.endTime = 'End must be after start';
+      }
+    }
+    if (imageUrl.trim() && !isHttpUrl(imageUrl.trim())) {
+      e.imageUrl = 'Image URL must be a valid http or https URL';
+    }
+    if (externalLink.trim() && !isHttpUrl(externalLink.trim())) {
+      e.externalLink = 'External link must be a valid http or https URL';
+    }
+    return e;
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1421,16 +1713,21 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !description || !startTime || !endTime) {
-      alert('Please fill all required fields');
-      return;
-    }
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    const e2 = validate();
+    setErrors(e2);
+    if (Object.keys(e2).length > 0) return;
+    setConfirmOpen(true);
+  };
 
+  const handleConfirmedSave = async () => {
     try {
       setIsSubmitting(true);
-      
+      setSubmitError(null);
+
       // Derive status from times and isPublished
       const now = new Date();
       const start = new Date(datetimeLocalToISO(startTime));
@@ -1441,17 +1738,22 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
       } else if (now >= start && now < end) {
         status = 'ongoing';
       }
-      
+
       await onSave({
         id: initial?.id || 0, // 0 means new record
-        title,
-        description,
+        title: title.trim(),
+        description: description.trim(),
         startTime,
         endTime,
-        imageUrl: imageUrl,
-        externalLink,
+        imageUrl: imageUrl.trim(),
+        externalLink: externalLink.trim(),
         status,
       });
+      setErrors({});
+      setSubmitSuccess(initial ? 'Activity updated successfully.' : 'Activity created successfully.');
+      setConfirmOpen(false);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to save activity. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1467,7 +1769,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
           <X className="w-5 h-5" />
         </button>
       </div>
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>Activity Title *</label>
@@ -1477,8 +1779,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
               placeholder="e.g. Weekly Training Session"
               className={inputCls}
               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-              required
             />
+            {errors.title && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.title}</p>}
           </div>
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>Published</label>
@@ -1502,12 +1804,12 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the activity..."
+            placeholder="Describe the activity (at least 5 words)..."
             rows={3}
             className={inputCls + ' resize-none'}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-            required
           />
+          {errors.description && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.description}</p>}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1519,8 +1821,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
               onChange={(e) => setStartTime(e.target.value)}
               className={inputCls}
               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-              required
             />
+            {errors.startTime && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.startTime}</p>}
           </div>
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>End Date/Time *</label>
@@ -1530,8 +1832,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
               onChange={(e) => setEndTime(e.target.value)}
               className={inputCls}
               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-              required
             />
+            {errors.endTime && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.endTime}</p>}
           </div>
         </div>
 
@@ -1582,12 +1884,26 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
             className={inputCls}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
           />
+          {errors.externalLink && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.externalLink}</p>}
         </div>
 
         {/* Preview */}
         {preview && (
           <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
             <img src={preview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          </div>
+        )}
+
+        {submitError && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitError}</p>
+          </div>
+        )}
+        {submitSuccess && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
+            <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+            <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitSuccess}</p>
           </div>
         )}
 
@@ -1610,6 +1926,23 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
           </button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={initial ? 'Update this activity?' : 'Publish this activity?'}
+        message={
+          <>
+            You&rsquo;re about to {initial ? 'update' : 'publish'} <span className="text-white/85">&ldquo;{title.trim()}&rdquo;</span>.
+            {!isPublished && <> It will be saved as <span className="text-white/85">unpublished</span>.</>}
+            <br />
+            Continue?
+          </>
+        }
+        confirmLabel={initial ? 'Save Changes' : 'Publish'}
+        busy={isSubmitting}
+        onConfirm={handleConfirmedSave}
+        onCancel={() => { if (!isSubmitting) setConfirmOpen(false); }}
+      />
     </div>
   );
 }
