@@ -7,40 +7,77 @@ async function main() {
     create: {
       id: 1,
       pageContent:
-        'AUSS is proudly supported by partners who help power our events, training, and community initiatives.',
+        'AUSS is proudly supported by partners who help power our events, training, and community. From activewear and strength gear to local gyms and tech — we are grateful for each one.',
     },
   });
 
-  const sponsorCount = await prisma.sponsor.count({
-    where: { sponsorshipPageId: sponsorshipPage.id },
+  // ── Real AUSS sponsors & partners ────────────────────────────────────────
+  // Remove old placeholder records if they exist, then upsert real partners.
+  await prisma.sponsor.deleteMany({
+    where: {
+      name: { in: ['IronGrip Supplements', 'LiftWear NZ', 'BarBend Athletics'] },
+    },
   });
 
-  if (sponsorCount === 0) {
-    await prisma.sponsor.createMany({
-      data: [
-        {
-          name: 'IronGrip Supplements',
-          logoUrl: null,
-          websiteUrl: 'https://example.com',
-          displayOrder: 1,
-          sponsorshipPageId: sponsorshipPage.id,
-        },
-        {
-          name: 'LiftWear NZ',
-          logoUrl: null,
-          websiteUrl: 'https://example.com',
-          displayOrder: 2,
-          sponsorshipPageId: sponsorshipPage.id,
-        },
-        {
-          name: 'BarBend Athletics',
-          logoUrl: null,
-          websiteUrl: 'https://example.com',
-          displayOrder: 3,
-          sponsorshipPageId: sponsorshipPage.id,
-        },
-      ],
+  const realSponsors = [
+    {
+      name: 'Auckland Powerlifting',
+      logoUrl: 'https://prodcdn.sporty.co.nz/cms/6177/37265/menulogo_wo.png?v=639049691564800000',
+      websiteUrl: 'https://www.sporty.co.nz/aucklandpowerlifting/home-1',
+      displayOrder: 1,
+    },
+    {
+      name: 'Sisyphus Strength',
+      logoUrl: 'https://images.squarespace-cdn.com/content/v1/59a63160e6f2e1da6add5306/1504476925944-4S0S7XOHFXBNOFOKSRSO/Logo.png?format=1500w',
+      websiteUrl: 'https://sisyphusstrength.com/',
+      displayOrder: 2,
+    },
+    {
+      name: 'LSKD',
+      logoUrl: 'https://www.lskd.co/cdn/shop/t/683/assets/LSKD_Logo.svg?v=722165747519305061755927263',
+      websiteUrl: 'https://www.lskd.co/',
+      displayOrder: 3,
+    },
+    {
+      name: 'Lorna Jane',
+      logoUrl: 'https://upload.wikimedia.org/wikipedia/en/b/b2/Lorna_Jane_logo.svg',
+      websiteUrl: 'https://www.lornajane.nz/',
+      displayOrder: 4,
+    },
+    {
+      name: 'Neva Fold Collection',
+      logoUrl: 'https://nevafoldcollection.com/cdn/shop/files/Untitled-1_22d12562-5bf3-4827-9caa-51cd9a4d5fab_360x.png?v=1630413366',
+      websiteUrl: 'https://nevafoldcollection.com/',
+      displayOrder: 5,
+    },
+    {
+      name: 'Avancus',
+      logoUrl: 'https://avancus.com/cdn/shop/files/avancus-logo_6af6eab7-70ac-48c3-a614-6e88e79639fd.svg?v=1686243626',
+      websiteUrl: 'https://avancus.com/en-nz',
+      displayOrder: 6,
+    },
+    {
+      name: 'Shipcode',
+      logoUrl: 'https://assets.shipcode.com/c38e09d0-5746-4a8a-a450-a86c9aaed9c0.svg',
+      websiteUrl: 'https://shipcode.com/',
+      displayOrder: 7,
+    },
+  ];
+
+  for (const s of realSponsors) {
+    const existing = await prisma.sponsor.findFirst({
+      where: { name: s.name, sponsorshipPageId: sponsorshipPage.id },
     });
+    if (existing) {
+      await prisma.sponsor.update({
+        where: { id: existing.id },
+        data: { logoUrl: s.logoUrl, websiteUrl: s.websiteUrl, displayOrder: s.displayOrder },
+      });
+    } else {
+      await prisma.sponsor.create({
+        data: { ...s, sponsorshipPageId: sponsorshipPage.id },
+      });
+    }
   }
 
   const mediaEntryCount = await prisma.mediaEntry.count();

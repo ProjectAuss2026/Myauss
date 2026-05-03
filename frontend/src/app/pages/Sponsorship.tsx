@@ -52,6 +52,93 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
+// ─── Sponsor card with white logo container + hover glow ────────────────────
+// White bg on the logo area ensures visibility for any logo color on dark cards.
+// The card is fully clickable → sponsor website.
+
+function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
+  const domain = sponsor.websiteUrl
+    ? sponsor.websiteUrl.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]
+    : null;
+
+  return (
+    <a
+      href={sponsor.websiteUrl ?? '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block w-full sm:w-[240px]"
+      aria-label={`Visit ${sponsor.name}`}
+    >
+      <div className="relative bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden flex flex-col transition-all duration-500 hover:border-white/[0.13] hover:-translate-y-1">
+        {/* Top orange glow on hover */}
+        <div
+          className="absolute -top-16 left-1/2 -translate-x-1/2 w-32 h-32 rounded-full blur-[60px] opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"
+          style={{ backgroundColor: 'rgba(235,117,36,0.14)' }}
+        />
+
+        {/* Logo container — white background keeps all logos visible */}
+        <div className="px-6 pt-6 pb-4 flex items-center justify-center">
+          <div
+            className="w-full h-[72px] bg-white rounded-xl flex items-center justify-center px-4 transition-all duration-500 group-hover:shadow-[0_0_22px_rgba(235,117,36,0.18)]"
+          >
+            {sponsor.logoUrl ? (
+              <img
+                src={sponsor.logoUrl}
+                alt={sponsor.name}
+                className="max-h-[46px] max-w-[150px] w-auto object-contain"
+                onError={(e) => {
+                  const el = e.currentTarget;
+                  el.style.display = 'none';
+                  const fallback = el.nextElementSibling as HTMLElement | null;
+                  if (fallback) fallback.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            {/* Fallback initial shown when logoUrl is null or image fails */}
+            <span
+              style={{
+                display: sponsor.logoUrl ? 'none' : 'flex',
+                fontSize: '28px',
+                fontWeight: 700,
+                fontFamily: 'Outfit, sans-serif',
+                color: '#eb7524',
+              }}
+            >
+              {sponsor.name.charAt(0)}
+            </span>
+          </div>
+        </div>
+
+        {/* Name + domain */}
+        <div className="px-5 pb-5 flex flex-col items-center gap-1">
+          <p
+            className="text-white/60 group-hover:text-white/90 transition-colors text-center"
+            style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          >
+            {sponsor.name}
+          </p>
+          {domain && (
+            <p
+              className="text-white/20"
+              style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}
+            >
+              {domain}
+            </p>
+          )}
+
+          {/* Visit CTA — fades in on hover */}
+          <div
+            className="flex items-center gap-1.5 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+            style={{ color: '#eb7524', fontSize: '12px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+          >
+            Visit <ExternalLink className="w-3 h-3" />
+          </div>
+        </div>
+      </div>
+    </a>
+  );
+}
+
 const benefits = [
   { icon: Users, title: '200+ Members', text: 'Reach an active, engaged student community' },
   { icon: Trophy, title: '15+ Events/Year', text: 'Brand visibility at competitions and socials' },
@@ -115,63 +202,39 @@ export function Sponsorship() {
         <div className="max-w-[1200px] mx-auto">
           <FadeIn className="text-center mb-12">
             <h2 className="text-white mb-3" style={{ fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-              Current Sponsors
+              Proudly Supported By
             </h2>
             <p className="text-white/40 max-w-md mx-auto" style={{ fontSize: '15px', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' }}>
-              Backed by data from the live sponsorship API.
+              Brands that believe in what we do — powering our events, training, and community.
             </p>
           </FadeIn>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {loading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="bg-[#111] border border-white/[0.06] rounded-2xl p-7 h-full animate-pulse">
-                    <div className="w-12 h-12 rounded-2xl bg-white/5 mb-5" />
-                    <div className="h-5 w-40 bg-white/5 rounded mb-3" />
-                    <div className="h-4 w-24 bg-white/5 rounded" />
-                  </div>
-                ))
-              : sponsors.length === 0
-              ? (
-                <div className="col-span-full text-center py-10">
-                  <p className="text-white/30" style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif' }}>
-                    No sponsors have been published yet.
-                  </p>
+          {/* Flex-wrap grid: centers any number of sponsors — single card stands alone, multiple wrap naturally */}
+          {loading ? (
+            <div className="flex flex-wrap justify-center gap-5">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="w-full sm:w-[240px] bg-[#111] border border-white/[0.06] rounded-2xl p-5 flex flex-col items-center gap-3 animate-pulse">
+                  <div className="w-full h-[72px] bg-white/5 rounded-xl" />
+                  <div className="h-4 w-28 bg-white/5 rounded" />
+                  <div className="h-3 w-20 bg-white/5 rounded" />
                 </div>
-              )
-              : sponsors.map((sponsor, i) => (
-                  <FadeIn key={sponsor.id} delay={i * 0.08}>
-                    <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-7 h-full hover:border-white/10 transition-all duration-500 hover:-translate-y-1">
-                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-5 bg-[#eb7524]/15">
-                        {sponsor.logoUrl
-                          ? <img src={sponsor.logoUrl} alt={sponsor.name} className="w-8 h-8 object-contain" />
-                          : <span style={{ fontSize: '20px', fontWeight: 700, fontFamily: 'Outfit, sans-serif', color: '#eb7524' }}>{sponsor.name.charAt(0)}</span>}
-                      </div>
-                      <h3 className="text-white mb-4" style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-                        {sponsor.name}
-                      </h3>
-                      {sponsor.websiteUrl
-                        ? (
-                          <a
-                            href={sponsor.websiteUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 text-white/30 hover:text-white/60 transition-colors"
-                            style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
-                          >
-                            Visit Website
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        )
-                        : (
-                          <span className="text-white/20" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                            Website unavailable
-                          </span>
-                        )}
-                    </div>
-                  </FadeIn>
-                ))}
-          </div>
+              ))}
+            </div>
+          ) : sponsors.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-white/30" style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif' }}>
+                No sponsors have been published yet.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap justify-center gap-5">
+              {sponsors.map((sponsor, i) => (
+                <FadeIn key={sponsor.id} delay={i * 0.05}>
+                  <SponsorCard sponsor={sponsor} />
+                </FadeIn>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
