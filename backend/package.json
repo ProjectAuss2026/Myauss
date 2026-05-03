@@ -9,7 +9,8 @@
     "start": "NODE_ENV=production node src/index.js",
     "prisma:generate": "npx prisma generate",
     "prisma:migrate": "npx prisma migrate dev --name init",
-    "prisma:studio": "npx prisma studio"
+    "prisma:studio": "npx prisma studio",
+    "prisma:seed": "node prisma/seed.js"
   },
   "keywords": [
     "auss",
