@@ -5,6 +5,7 @@ interface ApiSponsor {
   id: number;
   name: string;
   logoUrl: string | null;
+  heroImageUrl: string | null;
   websiteUrl: string | null;
 }
 
@@ -52,88 +53,68 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
-// ─── Sponsor card with white logo container + hover glow ────────────────────
-// White bg on the logo area ensures visibility for any logo color on dark cards.
-// The card is fully clickable → sponsor website.
-
+// ─── Sponsor card: homepage screenshot background, logo revealed on hover ────
 function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
-  const domain = sponsor.websiteUrl
-    ? sponsor.websiteUrl.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]
-    : null;
-
   return (
     <a
       href={sponsor.websiteUrl ?? '#'}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block w-full sm:w-[240px]"
+      className="group block relative h-[260px] rounded-2xl overflow-hidden cursor-pointer"
       aria-label={`Visit ${sponsor.name}`}
     >
-      <div className="relative bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden flex flex-col transition-all duration-500 hover:border-white/[0.13] hover:-translate-y-1">
-        {/* Top orange glow on hover */}
-        <div
-          className="absolute -top-16 left-1/2 -translate-x-1/2 w-32 h-32 rounded-full blur-[60px] opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"
-          style={{ backgroundColor: 'rgba(235,117,36,0.14)' }}
+      {/* Background: homepage screenshot */}
+      {sponsor.heroImageUrl ? (
+        <img
+          src={sponsor.heroImageUrl}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover object-top transition-transform duration-700 group-hover:scale-105"
+          loading="lazy"
         />
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]" />
+      )}
 
-        {/* Logo container — white background keeps all logos visible */}
-        <div className="px-6 pt-6 pb-4 flex items-center justify-center">
+      {/* Persistent gradient at bottom for name legibility */}
+      <div
+        className="absolute inset-0 transition-opacity duration-500 group-hover:opacity-0"
+        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.18) 55%, transparent 100%)' }}
+      />
+
+      {/* Hover: full dark overlay */}
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-500" />
+
+      {/* Hover: glass pill slides up from below — never opacity:0 so backdrop-blur is always composited */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        {sponsor.logoUrl ? (
           <div
-            className="w-full h-[72px] bg-white rounded-xl flex items-center justify-center px-4 transition-all duration-500 group-hover:shadow-[0_0_22px_rgba(235,117,36,0.18)]"
+            className="bg-white/15 backdrop-blur-md rounded-2xl px-7 py-5 max-w-[220px] flex items-center justify-center shadow-[0_0_24px_rgba(235,117,36,0.45)] translate-y-[300px] group-hover:translate-y-0 transition-transform duration-500 ease-out"
           >
-            {sponsor.logoUrl ? (
-              <img
-                src={sponsor.logoUrl}
-                alt={sponsor.name}
-                className="max-h-[46px] max-w-[150px] w-auto object-contain"
-                onError={(e) => {
-                  const el = e.currentTarget;
-                  el.style.display = 'none';
-                  const fallback = el.nextElementSibling as HTMLElement | null;
-                  if (fallback) fallback.style.display = 'flex';
-                }}
-              />
-            ) : null}
-            {/* Fallback initial shown when logoUrl is null or image fails */}
-            <span
-              style={{
-                display: sponsor.logoUrl ? 'none' : 'flex',
-                fontSize: '28px',
-                fontWeight: 700,
-                fontFamily: 'Outfit, sans-serif',
-                color: '#eb7524',
-              }}
-            >
-              {sponsor.name.charAt(0)}
-            </span>
+            <img
+              src={sponsor.logoUrl}
+              alt={sponsor.name}
+              className="h-[52px] max-w-[180px] w-auto object-contain drop-shadow-2xl"
+            />
           </div>
-        </div>
-
-        {/* Name + domain */}
-        <div className="px-5 pb-5 flex flex-col items-center gap-1">
-          <p
-            className="text-white/60 group-hover:text-white/90 transition-colors text-center"
-            style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        ) : (
+          <span
+            className="text-white drop-shadow-2xl translate-y-[300px] group-hover:translate-y-0 transition-transform duration-500 ease-out"
+            style={{ fontSize: '52px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
           >
-            {sponsor.name}
-          </p>
-          {domain && (
-            <p
-              className="text-white/20"
-              style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}
-            >
-              {domain}
-            </p>
-          )}
+            {sponsor.name.charAt(0)}
+          </span>
+        )}
+      </div>
 
-          {/* Visit CTA — fades in on hover */}
-          <div
-            className="flex items-center gap-1.5 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-            style={{ color: '#eb7524', fontSize: '12px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-          >
-            Visit <ExternalLink className="w-3 h-3" />
-          </div>
-        </div>
+      {/* Default bottom: name + link icon — slides out on hover */}
+      <div className="absolute bottom-0 left-0 right-0 p-4 flex items-end justify-between transition-all duration-400 group-hover:translate-y-full group-hover:opacity-0 pointer-events-none">
+        <p
+          className="text-white leading-tight"
+          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          {sponsor.name}
+        </p>
+        <ExternalLink className="w-4 h-4 text-white/50 flex-shrink-0" />
       </div>
     </a>
   );
@@ -211,13 +192,9 @@ export function Sponsorship() {
 
           {/* Flex-wrap grid: centers any number of sponsors — single card stands alone, multiple wrap naturally */}
           {loading ? (
-            <div className="flex flex-wrap justify-center gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="w-full sm:w-[240px] bg-[#111] border border-white/[0.06] rounded-2xl p-5 flex flex-col items-center gap-3 animate-pulse">
-                  <div className="w-full h-[72px] bg-white/5 rounded-xl" />
-                  <div className="h-4 w-28 bg-white/5 rounded" />
-                  <div className="h-3 w-20 bg-white/5 rounded" />
-                </div>
+                <div key={i} className="h-[260px] bg-[#111] border border-white/[0.06] rounded-2xl animate-pulse" />
               ))}
             </div>
           ) : sponsors.length === 0 ? (
@@ -227,7 +204,15 @@ export function Sponsorship() {
               </p>
             </div>
           ) : (
-            <div className="flex flex-wrap justify-center gap-5">
+            <div
+              className={`grid gap-4 md:gap-5 ${
+                sponsors.length === 1
+                  ? 'grid-cols-1 max-w-[420px] mx-auto'
+                  : sponsors.length === 2
+                  ? 'grid-cols-1 sm:grid-cols-2 max-w-[860px] mx-auto'
+                  : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+              }`}
+            >
               {sponsors.map((sponsor, i) => (
                 <FadeIn key={sponsor.id} delay={i * 0.05}>
                   <SponsorCard sponsor={sponsor} />

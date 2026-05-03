@@ -67,7 +67,8 @@ model SponsorshipPage {
 model Sponsor {
   id                Int             @id @default(autoincrement())
   name              String
-  logoUrl           String?         // Optional: if you want to render logos later
+  logoUrl           String?
+  heroImageUrl      String?         // Homepage screenshot used as card background
   websiteUrl        String?
   displayOrder      Int             @default(0)
   sponsorshipPageId Int

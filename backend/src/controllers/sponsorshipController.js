@@ -23,6 +23,7 @@ function sponsorshipResponse(page) {
       id: sponsor.id,
       name: sponsor.name,
       logoUrl: sponsor.logoUrl,
+      heroImageUrl: sponsor.heroImageUrl,
       websiteUrl: sponsor.websiteUrl,
       displayOrder: sponsor.displayOrder,
       sponsorshipPageId: sponsor.sponsorshipPageId,
@@ -107,7 +108,7 @@ export async function patchSponsorship(req, res) {
 }
 
 export async function createSponsor(req, res) {
-  const { name, sponsorshipPageId, logoUrl, websiteUrl, displayOrder } = req.body ?? {};
+  const { name, sponsorshipPageId, logoUrl, heroImageUrl, websiteUrl, displayOrder } = req.body ?? {};
 
   if (typeof name !== 'string' || !name.trim()) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`name` is required.');
@@ -120,6 +121,9 @@ export async function createSponsor(req, res) {
 
   if (logoUrl !== undefined && logoUrl !== null && typeof logoUrl !== 'string') {
     return sendError(res, 422, 'VALIDATION_ERROR', '`logoUrl` must be a string when provided.');
+  }
+  if (heroImageUrl !== undefined && heroImageUrl !== null && typeof heroImageUrl !== 'string') {
+    return sendError(res, 422, 'VALIDATION_ERROR', '`heroImageUrl` must be a string when provided.');
   }
   if (websiteUrl !== undefined && websiteUrl !== null && typeof websiteUrl !== 'string') {
     return sendError(res, 422, 'VALIDATION_ERROR', '`websiteUrl` must be a string when provided.');
@@ -147,6 +151,7 @@ export async function createSponsor(req, res) {
         name: name.trim(),
         sponsorshipPageId: parsedPageId,
         logoUrl: logoUrl || null,
+        heroImageUrl: heroImageUrl || null,
         websiteUrl: websiteUrl || null,
         displayOrder: parsedDisplayOrder,
       },
@@ -165,7 +170,7 @@ export async function patchSponsor(req, res) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`id` must be a positive integer.');
   }
 
-  const { name, logoUrl, websiteUrl, displayOrder } = req.body ?? {};
+  const { name, logoUrl, heroImageUrl, websiteUrl, displayOrder } = req.body ?? {};
   const data = {};
 
   if (name !== undefined) {
@@ -179,6 +184,12 @@ export async function patchSponsor(req, res) {
       return sendError(res, 422, 'VALIDATION_ERROR', '`logoUrl` must be a string or null.');
     }
     data.logoUrl = logoUrl || null;
+  }
+  if (heroImageUrl !== undefined) {
+    if (heroImageUrl !== null && typeof heroImageUrl !== 'string') {
+      return sendError(res, 422, 'VALIDATION_ERROR', '`heroImageUrl` must be a string or null.');
+    }
+    data.heroImageUrl = heroImageUrl || null;
   }
   if (websiteUrl !== undefined) {
     if (websiteUrl !== null && typeof websiteUrl !== 'string') {
