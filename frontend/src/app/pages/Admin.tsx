@@ -209,7 +209,7 @@ export function Admin() {
         setMediaError(null);
 
         const [sponsorshipResponse, mediaResponse] = await Promise.all([
-          fetch('/api/sponsorship'),
+          fetch('/api/sponsorship', { cache: 'no-store' }),
           fetch('/api/media-entries', { cache: 'no-store' }),
         ]);
 
@@ -405,6 +405,8 @@ export function Admin() {
         setSponsorError('No authentication token found');
         return;
       }
+      // Optimistic removal for instant feedback
+      setSponsors((prev) => prev.filter((s) => s.id !== id));
       const response = await fetch(`/api/sponsors/${id}`, {
         method: 'DELETE',
         headers: {
@@ -414,7 +416,22 @@ export function Admin() {
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response));
       }
-      setSponsors((prev) => prev.filter((s) => s.id !== id));
+      // Re-fetch with no-store to confirm server state and avoid stale cache reappear
+      const confirm = await fetch('/api/sponsorship', { cache: 'no-store' });
+      if (confirm.ok) {
+        const payload = await confirm.json();
+        const rows = Array.isArray(payload?.data?.sponsors) ? payload.data.sponsors : [];
+        setSponsors(
+          rows.map((s: any) => ({
+            id: s.id,
+            name: s.name || '',
+            logoUrl: s.logoUrl || '',
+            websiteUrl: s.websiteUrl || '',
+            displayOrder: typeof s.displayOrder === 'number' ? s.displayOrder : 0,
+            sponsorshipPageId: typeof s.sponsorshipPageId === 'number' ? s.sponsorshipPageId : null,
+          }))
+        );
+      }
     } catch (error) {
       setSponsorError(error instanceof Error ? error.message : 'Failed to delete sponsor');
     }
