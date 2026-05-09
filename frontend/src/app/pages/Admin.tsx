@@ -6,6 +6,7 @@ import {
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
   Loader2, Calendar, Clock, AlertCircle, Link as LinkIcon, CheckCircle2,
 } from 'lucide-react';
+import { AttendeesModal } from '../components/AttendeesModal';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -1433,6 +1434,8 @@ function ActivityManager({
     archived: activities.filter((a) => a.status === 'archived'),
   };
 
+  const [viewingAttendees, setViewingAttendees] = useState<Activity | null>(null);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
@@ -1516,6 +1519,7 @@ function ActivityManager({
                     activity={activity}
                     onEdit={() => { setEditing(activity); setShowForm(false); }}
                     onDelete={() => onDelete(activity.id)}
+                    onViewAttendees={() => setViewingAttendees(activity)}
                   />
                 ))}
               </div>
@@ -1534,11 +1538,19 @@ function ActivityManager({
           <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No activities added yet</p>
         </div>
       )}
+
+      {viewingAttendees && (
+        <AttendeesModal
+          activityId={viewingAttendees.id}
+          activityTitle={viewingAttendees.title}
+          onClose={() => setViewingAttendees(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => Promise<void> | void }) {
+function ActivityCard({ activity, onEdit, onDelete, onViewAttendees }: { activity: Activity; onEdit: () => void; onDelete: () => Promise<void> | void; onViewAttendees: () => void }) {
   const color = statusColors[activity.status];
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -1595,6 +1607,17 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
             <span>{formatDate(activity.startTime)} · {formatTime(activity.startTime)}</span>
           </div>
         </div>
+
+        {/* View Attendees */}
+        <button
+          onClick={onViewAttendees}
+          disabled={isDeleting}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#eb7524]/10 border border-[#eb7524]/25 text-[#eb7524] hover:bg-[#eb7524]/20 transition-all cursor-pointer mb-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
+        >
+          <Users className="w-3 h-3" />
+          View Attendees
+        </button>
 
         {/* Actions */}
         <div className="flex items-center gap-2">
