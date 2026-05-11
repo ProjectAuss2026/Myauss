@@ -1,3 +1,4 @@
+
 # Dependencies
 node_modules/
 package-lock.json
@@ -30,5 +31,5 @@ coverage/
 .env.local
 prisma/.env
 
-# Uploaded images (committed to git so all developers can see them)
-# Delete from DB to remove from repo on next commit
+# Uploaded files (user-generated content, not source code)
+backend/uploads/

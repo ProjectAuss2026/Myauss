@@ -13,7 +13,7 @@ const ALLOWED_FIELDS = {
   communicationLink: ['platform', 'url', 'imgUrl', 'description', 'isActive'],
   mediaConfig: ['mediaDriveUrl'],
   sponsorshipPage: ['pageContent'],
-  sponsor: ['name', 'logoUrl', 'websiteUrl', 'sponsorshipPageId'],
+  sponsor: ['name', 'logoUrl', 'websiteUrl', 'displayOrder', 'sponsorshipPageId'],
 };
 
 // POST /api/config
