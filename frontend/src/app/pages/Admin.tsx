@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
-  Loader2, Calendar, Clock, AlertCircle, HelpCircle,
+  Loader2, Calendar, Clock, AlertCircle, HelpCircle, ChevronDown,
 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -103,6 +103,63 @@ function groupExecs(executives: ExecMember[]): ExecGroup[] {
 // ── Shared field styles ──
 const inputCls = "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all";
 const labelStyle: React.CSSProperties = { fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 };
+
+// ── Custom Select ──
+function CustomSelect({ value, onChange, options, required }: {
+  value: string | number;
+  onChange: (val: string) => void;
+  options: { value: string | number; label: string }[];
+  required?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selected = options.find((o) => String(o.value) === String(value));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all cursor-pointer"
+        style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+      >
+        <span className={selected ? 'text-white' : 'text-white/30'}>{selected?.label ?? 'Select…'}</span>
+        <ChevronDown className={`w-4 h-4 text-white/40 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          className="absolute z-50 w-full mt-1 bg-[#111] border border-white/10 rounded-xl overflow-hidden shadow-2xl"
+          style={{ maxHeight: '220px', overflowY: 'auto' }}
+        >
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(String(opt.value)); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 transition-all ${
+                String(opt.value) === String(value)
+                  ? 'bg-[#eb7524]/20 text-[#eb7524]'
+                  : 'text-white/80 hover:bg-white/[0.06] hover:text-white'
+              }`}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Activity helpers ──
 function deriveActivityStatus(activity: Activity): 'upcoming' | 'ongoing' | 'archived' {
@@ -1417,19 +1474,12 @@ function MediaForm({ initial, onSave, activities, onCancel }: { initial: MediaIt
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Linked Activity</label>
-          <select
+          <CustomSelect
             value={activityId}
-            onChange={(e) => setActivityId(e.target.value)}
-            className={inputCls}
-            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            onChange={(v) => setActivityId(v)}
+            options={activities.map((a) => ({ value: a.id, label: a.title }))}
             required
-          >
-            {activities.map((activity) => (
-              <option key={activity.id} value={activity.id} className="bg-[#111] text-white">
-                {activity.title}
-              </option>
-            ))}
-          </select>
+          />
         </div>
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Media Drive URL</label>
@@ -2033,13 +2083,17 @@ function ExecManager({
       )}
 
       {showForm && (
-        <ExecMemberForm
-          initial={editing}
-          execRoles={execRoles}
-          execTeams={execTeams}
-          onSave={onSave}
-          onCancel={() => { setShowForm(false); setEditing(null); }}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <ExecMemberForm
+              initial={editing}
+              execRoles={execRoles}
+              execTeams={execTeams}
+              onSave={onSave}
+              onCancel={() => { setShowForm(false); setEditing(null); }}
+            />
+          </div>
+        </div>
       )}
 
       <ExecRoleTeamManager execRoles={execRoles} execTeams={execTeams} onRefresh={refreshExecs} />
@@ -2118,8 +2172,13 @@ function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
   };
 
   return (
-    <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 mt-4">
-      <h3 className="text-white mb-6" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>{initial ? 'Edit Member' : 'Add Member'}</h3>
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>{initial ? 'Edit Member' : 'Add Member'}</h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="md:col-span-2">
           <label className="block text-white/50 mb-1.5" style={labelStyle}>Name *</label>
@@ -2127,15 +2186,21 @@ function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-white/50 mb-1.5" style={labelStyle}>Role *</label>
-          <select value={roleId} onChange={(e) => setRoleId(Number(e.target.value))} className={inputCls} required>
-            {execRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
+          <CustomSelect
+            value={roleId}
+            onChange={(v) => setRoleId(Number(v))}
+            options={execRoles.map((r) => ({ value: r.id, label: r.name }))}
+            required
+          />
         </div>
         <div>
           <label className="block text-white/50 mb-1.5" style={labelStyle}>Team *</label>
-          <select value={teamId} onChange={(e) => setTeamId(Number(e.target.value))} className={inputCls} required>
-            {execTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+          <CustomSelect
+            value={teamId}
+            onChange={(v) => setTeamId(Number(v))}
+            options={execTeams.map((t) => ({ value: t.id, label: t.name }))}
+            required
+          />
         </div>
         <div className="md:col-span-2">
           <label className="block text-white/50 mb-1.5" style={labelStyle}>Image URL</label>
@@ -2321,11 +2386,15 @@ function FaqManager({
       )}
 
       {showForm && (
-        <FaqEntryForm
-          initial={editing}
-          onSave={onSave}
-          onCancel={() => { setShowForm(false); setEditing(null); }}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+            <FaqEntryForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setShowForm(false); setEditing(null); }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2377,8 +2446,13 @@ function FaqEntryForm({ initial, onSave, onCancel }: {
   };
 
   return (
-    <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 mt-4">
-      <h3 className="text-white mb-6" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>{initial ? 'Edit FAQ Entry' : 'Add FAQ Entry'}</h3>
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>{initial ? 'Edit FAQ Entry' : 'Add FAQ Entry'}</h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-white/50 mb-1.5" style={labelStyle}>Question * (max 300 chars)</label>
