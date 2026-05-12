@@ -206,6 +206,86 @@ async function main() {
       });
     }
   }
+
+  // ── Exec Roles ────────────────────────────────────────────────────────────
+  // President (id:1) and VP (id:2) must be seeded first — they are protected from deletion.
+  const execRolesData = [
+    { id: 1, name: 'President' },
+    { id: 2, name: 'Vice President' },
+    { id: 3, name: 'Secretary' },
+    { id: 4, name: 'Treasurer' },
+    { id: 5, name: 'Events Director' },
+    { id: 6, name: 'Marketing Director' },
+    { id: 7, name: 'Welfare Officer' },
+    { id: 8, name: 'General Executive' },
+  ];
+
+  for (const r of execRolesData) {
+    await prisma.execRole.upsert({
+      where: { id: r.id },
+      update: { name: r.name },
+      create: { id: r.id, name: r.name },
+    });
+  }
+
+  // ── Exec Teams ────────────────────────────────────────────────────────────
+  const execTeamsData = [
+    { id: 1, name: 'Executive Board' },
+    { id: 2, name: 'General Committee' },
+  ];
+
+  for (const t of execTeamsData) {
+    await prisma.execTeam.upsert({
+      where: { id: t.id },
+      update: { name: t.name },
+      create: { id: t.id, name: t.name },
+    });
+  }
+
+  // ── Exec Members (placeholder) ────────────────────────────────────────────
+  const execCount = await prisma.executive.count();
+  if (execCount === 0) {
+    await prisma.executive.createMany({
+      data: [
+        { name: 'President Placeholder', roleId: 1, teamId: 1 },
+        { name: 'Vice President Placeholder', roleId: 2, teamId: 1 },
+        { name: 'Secretary Placeholder', roleId: 3, teamId: 1 },
+        { name: 'Treasurer Placeholder', roleId: 4, teamId: 1 },
+        { name: 'Events Director Placeholder', roleId: 5, teamId: 2 },
+        { name: 'Marketing Director Placeholder', roleId: 6, teamId: 2 },
+        { name: 'Welfare Officer Placeholder', roleId: 7, teamId: 2 },
+      ],
+    });
+  }
+
+  // ── FAQ entries (mirrors current hardcoded About.tsx FAQ) ─────────────────
+  const faqCount = await prisma.faq.count();
+  if (faqCount === 0) {
+    await prisma.faq.createMany({
+      data: [
+        {
+          question: 'Do I need to be a student?',
+          answer: 'Yes, AUSS is exclusively for current Auckland University students. Just bring your student ID when you join!',
+        },
+        {
+          question: 'Is there a membership fee?',
+          answer: 'AUSS has a small annual membership fee of $20 to cover club activities and events. This is separate from gym membership.',
+        },
+        {
+          question: "I've never lifted before. Can I still join?",
+          answer: 'Absolutely! We welcome beginners and will teach you everything you need to know. Most of our members started with zero experience.',
+        },
+        {
+          question: 'What equipment do I need?',
+          answer: "Just bring yourself, comfortable workout clothes, and athletic shoes. The Recreation Centre has all the equipment you'll need.",
+        },
+        {
+          question: 'When and where do you train?',
+          answer: 'We train at the Auckland University Recreation Centre on Symonds Street. Sessions run Mon, Wed, Fri 6-8 PM and Sat 10 AM-12 PM.',
+        },
+      ],
+    });
+  }
 }
 
 main()

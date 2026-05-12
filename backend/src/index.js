@@ -12,6 +12,8 @@ import uploadRoutes from './routes/uploadRoutes.js';
 import activityRoutes from './routes/activityRoutes.js';
 import sponsorshipRoutes from './routes/sponsorshipRoutes.js';
 import mediaRoutes from './routes/mediaRoutes.js';
+import faqRoutes from './routes/faqRoutes.js';
+import executiveRoutes from './routes/executiveRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,6 +60,10 @@ app.use('/api/activities', activityRoutes);
 
 // Sponsorship + media routes for dynamic rendering
 app.use('/api', sponsorshipRoutes);
+
+// FAQ + Executive routes
+app.use('/api', faqRoutes);
+app.use('/api', executiveRoutes);
 app.use('/api', mediaRoutes);
 
 app.listen(PORT, () => {

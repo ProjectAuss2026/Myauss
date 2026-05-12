@@ -93,6 +93,47 @@ model Activity {
   updatedAt    DateTime @updatedAt
 }
 
+// --- EXEC COMMITTEE ---
+model ExecRole {
+  id         Int         @id @default(autoincrement())
+  name       String      @unique
+  executives Executive[]
+  createdAt  DateTime    @default(now())
+}
+
+model ExecTeam {
+  id         Int         @id @default(autoincrement())
+  name       String      @unique
+  executives Executive[]
+  createdAt  DateTime    @default(now())
+}
+
+model Executive {
+  id           Int      @id @default(autoincrement())
+  name         String
+  imageUrl     String?
+  bio          String?  @db.VarChar(300)
+  instagramUrl String?
+  email        String?
+  isActive     Boolean  @default(true)
+  roleId       Int
+  role         ExecRole @relation(fields: [roleId], references: [id])
+  teamId       Int
+  team         ExecTeam @relation(fields: [teamId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// --- FAQ ---
+model Faq {
+  id        Int      @id @default(autoincrement())
+  question  String   @db.VarChar(300)
+  answer    String   @db.Text
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // --- MEDIA ENTRIES ---
 // Each entry maps one activity to a specific drive folder.
 model MediaEntry {
