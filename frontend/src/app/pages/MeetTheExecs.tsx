@@ -56,17 +56,42 @@ function FadeInSection({ children, className = '', delay = 0 }: { children: Reac
   );
 }
 
+// CARD_H must fit: avatar(108) + name(31) + role(33) + BIO_COLLAPSED_H(40) + social(48) + p-6 padding(48) ≈ 308px
+const CARD_H = 320;
+const BIO_COLLAPSED_H = 40;
+
 function ExecCard({ member, index }: { member: ExecMember; index: number }) {
-  const initials = member.name
-    .split(' ')
-    .map((n) => n[0])
-    .join('');
+  const [bioHovered, setBioHovered] = useState(false);
+  const bioRef = useRef<HTMLDivElement>(null);
+  const [bioExpandedH, setBioExpandedH] = useState(0);
+
+  // Measure bio's natural (unconstrained) height after mount.
+  useEffect(() => {
+    const el = bioRef.current;
+    if (!el) return;
+    setBioExpandedH(el.scrollHeight);
+  }, [member.bio]);
+
+  const initials = member.name.split(' ').map((n) => n[0]).join('');
+  const hasSocial = !!(member.instagramUrl || member.email);
+
+  const willExpand = member.bio ? bioExpandedH > BIO_COLLAPSED_H : false;
+  const bioH = bioHovered && willExpand ? bioExpandedH : BIO_COLLAPSED_H;
 
   return (
     <FadeInSection delay={index * 0.1}>
-      <div className="group bg-[#111] border border-white/5 rounded-2xl p-6 hover:border-[#eb7524]/20 hover:bg-[#141414] transition-all duration-500 text-center">
+      <div
+        className={`bg-[#111] border border-white/5 rounded-2xl p-6 hover:border-[#eb7524]/20 hover:bg-[#141414] text-center flex flex-col items-center ${member.bio ? 'justify-start' : 'justify-center'}`}
+        style={{
+          // Card height grows only when bio container is hovered
+          height: `${CARD_H - BIO_COLLAPSED_H + bioH}px`,
+          overflow: 'hidden',
+          transition: 'height 0.35s cubic-bezier(0.4,0,0.2,1), border-color 0.5s ease, background-color 0.5s ease',
+        }}
+      >
+        {/* Avatar */}
         <div
-          className="w-24 h-24 rounded-full mx-auto mb-4 overflow-hidden flex items-center justify-center text-white text-2xl font-bold"
+          className="w-24 h-24 rounded-full mx-auto mb-4 overflow-hidden flex items-center justify-center text-white text-2xl font-bold flex-shrink-0"
           style={{ backgroundColor: '#eb752430', fontFamily: 'Outfit, sans-serif' }}
         >
           {member.imageUrl ? (
@@ -75,48 +100,80 @@ function ExecCard({ member, index }: { member: ExecMember; index: number }) {
             <span style={{ color: '#eb7524' }}>{initials}</span>
           )}
         </div>
+
+        {/* Name */}
         <h3
-          className="text-white mb-1"
+          className="text-white mb-1 w-full truncate flex-shrink-0"
           style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
         >
           {member.name}
         </h3>
-        <p className="text-[#eb7524] mb-2" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
+
+        {/* Role */}
+        <p
+          className="text-[#eb7524] mb-3 flex-shrink-0"
+          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+        >
           {member.role.name}
         </p>
+
+        {/* Bio — own container; hover on THIS div triggers expand, not the card */}
         {member.bio && (
-          <p className="text-white/40 mb-3 text-sm leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
-            {member.bio}
-          </p>
+          <div
+            className="relative w-full flex-shrink-0 cursor-default"
+            style={{
+              height: `${bioH}px`,
+              overflow: 'hidden',
+              transition: 'height 0.35s cubic-bezier(0.4,0,0.2,1)',
+            }}
+            onMouseEnter={() => setBioHovered(true)}
+            onMouseLeave={() => setBioHovered(false)}
+          >
+            <div ref={bioRef}>
+              <p
+                className="text-white/40 text-sm leading-relaxed w-full break-words text-center"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                {member.bio}
+              </p>
+            </div>
+            {/* Fade gradient — visible when collapsed, hidden when expanded */}
+            {willExpand && (
+              <div
+                className="absolute bottom-0 left-0 right-0 h-10 pointer-events-none"
+                style={{
+                  background: 'linear-gradient(to top, #111 0%, transparent 100%)',
+                  opacity: bioHovered ? 0 : 1,
+                  transition: 'opacity 0.25s ease',
+                }}
+              />
+            )}
+          </div>
         )}
-        <div className="flex justify-center gap-3">
-          {member.instagramUrl ? (
-            <a
-              href={member.instagramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center hover:bg-[#eb7524]/10 transition-colors"
-            >
-              <Instagram className="w-4 h-4 text-white/40 group-hover:text-[#eb7524] transition-colors" />
-            </a>
-          ) : (
-            <div className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center opacity-30 cursor-default">
-              <Instagram className="w-4 h-4 text-white/40" />
-            </div>
-          )}
-          {member.email ? (
-            <a
-              href={`mailto:${member.email}`}
-              className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center hover:bg-[#eb7524]/10 transition-colors"
-            >
-              <Mail className="w-4 h-4 text-white/40 group-hover:text-[#eb7524] transition-colors" />
-            </a>
-          ) : (
-            <div className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center opacity-30 cursor-default">
-              <Mail className="w-4 h-4 text-white/40" />
-            </div>
-          )}
-        </div>
+
+        {/* Social buttons — own container, in normal flow below bio, never overlapping */}
+        {hasSocial && (
+          <div className={`flex justify-center gap-3 pt-4 flex-shrink-0 ${member.bio ? 'mt-auto' : ''}`}>
+            {member.instagramUrl && (
+              <a
+                href={member.instagramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center hover:bg-[#eb7524]/10 transition-colors"
+              >
+                <Instagram className="w-4 h-4 text-white/40 hover:text-[#eb7524] transition-colors" />
+              </a>
+            )}
+            {member.email && (
+              <a
+                href={`mailto:${member.email}`}
+                className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center hover:bg-[#eb7524]/10 transition-colors"
+              >
+                <Mail className="w-4 h-4 text-white/40 hover:text-[#eb7524] transition-colors" />
+              </a>
+            )}
+          </div>
+        )}
       </div>
     </FadeInSection>
   );
@@ -177,7 +234,7 @@ export function MeetTheExecs() {
                   {group.team.name}
                 </h2>
               </FadeInSection>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
                 {group.members.map((m, i) => (
                   <ExecCard key={m.id} member={m} index={i} />
                 ))}
