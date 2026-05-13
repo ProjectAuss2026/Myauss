@@ -22,7 +22,7 @@ const getConfigController = async (req, res) => {
       prisma.sponsorshipPage.findMany({
         include: {
           sponsors: {
-            orderBy: { name: 'asc' },
+            orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
           },
         },
         orderBy: { updatedAt: 'desc' },

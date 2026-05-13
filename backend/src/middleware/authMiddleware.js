@@ -41,3 +41,61 @@ export function authorise(...allowedRoles) {
     next();
   };
 }
+
+/**
+ * API variant of authenticate() that returns a typed error envelope.
+ */
+export function authenticateApi(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Missing or invalid authorization header.',
+      },
+    });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (_err) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Invalid or expired token.',
+      },
+    });
+  }
+}
+
+/**
+ * API variant of authorise() that returns a typed error envelope.
+ */
+export function authoriseApi(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Not authenticated.',
+        },
+      });
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Insufficient permissions.',
+        },
+      });
+    }
+
+    next();
+  };
+}

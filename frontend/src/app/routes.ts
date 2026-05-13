@@ -13,6 +13,7 @@ import { Admin } from './pages/Admin';
 import { Sponsorship } from './pages/Sponsorship';
 import { Activities } from './pages/Activities';
 import { ActivityDetails } from './pages/ActivityDetails';
+import { MediaGallery } from './pages/MediaGallery';
 
 export const router = createBrowserRouter([
   {
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
       { path: 'profile', Component: Profile },
       { path: 'activities', Component: Activities },
       { path: 'activities/:id', Component: ActivityDetails },
+      { path: 'media', Component: MediaGallery },
       { path: 'manage', Component: ManageLinks },
       { path: 'admin', Component: Admin },
       { path: '*', Component: NotFound },

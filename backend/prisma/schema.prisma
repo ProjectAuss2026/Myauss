@@ -67,8 +67,10 @@ model SponsorshipPage {
 model Sponsor {
   id                Int             @id @default(autoincrement())
   name              String
-  logoUrl           String?         // Optional: if you want to render logos later
+  logoUrl           String?
+  heroImageUrl      String?         // Homepage screenshot used as card background
   websiteUrl        String?
+  displayOrder      Int             @default(0)
   sponsorshipPageId Int
   sponsorshipPage   SponsorshipPage @relation(fields: [sponsorshipPageId], references: [id])
   createdAt         DateTime        @default(now())
@@ -87,6 +89,7 @@ model Activity {
   externalLink String?
   isPublished  Boolean  @default(true)
   capacity     Int? // null = unlimited capacity
+  mediaEntries MediaEntry[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   rsvps        Rsvp[]
@@ -104,5 +107,20 @@ model Rsvp {
   createdAt  DateTime @default(now())
 
   @@unique([activityId, email])
+  @@index([activityId])
+}
+
+// --- MEDIA ENTRIES ---
+// Each entry maps one activity to a specific drive folder.
+model MediaEntry {
+  id            Int      @id @default(autoincrement())
+  activityId    Int
+  mediaDriveUrl String
+  overrideName  String?
+  overrideCover String?
+  activity      Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   @@index([activityId])
 }

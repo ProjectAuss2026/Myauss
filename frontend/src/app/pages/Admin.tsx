@@ -31,18 +31,22 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
 
 // ── Types ──
 interface Sponsor {
-  id: string;
+  id: number;
   name: string;
-  tier: 'Gold' | 'Silver' | 'Bronze';
-  description: string;
-  website: string;
+  logoUrl: string;
+  websiteUrl: string;
+  displayOrder: number;
+  sponsorshipPageId: number;
 }
 
 interface MediaItem {
-  id: string;
-  src: string;
-  alt: string;
-  label: string;
+  id: number;
+  activityId: number;
+  mediaDriveUrl: string;
+  overrideName: string;
+  overrideCover: string;
+  resolvedName: string;
+  resolvedCover: string;
 }
 
 interface Activity {
@@ -61,26 +65,10 @@ interface Activity {
 }
 
 // ── Default data ──
-const defaultSponsors: Sponsor[] = [
-  { id: '1', name: 'IronGrip Supplements', tier: 'Gold', description: 'Premium sports nutrition partner providing supplements and recovery products for all AUSS members.', website: 'https://example.com' },
-  { id: '2', name: 'LiftWear NZ', tier: 'Gold', description: 'Official apparel sponsor outfitting our competition team with high-performance lifting gear.', website: 'https://example.com' },
-  { id: '3', name: 'BarBend Athletics', tier: 'Silver', description: 'Equipment sponsor providing competition-grade barbells and plates for our training sessions.', website: 'https://example.com' },
-  { id: '4', name: 'FuelBox Meals', tier: 'Silver', description: 'Meal prep partner keeping our athletes fuelled with macro-balanced meals throughout the semester.', website: 'https://example.com' },
-  { id: '5', name: 'UoA Recreation Centre', tier: 'Bronze', description: 'Our home gym and venue partner for all AUSS training sessions and internal competitions.', website: 'https://example.com' },
-  { id: '6', name: 'PhysioFirst NZ', tier: 'Bronze', description: 'Sports physiotherapy partner offering discounted recovery and injury prevention sessions for members.', website: 'https://example.com' },
-];
-
-const defaultMedia: MediaItem[] = [
-  { id: '1', src: 'https://images.unsplash.com/photo-1770026136797-18659700b5b9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Powerlifting deadlift session', label: 'Powerlifting Competition 2025' },
-  { id: '2', src: 'https://images.unsplash.com/photo-1761034114082-c2d63456a82a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Group training session', label: 'Training Session' },
-  { id: '3', src: 'https://images.unsplash.com/photo-1765109375988-912ce5ba5ffd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Team celebration', label: 'Team Event' },
-  { id: '4', src: 'https://images.unsplash.com/photo-1624513764372-a4eb7b334c62?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Squat rack workout', label: 'Gym Session' },
-  { id: '5', src: 'https://images.unsplash.com/photo-1688521010890-0e58abbaf755?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080', alt: 'Chalk hands barbell', label: 'Meet Day' },
-];
+const defaultSponsors: Sponsor[] = [];
+const defaultMedia: MediaItem[] = [];
 
 const defaultActivities: Activity[] = [];
-
-const tierColors: Record<string, string> = { Gold: '#eb7524', Silver: '#94a3b8', Bronze: '#b87333' };
 
 const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
 
@@ -285,11 +273,16 @@ export function Admin() {
   const [sponsors, setSponsors] = useState<Sponsor[]>(defaultSponsors);
   const [editingSponsor, setEditingSponsor] = useState<Sponsor | null>(null);
   const [showSponsorForm, setShowSponsorForm] = useState(false);
+  const [sponsorshipPageId, setSponsorshipPageId] = useState<number | null>(null);
+  const [sponsorLoading, setSponsorLoading] = useState(false);
+  const [sponsorError, setSponsorError] = useState<string | null>(null);
 
   // Media state
   const [media, setMedia] = useState<MediaItem[]>(defaultMedia);
   const [editingMedia, setEditingMedia] = useState<MediaItem | null>(null);
   const [showMediaForm, setShowMediaForm] = useState(false);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   // Activity state
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -299,6 +292,18 @@ export function Admin() {
   const [activityError, setActivityError] = useState<string | null>(null);
 
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
+
+  const getAuthToken = () => localStorage.getItem('token');
+
+  const getApiErrorMessage = async (response: Response) => {
+    const fallback = `Request failed: ${response.status}`;
+    try {
+      const payload = await response.json();
+      return payload?.error?.message || payload?.message || fallback;
+    } catch (_error) {
+      return fallback;
+    }
+  };
 
   // ── Access control ──
   // Wait for auth to resolve before making any redirect decisions.
@@ -316,6 +321,79 @@ export function Admin() {
       navigate('/', { replace: true });
     }
   }, [isLoading, isAuthenticated, isAdmin, navigate]);
+
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+
+    const loadSponsorAndMedia = async () => {
+      try {
+        setSponsorLoading(true);
+        setMediaLoading(true);
+        setSponsorError(null);
+        setMediaError(null);
+
+        const [sponsorshipResponse, mediaResponse] = await Promise.all([
+          fetch('/api/sponsorship', { cache: 'no-store' }),
+          fetch('/api/media-entries', { cache: 'no-store' }),
+        ]);
+
+        if (sponsorshipResponse.ok) {
+          const sponsorshipPayload = await sponsorshipResponse.json();
+          const sponsorshipData = sponsorshipPayload?.data;
+          const pageId = sponsorshipData?.id;
+          if (typeof pageId === 'number') {
+            setSponsorshipPageId(pageId);
+          }
+
+          const sponsorRows = Array.isArray(sponsorshipData?.sponsors) ? sponsorshipData.sponsors : [];
+          setSponsors(
+            sponsorRows.map((s: any) => ({
+              id: s.id,
+              name: s.name || '',
+              logoUrl: s.logoUrl || '',
+              websiteUrl: s.websiteUrl || '',
+              displayOrder: typeof s.displayOrder === 'number' ? s.displayOrder : 0,
+              sponsorshipPageId: typeof s.sponsorshipPageId === 'number' ? s.sponsorshipPageId : pageId,
+            }))
+          );
+        } else if (sponsorshipResponse.status !== 404) {
+          setSponsorError(await getApiErrorMessage(sponsorshipResponse));
+        } else {
+          setSponsors([]);
+          setSponsorshipPageId(null);
+        }
+
+        if (mediaResponse.ok) {
+          const mediaPayload = await mediaResponse.json();
+          const mediaRows = Array.isArray(mediaPayload?.data) ? mediaPayload.data : [];
+          setMedia(
+            mediaRows.map((m: any) => ({
+              id: m.id,
+              activityId: m.activityId,
+              mediaDriveUrl: m.mediaDriveUrl || '',
+              overrideName: m.overrideName || '',
+              overrideCover: m.overrideCover || '',
+              resolvedName: m.resolvedName || '',
+              resolvedCover: m.resolvedCover || '',
+            }))
+          );
+        } else if (mediaResponse.status !== 404) {
+          setMediaError(await getApiErrorMessage(mediaResponse));
+        } else {
+          setMedia([]);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load admin data';
+        setSponsorError(message);
+        setMediaError(message);
+      } finally {
+        setSponsorLoading(false);
+        setMediaLoading(false);
+      }
+    };
+
+    loadSponsorAndMedia();
+  }, [isAdmin, user]);
 
   // ── Load activities from backend ──
   useEffect(() => {
@@ -371,44 +449,202 @@ export function Admin() {
   }
 
   // ── Sponsor CRUD ──
-  // TODO (backend): Replace local state mutations with API calls.
-  //   - POST /api/admin/sponsors        → create sponsor
-  //   - PUT  /api/admin/sponsors/:id    → update sponsor
-  //   - DELETE /api/admin/sponsors/:id  → delete sponsor
-  // All admin API routes must verify the JWT and enforce role === 'ADMIN'
-  // server-side, regardless of frontend guards.
-  const saveSponsor = (sponsor: Sponsor) => {
-    if (sponsors.find((s) => s.id === sponsor.id)) {
-      setSponsors((prev) => prev.map((s) => (s.id === sponsor.id ? sponsor : s)));
-    } else {
-      setSponsors((prev) => [...prev, { ...sponsor, id: Date.now().toString() }]);
+  const saveSponsor = async (sponsor: Sponsor) => {
+    try {
+      setSponsorError(null);
+      const token = getAuthToken();
+      if (!token) {
+        setSponsorError('No authentication token found');
+        return;
+      }
+      if (!sponsorshipPageId) {
+        setSponsorError('Sponsorship page is not seeded yet.');
+        return;
+      }
+
+      const payload = {
+        name: sponsor.name,
+        logoUrl: sponsor.logoUrl || null,
+        websiteUrl: sponsor.websiteUrl || null,
+        displayOrder: sponsor.displayOrder,
+        sponsorshipPageId,
+      };
+
+      if (sponsor.id > 0) {
+        const response = await fetch(`/api/sponsors/${sponsor.id}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(await getApiErrorMessage(response));
+        }
+        const updated = (await response.json()).data;
+        setSponsors((prev) => prev.map((s) => (s.id === sponsor.id ? {
+          id: updated.id,
+          name: updated.name || '',
+          logoUrl: updated.logoUrl || '',
+          websiteUrl: updated.websiteUrl || '',
+          displayOrder: typeof updated.displayOrder === 'number' ? updated.displayOrder : 0,
+          sponsorshipPageId: updated.sponsorshipPageId,
+        } : s)));
+      } else {
+        const response = await fetch('/api/sponsors', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(await getApiErrorMessage(response));
+        }
+        const created = (await response.json()).data;
+        setSponsors((prev) => [...prev, {
+          id: created.id,
+          name: created.name || '',
+          logoUrl: created.logoUrl || '',
+          websiteUrl: created.websiteUrl || '',
+          displayOrder: typeof created.displayOrder === 'number' ? created.displayOrder : 0,
+          sponsorshipPageId: created.sponsorshipPageId,
+        }]);
+      }
+
+      setEditingSponsor(null);
+      setShowSponsorForm(false);
+    } catch (error) {
+      setSponsorError(error instanceof Error ? error.message : 'Failed to save sponsor');
     }
-    setEditingSponsor(null);
-    setShowSponsorForm(false);
   };
 
-  const deleteSponsor = (id: string) => {
-    setSponsors((prev) => prev.filter((s) => s.id !== id));
+  const deleteSponsor = async (id: number) => {
+    try {
+      setSponsorError(null);
+      const token = getAuthToken();
+      if (!token) {
+        setSponsorError('No authentication token found');
+        return;
+      }
+      // Optimistic removal for instant feedback
+      setSponsors((prev) => prev.filter((s) => s.id !== id));
+      const response = await fetch(`/api/sponsors/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response));
+      }
+      // Re-fetch with no-store to confirm server state and avoid stale cache reappear
+      const confirm = await fetch('/api/sponsorship', { cache: 'no-store' });
+      if (confirm.ok) {
+        const payload = await confirm.json();
+        const rows = Array.isArray(payload?.data?.sponsors) ? payload.data.sponsors : [];
+        setSponsors(
+          rows.map((s: any) => ({
+            id: s.id,
+            name: s.name || '',
+            logoUrl: s.logoUrl || '',
+            websiteUrl: s.websiteUrl || '',
+            displayOrder: typeof s.displayOrder === 'number' ? s.displayOrder : 0,
+            sponsorshipPageId: typeof s.sponsorshipPageId === 'number' ? s.sponsorshipPageId : null,
+          }))
+        );
+      }
+    } catch (error) {
+      setSponsorError(error instanceof Error ? error.message : 'Failed to delete sponsor');
+    }
   };
 
   // ── Media CRUD ──
-  // TODO (backend): Replace local state mutations with API calls.
-  //   - POST /api/admin/media        → create media item
-  //   - PUT  /api/admin/media/:id    → update media item
-  //   - DELETE /api/admin/media/:id  → delete media item
-  // All admin API routes must verify the JWT and enforce role === 'ADMIN'.
-  const saveMedia = (item: MediaItem) => {
-    if (media.find((m) => m.id === item.id)) {
-      setMedia((prev) => prev.map((m) => (m.id === item.id ? item : m)));
-    } else {
-      setMedia((prev) => [...prev, { ...item, id: Date.now().toString() }]);
+  const saveMedia = async (item: MediaItem) => {
+    try {
+      setMediaError(null);
+      const token = getAuthToken();
+      if (!token) {
+        setMediaError('No authentication token found');
+        return;
+      }
+      const payload = {
+        activityId: item.activityId,
+        mediaDriveUrl: item.mediaDriveUrl,
+        overrideName: item.overrideName || null,
+        overrideCover: item.overrideCover || null,
+      };
+
+      const response = await fetch(item.id > 0 ? `/api/media-entries/${item.id}` : '/api/media-entries', {
+        method: item.id > 0 ? 'PATCH' : 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response));
+      }
+      const updated = (await response.json()).data;
+      const mapped: MediaItem = {
+        id: updated.id,
+        activityId: updated.activityId,
+        mediaDriveUrl: updated.mediaDriveUrl || '',
+        overrideName: updated.overrideName || '',
+        overrideCover: updated.overrideCover || '',
+        resolvedName: updated.resolvedName || '',
+        resolvedCover: updated.resolvedCover || '',
+      };
+      if (item.id > 0) {
+        setMedia((prev) => prev.map((m) => (m.id === item.id ? mapped : m)));
+      } else {
+        setMedia((prev) => [mapped, ...prev]);
+      }
+      setEditingMedia(null);
+      setShowMediaForm(false);
+    } catch (error) {
+      setMediaError(error instanceof Error ? error.message : 'Failed to update media link');
     }
-    setEditingMedia(null);
-    setShowMediaForm(false);
   };
 
-  const deleteMedia = (id: string) => {
-    setMedia((prev) => prev.filter((m) => m.id !== id));
+  const deleteMedia = async (id: number) => {
+    try {
+      setMediaError(null);
+      const token = getAuthToken();
+      if (!token) {
+        setMediaError('No authentication token found');
+        return;
+      }
+      const response = await fetch(`/api/media-entries/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response));
+      }
+      // Optimistic removal first for instant feedback
+      setMedia((prev) => prev.filter((m) => m.id !== id));
+      // Refetch bypassing cache to confirm server state
+      const freshRes = await fetch('/api/media-entries', { cache: 'no-store' });
+      if (freshRes.ok) {
+        const payload = await freshRes.json();
+        const rows = Array.isArray(payload?.data) ? payload.data : [];
+        setMedia(rows.map((m: any) => ({
+          id: m.id,
+          activityId: m.activityId,
+          mediaDriveUrl: m.mediaDriveUrl || '',
+          overrideName: m.overrideName || '',
+          overrideCover: m.overrideCover || '',
+          resolvedName: m.resolvedName || '',
+          resolvedCover: m.resolvedCover || '',
+        })));
+      }
+    } catch (error) {
+      setMediaError(error instanceof Error ? error.message : 'Failed to delete media entry');
+    }
   };
 
   // ── Activity CRUD ──
@@ -593,6 +829,8 @@ export function Admin() {
               setEditing={setEditingSponsor}
               showForm={showSponsorForm}
               setShowForm={setShowSponsorForm}
+              sponsorLoading={sponsorLoading}
+              sponsorError={sponsorError}
             />
           )}
           {tab === 'media' && (
@@ -604,6 +842,9 @@ export function Admin() {
               setEditing={setEditingMedia}
               showForm={showMediaForm}
               setShowForm={setShowMediaForm}
+              activities={activities}
+              mediaLoading={mediaLoading}
+              mediaError={mediaError}
             />
           )}
           {tab === 'activities' && (
@@ -630,21 +871,19 @@ export function Admin() {
 // ═══════════════════════════════════════════════
 
 function SponsorManager({
-  sponsors, onSave, onDelete, editing, setEditing, showForm, setShowForm,
+  sponsors, onSave, onDelete, editing, setEditing, showForm, setShowForm, sponsorLoading, sponsorError,
 }: {
   sponsors: Sponsor[];
-  onSave: (s: Sponsor) => void;
-  onDelete: (id: string) => void;
+  onSave: (s: Sponsor) => Promise<void> | void;
+  onDelete: (id: number) => Promise<void> | void;
   editing: Sponsor | null;
   setEditing: (s: Sponsor | null) => void;
   showForm: boolean;
   setShowForm: (v: boolean) => void;
+  sponsorLoading?: boolean;
+  sponsorError?: string | null;
 }) {
-  const grouped = {
-    Gold: sponsors.filter((s) => s.tier === 'Gold'),
-    Silver: sponsors.filter((s) => s.tier === 'Silver'),
-    Bronze: sponsors.filter((s) => s.tier === 'Bronze'),
-  };
+  const ordered = [...sponsors].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
 
   return (
     <div>
@@ -654,7 +893,7 @@ function SponsorManager({
             Manage Sponsors
           </h2>
           <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
-            {sponsors.length} sponsor{sponsors.length !== 1 ? 's' : ''} across {Object.values(grouped).filter((g) => g.length > 0).length} tiers
+            {sponsors.length} sponsor{sponsors.length !== 1 ? 's' : ''} in rendering order
           </p>
         </div>
         <button
@@ -670,6 +909,24 @@ function SponsorManager({
         </button>
       </div>
 
+      {sponsorError && (
+        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-red-200" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {sponsorError}
+          </p>
+        </div>
+      )}
+
+      {sponsorLoading && (
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-center gap-3">
+          <Loader2 className="w-5 h-5 text-[#eb7524] animate-spin" />
+          <p className="text-white/60" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            Loading sponsors...
+          </p>
+        </div>
+      )}
+
       {/* Form Modal */}
       {(showForm || editing) && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -683,37 +940,20 @@ function SponsorManager({
         </div>
       )}
 
-      {/* Sponsor list by tier */}
-      {(['Gold', 'Silver', 'Bronze'] as const).map((tier) => {
-        const items = grouped[tier];
-        if (items.length === 0) return null;
-        const color = tierColors[tier];
-        return (
-          <div key={tier} className="mb-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-1 h-5 rounded-full" style={{ backgroundColor: color }} />
-              <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-                {tier} Sponsors
-              </h3>
-              <span className="px-2.5 py-0.5 rounded-full text-xs" style={{ backgroundColor: color + '18', color, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-                {items.length}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {items.map((sponsor) => (
-                <SponsorCard
-                  key={sponsor.id}
-                  sponsor={sponsor}
-                  onEdit={() => { setEditing(sponsor); setShowForm(false); }}
-                  onDelete={() => onDelete(sponsor.id)}
-                />
-              ))}
-            </div>
-          </div>
-        );
-      })}
+      {!sponsorLoading && ordered.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {ordered.map((sponsor) => (
+            <SponsorCard
+              key={sponsor.id}
+              sponsor={sponsor}
+              onEdit={() => { setEditing(sponsor); setShowForm(false); }}
+              onDelete={() => onDelete(sponsor.id)}
+            />
+          ))}
+        </div>
+      )}
 
-      {sponsors.length === 0 && (
+      {!sponsorLoading && sponsors.length === 0 && (
         <div className="text-center py-16">
           <Star className="w-12 h-12 text-white/10 mx-auto mb-4" />
           <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No sponsors added yet</p>
@@ -724,22 +964,25 @@ function SponsorManager({
 }
 
 function SponsorCard({ sponsor, onEdit, onDelete }: { sponsor: Sponsor; onEdit: () => void; onDelete: () => void }) {
-  const color = tierColors[sponsor.tier];
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-6 group hover:border-white/10 transition-all duration-300">
       <div className="flex items-center justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: color + '15' }}>
-          <span style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif', color }}>{sponsor.name.charAt(0)}</span>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(235,117,36,0.15)' }}>
+          {sponsor.logoUrl ? (
+            <img src={sponsor.logoUrl} alt={sponsor.name} className="w-7 h-7 object-contain" />
+          ) : (
+            <span style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif', color: '#eb7524' }}>{sponsor.name.charAt(0)}</span>
+          )}
         </div>
-        <span className="px-2.5 py-0.5 rounded-full border text-xs" style={{ borderColor: color + '40', color, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>
-          {sponsor.tier}
+        <span className="px-2.5 py-0.5 rounded-full border text-xs" style={{ borderColor: '#eb752466', color: '#eb7524', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>
+          Order {sponsor.displayOrder}
         </span>
       </div>
       <h4 className="text-white mb-1" style={{ fontSize: '17px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>{sponsor.name}</h4>
-      <p className="text-white/35 mb-4" style={{ fontSize: '13px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}>
-        {sponsor.description.length > 100 ? sponsor.description.slice(0, 100) + '...' : sponsor.description}
+      <p className="text-white/35 mb-4 truncate" style={{ fontSize: '13px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}>
+        {sponsor.websiteUrl || 'No website URL'}
       </p>
       <div className="flex items-center gap-2">
         <button
@@ -782,51 +1025,22 @@ function SponsorCard({ sponsor, onEdit, onDelete }: { sponsor: Sponsor; onEdit: 
   );
 }
 
-function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; onSave: (s: Sponsor) => void; onCancel: () => void }) {
+function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; onSave: (s: Sponsor) => Promise<void> | void; onCancel: () => void }) {
   const [name, setName] = useState(initial?.name || '');
-  const [tier, setTier] = useState<Sponsor['tier']>(initial?.tier || 'Gold');
-  const [description, setDescription] = useState(initial?.description || '');
-  const [website, setWebsite] = useState(initial?.website || '');
+  const [logoUrl, setLogoUrl] = useState(initial?.logoUrl || '');
+  const [websiteUrl, setWebsiteUrl] = useState(initial?.websiteUrl || '');
+  const [displayOrder, setDisplayOrder] = useState(String(initial?.displayOrder ?? 0));
 
-  type SErrors = Partial<Record<'name' | 'description' | 'website', string>>;
-  const [errors, setErrors] = useState<SErrors>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const validate = (): SErrors => {
-    const e: SErrors = {};
-    if (!name.trim()) e.name = 'Sponsor name is required';
-    if (!description.trim()) e.description = 'Description is required';
-    else if (wordCount(description) < 5) e.description = 'Description must be at least 5 words';
-    if (website.trim() && !isHttpUrl(website.trim())) e.website = 'Website URL must be a valid http or https URL';
-    return e;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitError(null);
-    setSubmitSuccess(null);
-    const e2 = validate();
-    setErrors(e2);
-    if (Object.keys(e2).length > 0) return;
-    setConfirmOpen(true);
-  };
-
-  const handleConfirmedSave = async () => {
-    try {
-      setSubmitting(true);
-      setSubmitError(null);
-      await onSave({ id: initial?.id || '', name: name.trim(), tier, description: description.trim(), website: website.trim() });
-      setErrors({});
-      setConfirmOpen(false);
-      setSubmitSuccess(initial ? 'Sponsor updated successfully.' : 'Sponsor added successfully.');
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Failed to save sponsor. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
+    await onSave({
+      id: initial?.id || 0,
+      name,
+      logoUrl,
+      websiteUrl,
+      displayOrder: Number(displayOrder) || 0,
+      sponsorshipPageId: initial?.sponsorshipPageId || 0,
+    });
   };
 
   return (
@@ -846,42 +1060,25 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
           {errors.name && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.name}</p>}
         </div>
         <div>
-          <label className="block text-white/60 mb-1.5" style={labelStyle}>Tier</label>
-          <div className="flex gap-2">
-            {(['Gold', 'Silver', 'Bronze'] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTier(t)}
-                className={`flex-1 py-2.5 rounded-xl border transition-all cursor-pointer ${
-                  tier === t ? 'border-transparent' : 'border-white/10 bg-white/[0.03] text-white/40 hover:bg-white/[0.06]'
-                }`}
-                style={{
-                  fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif',
-                  ...(tier === t ? { backgroundColor: tierColors[t] + '20', color: tierColors[t], borderColor: tierColors[t] + '40' } : {}),
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="md:col-span-2">
-          <label className="block text-white/60 mb-1.5" style={labelStyle}>Description</label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Brief description of the sponsor's involvement (at least 5 words)..."
-            rows={3}
-            className={inputCls + ' resize-none'}
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Display Order</label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={displayOrder}
+            onChange={(e) => setDisplayOrder(e.target.value)}
+            className={inputCls}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
           />
           {errors.description && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.description}</p>}
         </div>
         <div className="md:col-span-2">
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Logo URL</label>
+          <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://example.com/logo.png" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
+        </div>
+        <div className="md:col-span-2">
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Website URL</label>
-          <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://example.com" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
-          {errors.website && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.website}</p>}
+          <input value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://example.com" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
         </div>
 
         {submitError && (
@@ -1156,15 +1353,18 @@ function PhotoDriveLinkPanel() {
 // ═══════════════════════════════════════════════
 
 function MediaManager({
-  media, onSave, onDelete, editing, setEditing, showForm, setShowForm,
+  media, onSave, onDelete, editing, setEditing, showForm, setShowForm, activities, mediaLoading, mediaError,
 }: {
   media: MediaItem[];
-  onSave: (m: MediaItem) => void;
-  onDelete: (id: string) => void;
+  onSave: (m: MediaItem) => Promise<void> | void;
+  onDelete: (id: number) => Promise<void> | void;
   editing: MediaItem | null;
   setEditing: (m: MediaItem | null) => void;
   showForm: boolean;
   setShowForm: (v: boolean) => void;
+  activities: Activity[];
+  mediaLoading?: boolean;
+  mediaError?: string | null;
 }) {
   return (
     <div>
@@ -1174,10 +1374,10 @@ function MediaManager({
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
           <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-            Manage Photo Drive
+            Manage Activity Media Drives
           </h2>
           <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
-            {media.length} photo{media.length !== 1 ? 's' : ''} in the drive
+            Add one drive folder per activity. Drive URL is required.
           </p>
         </div>
         <button
@@ -1189,9 +1389,35 @@ function MediaManager({
           style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
         >
           <Plus className="w-4 h-4" />
-          Add Photo
+          Add Media Entry
         </button>
       </div>
+
+      {activities.length === 0 && (
+        <div className="mb-6 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
+          <p className="text-yellow-200" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            Add at least one activity first before creating media entries.
+          </p>
+        </div>
+      )}
+
+      {mediaError && (
+        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-red-200" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            {mediaError}
+          </p>
+        </div>
+      )}
+
+      {mediaLoading && (
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-center gap-3">
+          <Loader2 className="w-5 h-5 text-[#eb7524] animate-spin" />
+          <p className="text-white/60" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+            Loading media configuration...
+          </p>
+        </div>
+      )}
 
       {/* Form Modal */}
       {(showForm || editing) && (
@@ -1200,201 +1426,193 @@ function MediaManager({
             <MediaForm
               initial={editing}
               onSave={onSave}
+              activities={activities}
               onCancel={() => { setEditing(null); setShowForm(false); }}
             />
           </div>
         </div>
       )}
 
-      {/* Media Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {media.map((item) => (
-          <MediaCard
-            key={item.id}
-            item={item}
-            onEdit={() => { setEditing(item); setShowForm(false); }}
-            onDelete={() => onDelete(item.id)}
-          />
-        ))}
-      </div>
-
-      {media.length === 0 && (
+      {!mediaLoading && media.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {media.map((item) => (
+            <div key={item.id} className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="h-[170px] bg-black/40">
+                {item.resolvedCover ? (
+                  <img src={item.resolvedCover} alt={item.resolvedName} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <ImageIcon className="w-8 h-8 text-white/10" />
+                  </div>
+                )}
+              </div>
+              <div className="p-4">
+                <h4 className="text-white mb-2 truncate" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                  {item.resolvedName}
+                </h4>
+                <a
+                  href={item.mediaDriveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#eb7524] text-sm break-all hover:text-[#ff9f5e]"
+                  style={{ fontFamily: 'Inter, sans-serif' }}
+                >
+                  {item.mediaDriveUrl}
+                </a>
+                <div className="flex items-center gap-2 mt-4">
+                  <button
+                    onClick={() => { setEditing(item); setShowForm(false); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
+                    style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => onDelete(item.id)}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+                    style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
         <div className="text-center py-16">
           <ImageIcon className="w-12 h-12 text-white/10 mx-auto mb-4" />
-          <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No photos added yet</p>
+          <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No media entries added yet</p>
         </div>
       )}
     </div>
   );
 }
 
-function MediaCard({ item, onEdit, onDelete }: { item: MediaItem; onEdit: () => void; onDelete: () => void }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [imgError, setImgError] = useState(false);
+function MediaForm({ initial, onSave, activities, onCancel }: { initial: MediaItem | null; onSave: (m: MediaItem) => Promise<void> | void; activities: Activity[]; onCancel: () => void }) {
+  const [activityId, setActivityId] = useState(String(initial?.activityId || (activities[0]?.id || '')));
+  const [mediaDriveUrl, setMediaDriveUrl] = useState(initial?.mediaDriveUrl || '');
+  const [overrideName, setOverrideName] = useState(initial?.overrideName || '');
+  const [overrideCover, setOverrideCover] = useState(initial?.overrideCover || '');
+  const [isResolvingCover, setIsResolvingCover] = useState(false);
+  const [coverResolveError, setCoverResolveError] = useState<string | null>(null);
 
-  return (
-    <div className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden group hover:border-white/10 transition-all duration-300">
-      <div className="relative h-[180px] overflow-hidden">
-        {imgError ? (
-          <div className="w-full h-full flex items-center justify-center bg-white/[0.02]">
-            <ImageIcon className="w-8 h-8 text-white/10" />
-          </div>
-        ) : (
-          <img
-            src={item.src}
-            alt={item.alt}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            onError={() => setImgError(true)}
-          />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-        <div className="absolute bottom-3 left-3 right-3">
-          <p className="text-white/80 truncate" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{item.label}</p>
-        </div>
-      </div>
-      <div className="p-4 flex items-center gap-2">
-        <button
-          onClick={onEdit}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
-          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-        >
-          <Edit3 className="w-3 h-3" />
-          Edit
-        </button>
-        {confirmDelete ? (
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={onDelete}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
-              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-            >
-              Confirm
-            </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer"
-              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
-            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-          >
-            <Trash2 className="w-3 h-3" />
-            Delete
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
+  const selectedActivity = activities.find((a) => String(a.id) === activityId);
 
-function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; onSave: (m: MediaItem) => void; onCancel: () => void }) {
-  const [src, setSrc] = useState(initial?.src || '');
-  const [alt, setAlt] = useState(initial?.alt || '');
-  const [label, setLabel] = useState(initial?.label || '');
-  const [preview, setPreview] = useState(initial?.src || '');
-
-  type MErrors = Partial<Record<'src' | 'alt' | 'label', string>>;
-  const [errors, setErrors] = useState<MErrors>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const validate = (): MErrors => {
-    const e: MErrors = {};
-    const trimmedSrc = src.trim();
-    if (!trimmedSrc) e.src = 'Image URL is required';
-    else if (!isHttpUrl(trimmedSrc)) e.src = 'Image URL must be a valid http or https URL';
-    if (!label.trim()) e.label = 'Label is required';
-    if (!alt.trim()) e.alt = 'Alt text is required';
-    return e;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitError(null);
-    setSubmitSuccess(null);
-    const e2 = validate();
-    setErrors(e2);
-    if (Object.keys(e2).length > 0) return;
-    setConfirmOpen(true);
-  };
-
-  const handleConfirmedSave = async () => {
+  const resolvePixiesetUrl = async (url: string) => {
+    if (!url.includes('pixieset.com') || !url.includes('pid=')) return;
+    setIsResolvingCover(true);
+    setCoverResolveError(null);
     try {
-      setSubmitting(true);
-      setSubmitError(null);
-      await onSave({ id: initial?.id || '', src: src.trim(), alt: alt.trim(), label: label.trim() });
-      setErrors({});
-      setConfirmOpen(false);
-      setSubmitSuccess(initial ? 'Photo updated successfully.' : 'Photo added successfully.');
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Failed to save photo. Please try again.');
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/resolve-cover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCoverResolveError(data?.error?.message || 'Could not resolve image URL');
+      } else {
+        setOverrideCover(data.directUrl);
+      }
+    } catch {
+      setCoverResolveError('Network error while resolving URL');
     } finally {
-      setSubmitting(false);
+      setIsResolvingCover(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activityId) return;
+    await onSave({
+      id: initial?.id || 0,
+      activityId: Number(activityId),
+      mediaDriveUrl,
+      overrideName,
+      overrideCover,
+      resolvedName: initial?.resolvedName || '',
+      resolvedCover: initial?.resolvedCover || '',
+    });
   };
 
   return (
     <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7 mb-8">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-          {initial ? 'Edit Photo' : 'Add New Photo'}
+          {initial ? 'Edit Media Entry' : 'Add Media Entry'}
         </h3>
         <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
           <X className="w-5 h-5" />
         </button>
       </div>
-      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div className="md:col-span-2">
-            <label className="block text-white/60 mb-1.5" style={labelStyle}>Image URL</label>
-            <input
-              value={src}
-              onChange={(e) => { setSrc(e.target.value); setPreview(e.target.value); }}
-              placeholder="https://images.unsplash.com/..."
-              className={inputCls}
-              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-            />
-            {errors.src && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.src}</p>}
-          </div>
-          <div>
-            <label className="block text-white/60 mb-1.5" style={labelStyle}>Label</label>
-            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Powerlifting Competition 2025" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
-            {errors.label && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.label}</p>}
-          </div>
-          <div>
-            <label className="block text-white/60 mb-1.5" style={labelStyle}>Alt Text</label>
-            <input value={alt} onChange={(e) => setAlt(e.target.value)} placeholder="Descriptive alt text for accessibility" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
-            {errors.alt && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.alt}</p>}
-          </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Linked Activity</label>
+          <select
+            value={activityId}
+            onChange={(e) => setActivityId(e.target.value)}
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            required
+          >
+            {activities.map((activity) => (
+              <option key={activity.id} value={activity.id} className="bg-[#111] text-white">
+                {activity.title}
+              </option>
+            ))}
+          </select>
         </div>
-
-        {/* Preview */}
-        {preview && (
-          <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
-            <img src={preview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Media Drive URL</label>
+          <input
+            value={mediaDriveUrl}
+            onChange={(e) => setMediaDriveUrl(e.target.value)}
+            placeholder="https://drive.google.com/..."
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Override Name (optional)</label>
+          <input
+            value={overrideName}
+            onChange={(e) => setOverrideName(e.target.value)}
+            placeholder={selectedActivity?.title || 'Uses linked activity title by default'}
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+          />
+        </div>
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>Override Cover URL (optional)</label>
+          <div className="relative">
+            <input
+              value={overrideCover}
+              onChange={(e) => { setOverrideCover(e.target.value); setCoverResolveError(null); }}
+              onBlur={(e) => resolvePixiesetUrl(e.target.value)}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData('text');
+                setTimeout(() => resolvePixiesetUrl(pasted), 0);
+              }}
+              placeholder={selectedActivity?.imageUrl || 'Paste a Pixieset photo link or direct image URL'}
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', paddingRight: isResolvingCover ? '2.5rem' : undefined }}
+            />
+            {isResolvingCover && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#eb7524] animate-spin" />
+            )}
           </div>
-        )}
-
-        {submitError && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
-            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-            <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitError}</p>
-          </div>
-        )}
-        {submitSuccess && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
-            <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
-            <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitSuccess}</p>
-          </div>
-        )}
+          {coverResolveError && (
+            <p className="mt-1 text-red-400" style={{ fontSize: '12px' }}>{coverResolveError}</p>
+          )}
+          {!coverResolveError && overrideCover && !isResolvingCover && overrideCover.startsWith('https://images.pixieset.com') && (
+            <p className="mt-1 text-green-400/70" style={{ fontSize: '12px' }}>✓ Pixieset URL resolved</p>
+          )}
+        </div>
 
         <div className="flex gap-3 justify-end pt-2">
           <button type="button" onClick={onCancel} disabled={submitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
@@ -1402,7 +1620,7 @@ function MediaForm({ initial, onSave, onCancel }: { initial: MediaItem | null; o
           </button>
           <button type="submit" disabled={submitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
             <Save className="w-4 h-4" />
-            {initial ? 'Update' : 'Add'} Photo
+            {initial ? 'Update' : 'Save'} Link
           </button>
         </div>
       </form>
