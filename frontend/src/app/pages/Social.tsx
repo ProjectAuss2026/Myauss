@@ -78,6 +78,7 @@ export function Social() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
 
+  // ── Fetch communication links + media drive URL from DB ───────────────
   const [mediaEntries, setMediaEntries] = useState<MediaEntry[]>([]);
   const [mediaLoading, setMediaLoading] = useState(true);
   useEffect(() => {
@@ -104,6 +105,8 @@ export function Social() {
   }
   const [dbLinks, setDbLinks] = useState<DbLink[]>([]);
   const [dbLinksLoading, setDbLinksLoading] = useState(true);
+  // Media drive URL — sourced from DB via /api/config (mediaConfig.mediaDriveUrl).
+  const [mediaDriveUrl, setMediaDriveUrl] = useState<string | null>(null);
   useEffect(() => {
     fetch('/api/config')
       .then((r) => (r.ok ? r.json() : null))
@@ -113,6 +116,10 @@ export function Social() {
             (l) => l.isActive
           );
           setDbLinks(filtered);
+        }
+        const url = data?.mediaConfig?.mediaDriveUrl;
+        if (typeof url === 'string' && url.trim()) {
+          setMediaDriveUrl(url.trim());
         }
       })
       .catch(() => {})
@@ -234,6 +241,44 @@ export function Social() {
             </div>
           )}
 
+          {/* Drive CTA — URL comes from config.communications.media_drive_url */}
+          <FadeIn delay={0.3}>
+            <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-8 md:p-10 flex flex-col md:flex-row items-center gap-6 md:gap-8">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(235,117,36,0.1)' }}>
+                <Camera className="w-8 h-8 text-[#eb7524]" />
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h3 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                  View Full Photo Drive
+                </h3>
+                <p className="text-white/40" style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}>
+                  Access all event photos, competition shots, and training highlights in our Google Drive.
+                  Feel free to download and share!
+                </p>
+              </div>
+              {/* Drive URL is loaded from /api/config (mediaConfig.mediaDriveUrl). */}
+              {mediaDriveUrl ? (
+                <a
+                  href={mediaDriveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 bg-[#eb7524] text-white px-8 py-3.5 rounded-xl hover:bg-[#d4691f] transition-all flex-shrink-0"
+                  style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Open Drive
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-2 bg-white/[0.04] border border-white/10 text-white/50 px-8 py-3.5 rounded-xl flex-shrink-0"
+                  style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                  aria-disabled="true"
+                >
+                  {dbLinksLoading ? 'Loading…' : 'Photo drive link unavailable'}
+                </span>
+              )}
+            </div>
+          </FadeIn>
           <div className="text-center mt-8">
             <Link to="/media">
               <button

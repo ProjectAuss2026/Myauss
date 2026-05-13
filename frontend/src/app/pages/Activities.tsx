@@ -39,6 +39,7 @@ function mapActivity(activity: any): Activity {
 }
 
 export function Activities() {
+  const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -233,7 +234,7 @@ export function Activities() {
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {ongoingActivities.map((activity) => (
-                  <ActivityCardLarge key={activity.id} activity={activity} />
+                  <ActivityCardLarge key={activity.id} activity={activity} onView={() => navigate(`/activities/${activity.id}`)} />
                 ))}
               </div>
             </div>
@@ -254,7 +255,7 @@ export function Activities() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {upcomingActivities.map((activity) => (
-                  <ActivityCard key={activity.id} activity={activity} formatDate={formatDate} formatTime={formatTime} getTimeUntil={getTimeUntil} />
+                  <ActivityCard key={activity.id} activity={activity} formatDate={formatDate} formatTime={formatTime} getTimeUntil={getTimeUntil} onView={() => navigate(`/activities/${activity.id}`)} />
                 ))}
               </div>
             </div>
@@ -289,12 +290,14 @@ function ActivityCard({
   activity, 
   formatDate, 
   formatTime, 
-  getTimeUntil 
+  getTimeUntil,
+  onView,
 }: { 
   activity: Activity;
   formatDate: (dateStr: string) => string;
   formatTime: (dateStr: string) => string;
   getTimeUntil: (dateStr: string) => string;
+  onView: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
 
@@ -359,9 +362,8 @@ function ActivityCard({
 
         {/* Learn More Button */}
         <button 
-          onClick={() => activity.externalLink && window.open(activity.externalLink, '_blank')}
-          disabled={!activity.externalLink}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed" 
+          onClick={onView}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all" 
           style={{ 
             fontSize: '13px',
             fontFamily: 'Outfit, sans-serif',
@@ -376,7 +378,7 @@ function ActivityCard({
   );
 }
 
-function ActivityCardLarge({ activity }: { activity: Activity }) {
+function ActivityCardLarge({ activity, onView }: { activity: Activity; onView: () => void }) {
   const [imgError, setImgError] = useState(false);
 
   const formatTime = (dateStr: string) => {
@@ -450,16 +452,15 @@ function ActivityCardLarge({ activity }: { activity: Activity }) {
 
           {/* CTA */}
           <button 
-            onClick={() => activity.externalLink && window.open(activity.externalLink, '_blank')}
-            disabled={!activity.externalLink}
-            className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all disabled:opacity-50 disabled:cursor-not-allowed" 
+            onClick={onView}
+            className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all" 
             style={{ 
               fontSize: '14px',
               fontFamily: 'Outfit, sans-serif',
               fontWeight: 600
             }}
           >
-            Join Event
+            View Event
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

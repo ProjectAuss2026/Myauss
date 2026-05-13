@@ -34,6 +34,7 @@ model UserInfo {
   userId    String @unique
   user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
 // --- COMMUNICATION LINKS ---
 // Stores social media, discord, membership, and email links
 model CommunicationLink {
@@ -68,7 +69,7 @@ model Sponsor {
   id                Int             @id @default(autoincrement())
   name              String
   logoUrl           String?
-  heroImageUrl      String?         // Homepage screenshot used as card background
+  heroImageUrl      String? // Homepage screenshot used as card background
   websiteUrl        String?
   displayOrder      Int             @default(0)
   sponsorshipPageId Int
@@ -80,17 +81,34 @@ model Sponsor {
 // --- ACTIVITIES ---
 // Stores upcoming/past club events and activities
 model Activity {
-  id           Int      @id @default(autoincrement())
+  id           Int          @id @default(autoincrement())
   title        String
-  description  String   @db.Text
+  description  String       @db.Text
   startTime    DateTime
   endTime      DateTime
   imageUrl     String?
   externalLink String?
-  isPublished  Boolean  @default(true)
+  isPublished  Boolean      @default(true)
+  capacity     Int? // null = unlimited capacity
   mediaEntries MediaEntry[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  rsvps        Rsvp[]
+}
+
+// --- RSVPS ---
+// Stores RSVP submissions for activities/events
+model Rsvp {
+  id         Int      @id @default(autoincrement())
+  activityId Int
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  name       String
+  email      String
+  studentId  String
+  createdAt  DateTime @default(now())
+
+  @@unique([activityId, email])
+  @@index([activityId])
 }
 
 // --- MEDIA ENTRIES ---
