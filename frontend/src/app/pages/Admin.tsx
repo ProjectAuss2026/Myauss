@@ -57,8 +57,8 @@ interface Activity {
   endTime: string;
   imageUrl: string;
   externalLink?: string;
-  capacity?: number | null;
   isPublished?: boolean;
+  capacity?: number | null;
   status: 'upcoming' | 'ongoing' | 'archived';
   createdAt?: string;
   updatedAt?: string;
@@ -86,6 +86,10 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isLocalUploadPath(value: string): boolean {
+  return value.startsWith('/uploads/');
 }
 
 function wordCount(value: string): number {
@@ -657,8 +661,7 @@ export function Admin() {
         return;
       }
 
-      // Map status to isPublished (archived = not published)
-      const isPublished = activity.status !== 'archived';
+      const isPublished = activity.isPublished ?? activity.status !== 'archived';
 
       const payload = {
         title: activity.title,
@@ -667,8 +670,8 @@ export function Admin() {
         endTime: datetimeLocalToISO(activity.endTime),
         imageUrl: activity.imageUrl,
         externalLink: activity.externalLink || '',
-        capacity: activity.capacity ?? null,
         isPublished,
+        capacity: activity.capacity ?? null,
       };
 
       if (activity.id > 0) {
@@ -1867,8 +1870,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   const [endTime, setEndTime] = useState(formatToDatetimeLocal(initial?.endTime));
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
   const [externalLink, setExternalLink] = useState(initial?.externalLink || '');
-  const [capacity, setCapacity] = useState(initial?.capacity != null ? String(initial.capacity) : '');
   const [isPublished, setIsPublished] = useState(initial?.isPublished !== false);
+  const [capacity, setCapacity] = useState(initial?.capacity != null ? String(initial.capacity) : '');
   const [preview, setPreview] = useState(initial?.imageUrl || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1898,8 +1901,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         e.endTime = 'End must be after start';
       }
     }
-    if (imageUrl.trim() && !isHttpUrl(imageUrl.trim())) {
-      e.imageUrl = 'Image URL must be a valid http or https URL';
+    if (imageUrl.trim() && !isHttpUrl(imageUrl.trim()) && !isLocalUploadPath(imageUrl.trim())) {
+      e.imageUrl = 'Image URL must be a valid http, https, or uploaded image path';
     }
     if (externalLink.trim() && !isHttpUrl(externalLink.trim())) {
       e.externalLink = 'External link must be a valid http or https URL';
@@ -1960,6 +1963,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         endTime,
         imageUrl: imageUrl.trim(),
         externalLink: externalLink.trim(),
+        isPublished,
         capacity: parseCapacity(capacity),
         status,
       });
