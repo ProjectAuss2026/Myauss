@@ -53,6 +53,7 @@ interface Activity {
   endTime: string;
   imageUrl: string;
   externalLink?: string;
+  capacity?: number | null;
   isPublished?: boolean;
   status: 'upcoming' | 'ongoing' | 'archived';
   createdAt?: string;
@@ -237,6 +238,20 @@ function datetimeLocalToISO(datetimeLocal: string): string {
   return `${datetimeLocal}:00`; // Convert YYYY-MM-DDTHH:mm to YYYY-MM-DDTHH:mm:00
 }
 
+function getCapacityError(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return 'Capacity must be a positive whole number';
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return 'Capacity must be a positive whole number';
+  return null;
+}
+
+function parseCapacity(value: string): number | null {
+  const trimmed = value.trim();
+  return trimmed ? Number(trimmed) : null;
+}
+
 /**
  * Upload image file to /api/upload
  */
@@ -416,6 +431,7 @@ export function Admin() {
         endTime: datetimeLocalToISO(activity.endTime),
         imageUrl: activity.imageUrl,
         externalLink: activity.externalLink || '',
+        capacity: activity.capacity ?? null,
         isPublished,
       };
 
@@ -1680,6 +1696,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   const [endTime, setEndTime] = useState(formatToDatetimeLocal(initial?.endTime));
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
   const [externalLink, setExternalLink] = useState(initial?.externalLink || '');
+  const [capacity, setCapacity] = useState(initial?.capacity != null ? String(initial.capacity) : '');
   const [isPublished, setIsPublished] = useState(initial?.isPublished !== false);
   const [preview, setPreview] = useState(initial?.imageUrl || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1688,7 +1705,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Inline validation + confirmation state
-  type Errors = Partial<Record<'title' | 'description' | 'startTime' | 'endTime' | 'imageUrl' | 'externalLink', string>>;
+  type Errors = Partial<Record<'title' | 'description' | 'startTime' | 'endTime' | 'imageUrl' | 'externalLink' | 'capacity', string>>;
   const [errors, setErrors] = useState<Errors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
@@ -1716,6 +1733,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
     if (externalLink.trim() && !isHttpUrl(externalLink.trim())) {
       e.externalLink = 'External link must be a valid http or https URL';
     }
+    const capacityError = getCapacityError(capacity);
+    if (capacityError) e.capacity = capacityError;
     return e;
   };
 
@@ -1770,6 +1789,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         endTime,
         imageUrl: imageUrl.trim(),
         externalLink: externalLink.trim(),
+        capacity: parseCapacity(capacity),
         status,
       });
       setErrors({});
@@ -1858,6 +1878,25 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
             />
             {errors.endTime && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.endTime}</p>}
           </div>
+        </div>
+
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>RSVP Capacity</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+            placeholder="e.g. 30"
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            aria-describedby="activity-capacity-help"
+          />
+          <p id="activity-capacity-help" className="mt-1.5 text-white/35" style={fieldErrorStyle}>
+            Leave blank for unlimited capacity.
+          </p>
+          {errors.capacity && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.capacity}</p>}
         </div>
 
         <div>
