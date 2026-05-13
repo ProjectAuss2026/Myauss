@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
-  Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
+  Plus, Trash2, Edit3, Save, X, Star, Users,
+  Camera, ExternalLink, LogOut, Shield, Image as ImageIcon,
   Loader2, Calendar, Clock, AlertCircle, Link as LinkIcon, CheckCircle2,
 } from 'lucide-react';
 import { AttendeesModal } from '../components/AttendeesModal';
@@ -1057,7 +1057,6 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Sponsor Name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. IronGrip Supplements" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
-          {errors.name && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.name}</p>}
         </div>
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Display Order</label>
@@ -1070,7 +1069,6 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
             className={inputCls}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
           />
-          {errors.description && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.description}</p>}
         </div>
         <div className="md:col-span-2">
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Logo URL</label>
@@ -1081,45 +1079,16 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
           <input value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://example.com" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
         </div>
 
-        {submitError && (
-          <div className="md:col-span-2 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
-            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-            <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitError}</p>
-          </div>
-        )}
-        {submitSuccess && (
-          <div className="md:col-span-2 flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
-            <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
-            <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitSuccess}</p>
-          </div>
-        )}
-
         <div className="md:col-span-2 flex gap-3 justify-end pt-2">
-          <button type="button" onClick={onCancel} disabled={submitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
             Cancel
           </button>
-          <button type="submit" disabled={submitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
             <Save className="w-4 h-4" />
             {initial ? 'Update' : 'Add'} Sponsor
           </button>
         </div>
       </form>
-
-      <ConfirmDialog
-        open={confirmOpen}
-        title={initial ? 'Update this sponsor?' : 'Add this sponsor?'}
-        message={
-          <>
-            You&rsquo;re about to {initial ? 'update' : 'publish'} <span className="text-white/85">&ldquo;{name.trim()}&rdquo;</span> at the <span className="text-white/85">{tier}</span> tier.
-            <br />
-            Continue?
-          </>
-        }
-        confirmLabel={initial ? 'Save Changes' : 'Add Sponsor'}
-        busy={submitting}
-        onConfirm={handleConfirmedSave}
-        onCancel={() => { if (!submitting) setConfirmOpen(false); }}
-      />
     </div>
   );
 }
@@ -1615,31 +1584,15 @@ function MediaForm({ initial, onSave, activities, onCancel }: { initial: MediaIt
         </div>
 
         <div className="flex gap-3 justify-end pt-2">
-          <button type="button" onClick={onCancel} disabled={submitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
+          <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
             Cancel
           </button>
-          <button type="submit" disabled={submitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          <button type="submit" className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
             <Save className="w-4 h-4" />
             {initial ? 'Update' : 'Save'} Link
           </button>
         </div>
       </form>
-
-      <ConfirmDialog
-        open={confirmOpen}
-        title={initial ? 'Update this photo?' : 'Add this photo?'}
-        message={
-          <>
-            You&rsquo;re about to {initial ? 'update' : 'add'} <span className="text-white/85">&ldquo;{label.trim() || 'this photo'}&rdquo;</span> in the Photo Drive list.
-            <br />
-            Continue?
-          </>
-        }
-        confirmLabel={initial ? 'Save Changes' : 'Add Photo'}
-        busy={submitting}
-        onConfirm={handleConfirmedSave}
-        onCancel={() => { if (!submitting) setConfirmOpen(false); }}
-      />
     </div>
   );
 }
