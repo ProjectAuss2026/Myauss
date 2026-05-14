@@ -3048,8 +3048,26 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
   const dragSourceList = useRef<'roles' | 'teams' | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
-  useEffect(() => { setLocalRoles(execRoles); }, [execRoles]);
-  useEffect(() => { setLocalTeams(execTeams); }, [execTeams]);
+  // Sync from props only when the set of IDs changes (role added/deleted).
+  // Preserve local displayOrder on re-renders to prevent drag order being overwritten.
+  useEffect(() => {
+    setLocalRoles(prev => {
+      const newIds = execRoles.map(r => r.id).sort().join(',');
+      const prevIds = prev.map(r => r.id).sort().join(',');
+      if (newIds !== prevIds) return execRoles; // add/delete → full reset
+      const newMap = new Map(execRoles.map(r => [r.id, r]));
+      return prev.map(r => { const u = newMap.get(r.id); return u ? { ...u, displayOrder: r.displayOrder } : r; });
+    });
+  }, [execRoles]);
+  useEffect(() => {
+    setLocalTeams(prev => {
+      const newIds = execTeams.map(t => t.id).sort().join(',');
+      const prevIds = prev.map(t => t.id).sort().join(',');
+      if (newIds !== prevIds) return execTeams;
+      const newMap = new Map(execTeams.map(t => [t.id, t]));
+      return prev.map(t => { const u = newMap.get(t.id); return u ? { ...u, displayOrder: t.displayOrder } : t; });
+    });
+  }, [execTeams]);
 
   const addRole = async () => {
     if (!newRoleName.trim()) return;
