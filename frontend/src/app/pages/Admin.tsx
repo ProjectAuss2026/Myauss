@@ -3140,25 +3140,26 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
     };
 
     if (list === 'roles') {
+      const prevRoles = localRoles;
       const reordered = reorder(localRoles);
-      setLocalRoles(reordered);
+      setLocalRoles(reordered); // optimistic update — this IS the source of truth
       const res = await fetch('/api/admin/exec-roles/reorder', {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
       });
-      if (!res.ok) { await onRefresh(); setError('Failed to reorder roles'); }
-      else await onRefresh();
+      if (!res.ok) { setLocalRoles(prevRoles); setError('Failed to reorder roles'); }
     } else {
+      const prevTeams = localTeams;
       const reordered = reorder(localTeams);
-      setLocalTeams(reordered);
+      setLocalTeams(reordered); // optimistic update
       const res = await fetch('/api/admin/exec-teams/reorder', {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
       });
-      if (!res.ok) { await onRefresh(); setError('Failed to reorder teams'); }
-      else await onRefresh();
+      if (!res.ok) { setLocalTeams(prevTeams); setError('Failed to reorder teams'); }
+      else await onRefresh(); // refresh exec groups since team order affects member grouping
     }
   };
 
