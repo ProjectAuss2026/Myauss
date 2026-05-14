@@ -34,7 +34,7 @@ export const getActivities = async (_req, res) => {
 
 // POST /api/activities — admin only
 export const createActivity = async (req, res) => {
-  const { title, description, startTime, endTime, imageUrl, externalLink, isPublished } = req.body;
+  const { title, description, startTime, endTime, imageUrl, externalLink, isPublished, capacity } = req.body;
 
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'title is required' });
@@ -61,6 +61,14 @@ export const createActivity = async (req, res) => {
     return res.status(400).json({ error: 'endTime must be after startTime' });
   }
 
+  let parsedCapacity = null;
+  if (capacity !== undefined && capacity !== null && capacity !== '') {
+    parsedCapacity = parseInt(capacity, 10);
+    if (isNaN(parsedCapacity) || parsedCapacity < 0) {
+      return res.status(400).json({ error: 'capacity must be a non-negative integer' });
+    }
+  }
+
   try {
     const activity = await prisma.activity.create({
       data: {
@@ -71,6 +79,7 @@ export const createActivity = async (req, res) => {
         imageUrl: imageUrl || null,
         externalLink: externalLink || null,
         isPublished: isPublished !== undefined ? Boolean(isPublished) : true,
+        capacity: parsedCapacity,
       },
     });
     return res.status(201).json(activity);
@@ -87,7 +96,7 @@ export const updateActivity = async (req, res) => {
     return res.status(400).json({ error: 'Valid id is required' });
   }
 
-  const { title, description, startTime, endTime, imageUrl, externalLink, isPublished } = req.body;
+  const { title, description, startTime, endTime, imageUrl, externalLink, isPublished, capacity } = req.body;
 
   try {
     const existing = await prisma.activity.findUnique({ where: { id } });
@@ -125,6 +134,17 @@ export const updateActivity = async (req, res) => {
     if (imageUrl !== undefined) data.imageUrl = imageUrl || null;
     if (externalLink !== undefined) data.externalLink = externalLink || null;
     if (isPublished !== undefined) data.isPublished = Boolean(isPublished);
+    if (capacity !== undefined) {
+      if (capacity === null || capacity === '') {
+        data.capacity = null;
+      } else {
+        const parsedCapacity = parseInt(capacity, 10);
+        if (isNaN(parsedCapacity) || parsedCapacity < 0) {
+          return res.status(400).json({ error: 'capacity must be a non-negative integer' });
+        }
+        data.capacity = parsedCapacity;
+      }
+    }
 
     // If the image changed and the old one was a local upload, delete old file
     if (imageUrl !== undefined && imageUrl !== existing.imageUrl) {

@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
-  Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
-  Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
+  Plus, Trash2, Edit3, Save, X, Star, Users,
+  Camera, ExternalLink, LogOut, Shield, Image as ImageIcon,
   Loader2, Calendar, Clock, AlertCircle, HelpCircle, ChevronDown, GripVertical,
+  Link as LinkIcon, CheckCircle2,
 } from 'lucide-react';
+import { AttendeesModal } from '../components/AttendeesModal';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -58,6 +60,7 @@ interface Activity {
   imageUrl: string;
   externalLink?: string;
   isPublished?: boolean;
+  capacity?: number | null;
   status: 'upcoming' | 'ongoing' | 'archived';
   createdAt?: string;
   updatedAt?: string;
@@ -173,6 +176,118 @@ function CustomSelect({ value, onChange, options, required }: {
   );
 }
 
+// ── Shared validation helpers ──
+function isHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isLocalUploadPath(value: string): boolean {
+  return value.startsWith('/uploads/');
+}
+
+function wordCount(value: string): number {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+const fieldErrorCls = 'mt-1.5 text-red-400';
+const fieldErrorStyle: React.CSSProperties = { fontSize: '12px', fontFamily: 'Inter, sans-serif' };
+
+// ── Reusable confirmation dialog ──
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = 'Save Changes',
+  cancelLabel = 'Cancel',
+  busy = false,
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, busy, onCancel]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+      onClick={() => { if (!busy) onCancel(); }}
+    >
+      <div
+        className="bg-[#111] border border-white/10 rounded-2xl max-w-md w-full p-6"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(235,117,36,0.12)' }}>
+            <AlertCircle className="w-5 h-5 text-[#eb7524]" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-white mb-1" style={{ fontSize: '17px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+              {title}
+            </h3>
+            <div className="text-white/60" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.55 }}>
+              {message}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-3 justify-end pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/70 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          >
+            {busy ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                {confirmLabel}
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Activity helpers ──
 function deriveActivityStatus(activity: Activity): 'upcoming' | 'ongoing' | 'archived' {
   const now = new Date();
@@ -211,6 +326,20 @@ function formatToDatetimeLocal(dateStr?: string): string {
 function datetimeLocalToISO(datetimeLocal: string): string {
   if (!datetimeLocal) return '';
   return `${datetimeLocal}:00`; // Convert YYYY-MM-DDTHH:mm to YYYY-MM-DDTHH:mm:00
+}
+
+function getCapacityError(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return 'Capacity must be a positive whole number';
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return 'Capacity must be a positive whole number';
+  return null;
+}
+
+function parseCapacity(value: string): number | null {
+  const trimmed = value.trim();
+  return trimmed ? Number(trimmed) : null;
 }
 
 /**
@@ -831,8 +960,7 @@ export function Admin() {
         return;
       }
 
-      // Map status to isPublished (archived = not published)
-      const isPublished = activity.status !== 'archived';
+      const isPublished = activity.isPublished ?? activity.status !== 'archived';
 
       const payload = {
         title: activity.title,
@@ -842,6 +970,7 @@ export function Admin() {
         imageUrl: activity.imageUrl,
         externalLink: activity.externalLink || '',
         isPublished,
+        capacity: activity.capacity ?? null,
       };
 
       if (activity.id > 0) {
@@ -1250,10 +1379,10 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
           <X className="w-5 h-5" />
         </button>
       </div>
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5" noValidate>
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Sponsor Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. IronGrip Supplements" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} required />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. IronGrip Supplements" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
         </div>
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Display Order</label>
@@ -1265,7 +1394,6 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
             onChange={(e) => setDisplayOrder(e.target.value)}
             className={inputCls}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-            required
           />
         </div>
         <div className="md:col-span-2">
@@ -1276,6 +1404,7 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Website URL</label>
           <input value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://example.com" className={inputCls} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }} />
         </div>
+
         <div className="md:col-span-2 flex gap-3 justify-end pt-2">
           <button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>
             Cancel
@@ -1286,6 +1415,230 @@ function SponsorForm({ initial, onSave, onCancel }: { initial: Sponsor | null; o
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Photo Drive Link Panel — edit & save the singleton MediaConfig.mediaDriveUrl
+// ═══════════════════════════════════════════════
+
+function PhotoDriveLinkPanel() {
+  const [configId, setConfigId] = useState<number | null>(null);
+  const [url, setUrl] = useState('');
+  const [savedUrl, setSavedUrl] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setLoadError(null);
+        const res = await fetch('/api/config');
+        if (!res.ok) throw new Error(`Failed to load config: ${res.statusText}`);
+        const data = await res.json();
+        if (cancelled) return;
+        const mc = data?.mediaConfig;
+        if (mc && typeof mc.id === 'number') {
+          setConfigId(mc.id);
+          setUrl(mc.mediaDriveUrl ?? '');
+          setSavedUrl(mc.mediaDriveUrl ?? '');
+        } else {
+          setConfigId(null);
+          setUrl('');
+          setSavedUrl('');
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : 'Failed to load Photo Drive link');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const dirty = url !== savedUrl;
+
+  // Step 1: validate, then open the confirmation dialog.
+  const handleSaveClick = () => {
+    setValidationError(null);
+    setSaveError(null);
+    setSavedFlash(false);
+
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setValidationError('Photo Drive link cannot be empty');
+      return;
+    }
+    if (!isHttpUrl(trimmed)) {
+      setValidationError('Please enter a valid http or https URL');
+      return;
+    }
+    setConfirmOpen(true);
+  };
+
+  // Step 2: actually persist the change after the admin confirms.
+  const handleConfirmSave = async () => {
+    const trimmed = url.trim();
+
+    try {
+      setSaving(true);
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/config', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          type: 'mediaConfig',
+          ...(configId != null ? { id: configId } : {}),
+          data: { mediaDriveUrl: trimmed },
+        }),
+      });
+
+      if (!res.ok) {
+        let message = `Save failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+          else if (body?.error) message = body.error;
+        } catch { /* ignore body parse errors */ }
+        throw new Error(message);
+      }
+
+      const body = await res.json();
+      const returned = body?.updated;
+      const newUrl = (returned && typeof returned.mediaDriveUrl === 'string')
+        ? returned.mediaDriveUrl
+        : trimmed;
+      if (returned && typeof returned.id === 'number') {
+        setConfigId(returned.id);
+      }
+      setUrl(newUrl);
+      setSavedUrl(newUrl);
+      setConfirmOpen(false);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2500);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save Photo Drive link');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-8 bg-[#111] border border-white/[0.06] rounded-2xl p-6">
+      <div className="flex items-start gap-3 mb-4">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(235,117,36,0.12)' }}>
+          <LinkIcon className="w-5 h-5 text-[#eb7524]" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-white" style={{ fontSize: '17px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Photo Drive Link
+          </h3>
+          <p className="text-white/45" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+            The external URL the visitor-facing &ldquo;Open Drive&rdquo; button links to.
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-white/50" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading current link...
+        </div>
+      ) : (
+        <>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>URL</label>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => { setUrl(e.target.value); setValidationError(null); setSaveError(null); }}
+              placeholder="https://danbainvisuals.pixieset.com/auss/landing/"
+              className={inputCls + ' flex-1'}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              disabled={saving}
+            />
+            <button
+              type="button"
+              onClick={handleSaveClick}
+              disabled={saving || !dirty}
+              className="flex items-center justify-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#eb7524]"
+              style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? 'Saving...' : 'Save Link'}
+            </button>
+          </div>
+
+          {savedUrl && (
+            <div className="mt-3 flex items-center gap-2 text-white/40" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              <ExternalLink className="w-3.5 h-3.5" />
+              <a
+                href={savedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[#eb7524] transition-colors break-all"
+              >
+                {savedUrl}
+              </a>
+            </div>
+          )}
+
+          {validationError && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{validationError}</p>
+            </div>
+          )}
+          {saveError && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{saveError}</p>
+            </div>
+          )}
+          {loadError && !saveError && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{loadError}</p>
+            </div>
+          )}
+          {savedFlash && (
+            <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
+              <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+              <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                Photo Drive link saved successfully.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Update Photo Drive link?"
+        message={
+          <>
+            The visitor-facing &ldquo;Open Drive&rdquo; button will point to:
+            <br />
+            <span className="text-white/85 break-all">{url.trim()}</span>
+          </>
+        }
+        confirmLabel="Save Link"
+        busy={saving}
+        onConfirm={handleConfirmSave}
+        onCancel={() => { if (!saving) setConfirmOpen(false); }}
+      />
     </div>
   );
 }
@@ -1310,6 +1663,9 @@ function MediaManager({
 }) {
   return (
     <div>
+      {/* Photo Drive external link editor */}
+      <PhotoDriveLinkPanel />
+
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
           <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
@@ -1567,6 +1923,8 @@ function ActivityManager({
     archived: activities.filter((a) => a.status === 'archived'),
   };
 
+  const [viewingAttendees, setViewingAttendees] = useState<Activity | null>(null);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
@@ -1650,6 +2008,7 @@ function ActivityManager({
                     activity={activity}
                     onEdit={() => { setEditing(activity); setShowForm(false); }}
                     onDelete={() => onDelete(activity.id)}
+                    onViewAttendees={() => setViewingAttendees(activity)}
                   />
                 ))}
               </div>
@@ -1668,11 +2027,19 @@ function ActivityManager({
           <p className="text-white/30" style={{ fontSize: '16px', fontFamily: 'Inter, sans-serif' }}>No activities added yet</p>
         </div>
       )}
+
+      {viewingAttendees && (
+        <AttendeesModal
+          activityId={viewingAttendees.id}
+          activityTitle={viewingAttendees.title}
+          onClose={() => setViewingAttendees(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => Promise<void> | void }) {
+function ActivityCard({ activity, onEdit, onDelete, onViewAttendees }: { activity: Activity; onEdit: () => void; onDelete: () => Promise<void> | void; onViewAttendees: () => void }) {
   const color = statusColors[activity.status];
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -1729,6 +2096,17 @@ function ActivityCard({ activity, onEdit, onDelete }: { activity: Activity; onEd
             <span>{formatDate(activity.startTime)} · {formatTime(activity.startTime)}</span>
           </div>
         </div>
+
+        {/* View Attendees */}
+        <button
+          onClick={onViewAttendees}
+          disabled={isDeleting}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#eb7524]/10 border border-[#eb7524]/25 text-[#eb7524] hover:bg-[#eb7524]/20 transition-all cursor-pointer mb-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
+        >
+          <Users className="w-3 h-3" />
+          View Attendees
+        </button>
 
         {/* Actions */}
         <div className="flex items-center gap-2">
@@ -1792,11 +2170,46 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
   const [externalLink, setExternalLink] = useState(initial?.externalLink || '');
   const [isPublished, setIsPublished] = useState(initial?.isPublished !== false);
+  const [capacity, setCapacity] = useState(initial?.capacity != null ? String(initial.capacity) : '');
   const [preview, setPreview] = useState(initial?.imageUrl || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Inline validation + confirmation state
+  type Errors = Partial<Record<'title' | 'description' | 'startTime' | 'endTime' | 'imageUrl' | 'externalLink' | 'capacity', string>>;
+  const [errors, setErrors] = useState<Errors>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const validate = (): Errors => {
+    const e: Errors = {};
+    if (!title.trim()) e.title = 'Title is required';
+    if (!description.trim()) e.description = 'Description is required';
+    else if (wordCount(description) < 5) e.description = 'Description must be at least 5 words';
+    if (!startTime) e.startTime = 'Start date/time is required';
+    if (!endTime) e.endTime = 'End date/time is required';
+    if (startTime && endTime) {
+      const start = new Date(datetimeLocalToISO(startTime));
+      const end = new Date(datetimeLocalToISO(endTime));
+      if (Number.isNaN(start.getTime())) e.startTime = 'Start date/time is invalid';
+      if (Number.isNaN(end.getTime())) e.endTime = 'End date/time is invalid';
+      if (!e.startTime && !e.endTime && end <= start) {
+        e.endTime = 'End must be after start';
+      }
+    }
+    if (imageUrl.trim() && !isHttpUrl(imageUrl.trim()) && !isLocalUploadPath(imageUrl.trim())) {
+      e.imageUrl = 'Image URL must be a valid http, https, or uploaded image path';
+    }
+    if (externalLink.trim() && !isHttpUrl(externalLink.trim())) {
+      e.externalLink = 'External link must be a valid http or https URL';
+    }
+    const capacityError = getCapacityError(capacity);
+    if (capacityError) e.capacity = capacityError;
+    return e;
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1815,16 +2228,21 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !description || !startTime || !endTime) {
-      alert('Please fill all required fields');
-      return;
-    }
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    const e2 = validate();
+    setErrors(e2);
+    if (Object.keys(e2).length > 0) return;
+    setConfirmOpen(true);
+  };
 
+  const handleConfirmedSave = async () => {
     try {
       setIsSubmitting(true);
-      
+      setSubmitError(null);
+
       // Derive status from times and isPublished
       const now = new Date();
       const start = new Date(datetimeLocalToISO(startTime));
@@ -1835,17 +2253,24 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
       } else if (now >= start && now < end) {
         status = 'ongoing';
       }
-      
+
       await onSave({
         id: initial?.id || 0, // 0 means new record
-        title,
-        description,
+        title: title.trim(),
+        description: description.trim(),
         startTime,
         endTime,
-        imageUrl: imageUrl,
-        externalLink,
+        imageUrl: imageUrl.trim(),
+        externalLink: externalLink.trim(),
+        isPublished,
+        capacity: parseCapacity(capacity),
         status,
       });
+      setErrors({});
+      setSubmitSuccess(initial ? 'Activity updated successfully.' : 'Activity created successfully.');
+      setConfirmOpen(false);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to save activity. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1861,7 +2286,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
           <X className="w-5 h-5" />
         </button>
       </div>
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>Activity Title *</label>
@@ -1871,8 +2296,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
               placeholder="e.g. Weekly Training Session"
               className={inputCls}
               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-              required
             />
+            {errors.title && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.title}</p>}
           </div>
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>Published</label>
@@ -1896,12 +2321,12 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the activity..."
+            placeholder="Describe the activity (at least 5 words)..."
             rows={3}
             className={inputCls + ' resize-none'}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-            required
           />
+          {errors.description && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.description}</p>}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1913,8 +2338,8 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
               onChange={(e) => setStartTime(e.target.value)}
               className={inputCls}
               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-              required
             />
+            {errors.startTime && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.startTime}</p>}
           </div>
           <div>
             <label className="block text-white/60 mb-1.5" style={labelStyle}>End Date/Time *</label>
@@ -1924,9 +2349,28 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
               onChange={(e) => setEndTime(e.target.value)}
               className={inputCls}
               style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-              required
             />
+            {errors.endTime && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.endTime}</p>}
           </div>
+        </div>
+
+        <div>
+          <label className="block text-white/60 mb-1.5" style={labelStyle}>RSVP Capacity</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+            placeholder="e.g. 30"
+            className={inputCls}
+            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            aria-describedby="activity-capacity-help"
+          />
+          <p id="activity-capacity-help" className="mt-1.5 text-white/35" style={fieldErrorStyle}>
+            Leave blank for unlimited capacity.
+          </p>
+          {errors.capacity && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.capacity}</p>}
         </div>
 
         <div>
@@ -1976,12 +2420,26 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
             className={inputCls}
             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
           />
+          {errors.externalLink && <p className={fieldErrorCls} style={fieldErrorStyle}>{errors.externalLink}</p>}
         </div>
 
         {/* Preview */}
         {preview && (
           <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
             <img src={preview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          </div>
+        )}
+
+        {submitError && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25" role="alert">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-red-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitError}</p>
+          </div>
+        )}
+        {submitSuccess && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25" role="status">
+            <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+            <p className="text-green-300" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{submitSuccess}</p>
           </div>
         )}
 
@@ -2004,6 +2462,23 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
           </button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={initial ? 'Update this activity?' : 'Publish this activity?'}
+        message={
+          <>
+            You&rsquo;re about to {initial ? 'update' : 'publish'} <span className="text-white/85">&ldquo;{title.trim()}&rdquo;</span>.
+            {!isPublished && <> It will be saved as <span className="text-white/85">unpublished</span>.</>}
+            <br />
+            Continue?
+          </>
+        }
+        confirmLabel={initial ? 'Save Changes' : 'Publish'}
+        busy={isSubmitting}
+        onConfirm={handleConfirmedSave}
+        onCancel={() => { if (!isSubmitting) setConfirmOpen(false); }}
+      />
     </div>
   );
 }
