@@ -95,33 +95,35 @@ model Activity {
 
 // --- EXEC COMMITTEE ---
 model ExecRole {
-  id         Int         @id @default(autoincrement())
-  name       String      @unique
-  executives Executive[]
-  createdAt  DateTime    @default(now())
+  id           Int         @id @default(autoincrement())
+  name         String      @unique
+  displayOrder Int         @default(0)
+  executives   Executive[]
+  createdAt    DateTime    @default(now())
 }
 
 model ExecTeam {
-  id         Int         @id @default(autoincrement())
-  name       String      @unique
-  executives Executive[]
-  createdAt  DateTime    @default(now())
+  id           Int         @id @default(autoincrement())
+  name         String      @unique
+  displayOrder Int         @default(0)
+  executives   Executive[]
+  createdAt    DateTime    @default(now())
 }
 
 model Executive {
-  id           Int      @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   name         String
   imageUrl     String?
-  bio          String?  @db.VarChar(300)
+  bio          String?   @db.VarChar(300)
   instagramUrl String?
   email        String?
-  isActive     Boolean  @default(true)
-  roleId       Int
-  role         ExecRole @relation(fields: [roleId], references: [id])
-  teamId       Int
-  team         ExecTeam @relation(fields: [teamId], references: [id])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isActive     Boolean   @default(true)
+  roleId       Int?
+  role         ExecRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  teamId       Int?
+  team         ExecTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 // --- FAQ ---

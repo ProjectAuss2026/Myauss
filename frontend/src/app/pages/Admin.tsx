@@ -5,7 +5,7 @@ import { useToast } from '../contexts/ToastContext';
 import {
   Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
-  Loader2, Calendar, Clock, AlertCircle, HelpCircle, ChevronDown,
+  Loader2, Calendar, Clock, AlertCircle, HelpCircle, ChevronDown, GripVertical,
 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -63,13 +63,13 @@ interface Activity {
   updatedAt?: string;
 }
 
-interface ExecRoleItem { id: number; name: string; }
-interface ExecTeamItem { id: number; name: string; }
+interface ExecRoleItem { id: number; name: string; displayOrder: number; }
+interface ExecTeamItem { id: number; name: string; displayOrder: number; }
 interface ExecMember {
   id: number;
   name: string;
-  role: ExecRoleItem;
-  team: ExecTeamItem;
+  role: ExecRoleItem | null;
+  team: ExecTeamItem | null;
   imageUrl?: string | null;
   bio?: string | null;
   instagramUrl?: string | null;
@@ -89,16 +89,27 @@ const defaultActivities: Activity[] = [];
 const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
 
 type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'faq';
+const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq'];
+
+// Synthetic team for members whose role or team was deleted
+const UNASSIGNED_TEAM: ExecTeamItem = { id: -1, name: '⚠ Unassigned — reassign or remove', displayOrder: Infinity };
 
 // ── Exec grouping helper ──
 function groupExecs(executives: ExecMember[]): ExecGroup[] {
   const teamMap = new Map<number, ExecGroup>();
   for (const exec of executives) {
-    const key = exec.team.id;
-    if (!teamMap.has(key)) teamMap.set(key, { team: exec.team, members: [] });
+    const key = exec.team?.id ?? -1;
+    if (!teamMap.has(key)) {
+      teamMap.set(key, { team: exec.team ?? UNASSIGNED_TEAM, members: [] });
+    }
     teamMap.get(key)!.members.push(exec);
   }
-  return Array.from(teamMap.values());
+  // Sort: unassigned group last
+  return Array.from(teamMap.values()).sort((a, b) => {
+    if (a.team.id === -1) return 1;
+    if (b.team.id === -1) return -1;
+    return a.team.displayOrder - b.team.displayOrder;
+  });
 }
 
 // ── Shared field styles ──
@@ -229,7 +240,15 @@ export function Admin() {
   const { user, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
   const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
-  const [tab, setTab] = useState<Tab>('sponsors');
+  const [tab, setTab] = useState<Tab>(() => {
+    const saved = localStorage.getItem('admin_tab');
+    return VALID_TABS.includes(saved as Tab) ? (saved as Tab) : 'sponsors';
+  });
+
+  const handleTabChange = (newTab: Tab) => {
+    localStorage.setItem('admin_tab', newTab);
+    setTab(newTab);
+  };
 
   // Sponsor state
   const [sponsors, setSponsors] = useState<Sponsor[]>(defaultSponsors);
@@ -948,7 +967,7 @@ export function Admin() {
               return (
                 <button
                   key={t.key}
-                  onClick={() => setTab(t.key)}
+                  onClick={() => handleTabChange(t.key)}
                   className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all cursor-pointer ${
                     active
                       ? 'bg-[#eb7524] text-white shadow-[0_4px_20px_rgba(235,117,36,0.3)]'
@@ -2137,6 +2156,7 @@ function MediaCardActions({ item, onEdit, onDelete }: { item: any; onEdit: () =>
 function ExecMemberCard({ member, onEdit, onDelete }: { member: ExecMember; onEdit: () => void; onDelete: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const isUnassigned = !member.role || !member.team;
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -2158,8 +2178,11 @@ function ExecMemberCard({ member, onEdit, onDelete }: { member: ExecMember; onEd
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-white font-medium truncate" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{member.name}</p>
           {!member.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.06] text-white/30 border border-white/10">Inactive</span>}
+          {isUnassigned && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">Unassigned</span>}
         </div>
-        <p className="text-white/40 truncate" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>{member.role.name} · {member.team.name}</p>
+        <p className="text-white/40 truncate" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+          {member.role?.name ?? 'No role'} · {member.team?.name ?? 'No team'}
+        </p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         <button onClick={onEdit} disabled={isDeleting} className="p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 hover:text-white transition-all cursor-pointer disabled:opacity-40">
@@ -2213,6 +2236,12 @@ function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // If editing an unassigned member, default selects to first available option
+  useEffect(() => {
+    if (initial?.role == null && execRoles.length > 0) setRoleId(execRoles[0].id);
+    if (initial?.team == null && execTeams.length > 0) setTeamId(execTeams[0].id);
+  }, [execRoles, execTeams]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -2221,8 +2250,8 @@ function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
       await onSave({
         id: initial?.id ?? 0,
         name: name.trim(),
-        role: { id: roleId, name: '' },
-        team: { id: teamId, name: '' },
+        role: { id: roleId, name: '', displayOrder: 0 },
+        team: { id: teamId, name: '', displayOrder: 0 },
         imageUrl: imageUrl.trim() || null,
         bio: bio.trim() || null,
         instagramUrl: instagramUrl.trim() || null,
@@ -2306,6 +2335,18 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
   const [newRoleName, setNewRoleName] = useState('');
   const [newTeamName, setNewTeamName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [localRoles, setLocalRoles] = useState<ExecRoleItem[]>(execRoles);
+  const [localTeams, setLocalTeams] = useState<ExecTeamItem[]>(execTeams);
+  // editingKey: e.g. "roles-3" or "teams-7" — which item is being renamed
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  // Shared refs for drag-and-drop
+  const dragSourceIndex = useRef<number | null>(null);
+  const dragSourceList = useRef<'roles' | 'teams' | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+
+  useEffect(() => { setLocalRoles(execRoles); }, [execRoles]);
+  useEffect(() => { setLocalTeams(execTeams); }, [execTeams]);
 
   const addRole = async () => {
     if (!newRoleName.trim()) return;
@@ -2351,6 +2392,73 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
     await onRefresh();
   };
 
+  const startEdit = (key: string, currentName: string) => {
+    setEditingKey(key);
+    setEditingName(currentName);
+    setError(null);
+  };
+
+  const cancelEdit = () => { setEditingKey(null); setEditingName(''); };
+
+  const saveEdit = async (id: number, list: 'roles' | 'teams') => {
+    if (!editingName.trim()) return;
+    setError(null);
+    const token = localStorage.getItem('token');
+    const url = list === 'roles' ? `/api/admin/exec-roles/${id}` : `/api/admin/exec-teams/${id}`;
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editingName.trim() }),
+    });
+    if (!res.ok) {
+      const p = await res.json().catch(() => ({}));
+      setError(p?.error?.message || `Failed to rename ${list === 'roles' ? 'role' : 'team'}`);
+      return;
+    }
+    setEditingKey(null);
+    setEditingName('');
+    await onRefresh();
+  };
+
+  const handleDrop = async (
+    fromIndex: number,
+    toIndex: number,
+    list: 'roles' | 'teams',
+  ) => {
+    setDragOverKey(null);
+    if (fromIndex === toIndex) return;
+    const token = localStorage.getItem('token');
+
+    const reorder = <T extends ExecRoleItem | ExecTeamItem>(items: T[]): T[] => {
+      const next = [...items];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next.map((item, i) => ({ ...item, displayOrder: i }));
+    };
+
+    if (list === 'roles') {
+      const reordered = reorder(localRoles);
+      setLocalRoles(reordered);
+      const res = await fetch('/api/admin/exec-roles/reorder', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
+      });
+      if (!res.ok) { await onRefresh(); setError('Failed to reorder roles'); }
+      else await onRefresh();
+    } else {
+      const reordered = reorder(localTeams);
+      setLocalTeams(reordered);
+      const res = await fetch('/api/admin/exec-teams/reorder', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
+      });
+      if (!res.ok) { await onRefresh(); setError('Failed to reorder teams'); }
+      else await onRefresh();
+    }
+  };
+
   return (
     <div className="grid md:grid-cols-2 gap-6 mt-2 pt-8 border-t border-white/[0.06]">
       {error && (
@@ -2359,21 +2467,83 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
           <span className="text-red-400" style={{ fontSize: '14px' }}>{error}</span>
         </div>
       )}
-      {[
-        { label: 'Roles', items: execRoles, newName: newRoleName, setNewName: setNewRoleName, onAdd: addRole, onDelete: deleteRole },
-        { label: 'Teams', items: execTeams, newName: newTeamName, setNewName: setNewTeamName, onAdd: addTeam, onDelete: deleteTeam },
-      ].map(({ label, items, newName, setNewName, onAdd, onDelete }) => (
+      {([
+        { label: 'Roles', items: localRoles, newName: newRoleName, setNewName: setNewRoleName, onAdd: addRole, onDelete: deleteRole, list: 'roles' as const },
+        { label: 'Teams', items: localTeams, newName: newTeamName, setNewName: setNewTeamName, onAdd: addTeam, onDelete: deleteTeam, list: 'teams' as const },
+      ]).map(({ label, items, newName, setNewName, onAdd, onDelete, list }) => (
         <div key={label} className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5">
-          <h4 className="text-white/60 mb-4" style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</h4>
+          <h4 className="text-white/60 mb-1" style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</h4>
+          <p className="text-white/20 mb-4" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>Drag to reorder priority</p>
           <div className="space-y-2 mb-4">
-            {items.map((item) => (
-              <div key={item.id} className="flex items-center justify-between gap-2 bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-white/70" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{item.name}</span>
-                <button onClick={() => onDelete(item.id)} className="p-1 rounded text-red-400/60 hover:text-red-400 transition-all cursor-pointer">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
+            {items.map((item, index) => {
+              const overKey = `${list}-${index}`;
+              const itemKey = `${list}-${item.id}`;
+              const isOver = dragOverKey === overKey;
+              const isEditing = editingKey === itemKey;
+              return (
+                <div
+                  key={item.id}
+                  draggable={!isEditing}
+                  onDragStart={() => {
+                    if (isEditing) return;
+                    dragSourceIndex.current = index;
+                    dragSourceList.current = list;
+                  }}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverKey(overKey); }}
+                  onDragLeave={() => setDragOverKey(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragSourceIndex.current !== null && dragSourceList.current === list) {
+                      handleDrop(dragSourceIndex.current, index, list);
+                    }
+                    dragSourceIndex.current = null;
+                    dragSourceList.current = null;
+                    setDragOverKey(null);
+                  }}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
+                    isEditing
+                      ? 'bg-white/[0.06] border border-[#eb7524]/40'
+                      : isOver
+                        ? 'bg-[#eb7524]/15 border border-[#eb7524]/40 cursor-grab active:cursor-grabbing'
+                        : 'bg-white/[0.03] border border-transparent cursor-grab active:cursor-grabbing'
+                  }`}
+                >
+                  {!isEditing && <GripVertical className="w-3.5 h-3.5 text-white/20 flex-shrink-0" />}
+                  {isEditing ? (
+                    <>
+                      <input
+                        autoFocus
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEdit(item.id, list);
+                          if (e.key === 'Escape') cancelEdit();
+                        }}
+                        maxLength={100}
+                        className="flex-1 bg-transparent text-white outline-none"
+                        style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                      />
+                      <button onClick={() => saveEdit(item.id, list)} className="p-1 rounded text-[#eb7524] hover:text-[#eb7524]/80 transition-all cursor-pointer flex-shrink-0">
+                        <Save className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={cancelEdit} className="p-1 rounded text-white/30 hover:text-white/60 transition-all cursor-pointer flex-shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-white/70 truncate flex-1" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{item.name}</span>
+                      <button onClick={() => startEdit(itemKey, item.name)} className="p-1 rounded text-white/30 hover:text-white/70 transition-all cursor-pointer flex-shrink-0">
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => onDelete(item.id)} className="p-1 rounded text-red-400/60 hover:text-red-400 transition-all cursor-pointer flex-shrink-0">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="flex gap-2">
             <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onAdd()} placeholder={`New ${label.toLowerCase().slice(0, -1)}…`} maxLength={100} className={inputCls + ' text-sm'} />

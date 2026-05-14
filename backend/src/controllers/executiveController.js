@@ -6,20 +6,19 @@ function sendError(res, status, code, message) {
 
 const SIMPLE_URL_RE = /^https?:\/\/.+/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PROTECTED_ROLE_IDS = [1, 2]; // President, Vice President
 
 // ── Public endpoints ──
 
-// GET /api/executives — active, grouped by team (teamId ASC → roleId ASC → createdAt ASC)
+// GET /api/executives — active, grouped by team (team.displayOrder ASC → roleId ASC → createdAt ASC)
 export async function getExecutives(_req, res) {
   try {
     const executives = await prisma.executive.findMany({
       where: { isActive: true },
       include: {
-        role: { select: { id: true, name: true } },
-        team: { select: { id: true, name: true } },
+        role: { select: { id: true, name: true, displayOrder: true } },
+        team: { select: { id: true, name: true, displayOrder: true } },
       },
-      orderBy: [{ teamId: 'asc' }, { roleId: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ team: { displayOrder: 'asc' } }, { roleId: 'asc' }, { createdAt: 'asc' }],
     });
 
     // Group by team
@@ -54,10 +53,10 @@ export async function getAdminExecutives(_req, res) {
   try {
     const executives = await prisma.executive.findMany({
       include: {
-        role: { select: { id: true, name: true } },
-        team: { select: { id: true, name: true } },
+        role: { select: { id: true, name: true, displayOrder: true } },
+        team: { select: { id: true, name: true, displayOrder: true } },
       },
-      orderBy: [{ teamId: 'asc' }, { roleId: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ team: { displayOrder: 'asc' } }, { roleId: 'asc' }, { createdAt: 'asc' }],
     });
     return res.status(200).json({ data: executives });
   } catch (err) {
@@ -209,7 +208,7 @@ export async function deleteExecutive(req, res) {
 
 export async function getExecRoles(_req, res) {
   try {
-    const roles = await prisma.execRole.findMany({ orderBy: { id: 'asc' } });
+    const roles = await prisma.execRole.findMany({ orderBy: { displayOrder: 'asc' } });
     return res.status(200).json({ data: roles });
   } catch (err) {
     console.error('[getExecRoles] error:', err);
@@ -236,20 +235,15 @@ export async function deleteExecRole(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1) return sendError(res, 404, 'NOT_FOUND', 'Role not found.');
 
-  if (PROTECTED_ROLE_IDS.includes(id)) {
-    return sendError(res, 403, 'FORBIDDEN', 'President and Vice President roles cannot be deleted.');
-  }
-
   try {
     const existing = await prisma.execRole.findUnique({ where: { id } });
     if (!existing) return sendError(res, 404, 'NOT_FOUND', 'Role not found.');
 
-    const activeExecs = await prisma.executive.count({ where: { roleId: id, isActive: true } });
-    if (activeExecs > 0) {
-      return sendError(res, 409, 'CONFLICT', 'Cannot delete a role with active executives assigned. Reassign or deactivate them first.');
-    }
-
-    await prisma.execRole.delete({ where: { id } });
+    // Deactivate all executives with this role and null their roleId, then delete
+    await prisma.$transaction([
+      prisma.executive.updateMany({ where: { roleId: id }, data: { isActive: false, roleId: null } }),
+      prisma.execRole.delete({ where: { id } }),
+    ]);
     return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
     console.error('[deleteExecRole] error:', err);
@@ -257,11 +251,31 @@ export async function deleteExecRole(req, res) {
   }
 }
 
+// PATCH /api/admin/exec-roles/:id — rename a role
+export async function updateExecRole(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return sendError(res, 404, 'NOT_FOUND', 'Role not found.');
+  const { name } = req.body ?? {};
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return sendError(res, 422, 'VALIDATION_ERROR', 'Role name is required.');
+  }
+  try {
+    const existing = await prisma.execRole.findUnique({ where: { id } });
+    if (!existing) return sendError(res, 404, 'NOT_FOUND', 'Role not found.');
+    const updated = await prisma.execRole.update({ where: { id }, data: { name: name.trim() } });
+    return res.status(200).json({ data: updated });
+  } catch (err) {
+    if (err.code === 'P2002') return sendError(res, 409, 'CONFLICT', 'A role with that name already exists.');
+    console.error('[updateExecRole] error:', err);
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update role.');
+  }
+}
+
 // ── Admin: Teams ──
 
 export async function getExecTeams(_req, res) {
   try {
-    const teams = await prisma.execTeam.findMany({ orderBy: { id: 'asc' } });
+    const teams = await prisma.execTeam.findMany({ orderBy: { displayOrder: 'asc' } });
     return res.status(200).json({ data: teams });
   } catch (err) {
     console.error('[getExecTeams] error:', err);
@@ -292,15 +306,84 @@ export async function deleteExecTeam(req, res) {
     const existing = await prisma.execTeam.findUnique({ where: { id } });
     if (!existing) return sendError(res, 404, 'NOT_FOUND', 'Team not found.');
 
-    const activeExecs = await prisma.executive.count({ where: { teamId: id, isActive: true } });
-    if (activeExecs > 0) {
-      return sendError(res, 409, 'CONFLICT', 'Cannot delete a team with active executives assigned. Reassign or deactivate them first.');
-    }
-
-    await prisma.execTeam.delete({ where: { id } });
+    // Deactivate all executives with this team and null their teamId, then delete
+    await prisma.$transaction([
+      prisma.executive.updateMany({ where: { teamId: id }, data: { isActive: false, teamId: null } }),
+      prisma.execTeam.delete({ where: { id } }),
+    ]);
     return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
     console.error('[deleteExecTeam] error:', err);
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete team.');
+  }
+}
+
+// PATCH /api/admin/exec-teams/:id — rename a team
+export async function updateExecTeam(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return sendError(res, 404, 'NOT_FOUND', 'Team not found.');
+  const { name } = req.body ?? {};
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return sendError(res, 422, 'VALIDATION_ERROR', 'Team name is required.');
+  }
+  try {
+    const existing = await prisma.execTeam.findUnique({ where: { id } });
+    if (!existing) return sendError(res, 404, 'NOT_FOUND', 'Team not found.');
+    const updated = await prisma.execTeam.update({ where: { id }, data: { name: name.trim() } });
+    return res.status(200).json({ data: updated });
+  } catch (err) {
+    if (err.code === 'P2002') return sendError(res, 409, 'CONFLICT', 'A team with that name already exists.');
+    console.error('[updateExecTeam] error:', err);
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update team.');
+  }
+}
+
+// ── Admin: Reorder ──
+
+// PATCH /api/admin/exec-roles/reorder — batch-update displayOrder for roles
+export async function reorderExecRoles(req, res) {
+  const items = req.body?.items;
+  if (!Array.isArray(items) || items.length === 0) {
+    return sendError(res, 422, 'VALIDATION_ERROR', '`items` array is required.');
+  }
+  for (const item of items) {
+    if (!Number.isInteger(Number(item.id)) || !Number.isInteger(Number(item.displayOrder))) {
+      return sendError(res, 422, 'VALIDATION_ERROR', 'Each item must have integer `id` and `displayOrder`.');
+    }
+  }
+  try {
+    await prisma.$transaction(
+      items.map(({ id, displayOrder }) =>
+        prisma.execRole.update({ where: { id: Number(id) }, data: { displayOrder: Number(displayOrder) } })
+      )
+    );
+    return res.status(200).json({ data: { updated: items.length } });
+  } catch (err) {
+    console.error('[reorderExecRoles] error:', err);
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to reorder roles.');
+  }
+}
+
+// PATCH /api/admin/exec-teams/reorder — batch-update displayOrder for teams
+export async function reorderExecTeams(req, res) {
+  const items = req.body?.items;
+  if (!Array.isArray(items) || items.length === 0) {
+    return sendError(res, 422, 'VALIDATION_ERROR', '`items` array is required.');
+  }
+  for (const item of items) {
+    if (!Number.isInteger(Number(item.id)) || !Number.isInteger(Number(item.displayOrder))) {
+      return sendError(res, 422, 'VALIDATION_ERROR', 'Each item must have integer `id` and `displayOrder`.');
+    }
+  }
+  try {
+    await prisma.$transaction(
+      items.map(({ id, displayOrder }) =>
+        prisma.execTeam.update({ where: { id: Number(id) }, data: { displayOrder: Number(displayOrder) } })
+      )
+    );
+    return res.status(200).json({ data: { updated: items.length } });
+  } catch (err) {
+    console.error('[reorderExecTeams] error:', err);
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to reorder teams.');
   }
 }
