@@ -43,28 +43,11 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
-const faqs = [
-  {
-    question: 'Do I need to be a student?',
-    answer: 'Yes, AUSS is exclusively for current Auckland University students. Just bring your student ID when you join!',
-  },
-  {
-    question: 'Is there a membership fee?',
-    answer: 'AUSS has a small annual membership fee of $20 to cover club activities and events. This is separate from gym membership.',
-  },
-  {
-    question: "I've never lifted before. Can I still join?",
-    answer: "Absolutely! We welcome beginners and will teach you everything you need to know. Most of our members started with zero experience.",
-  },
-  {
-    question: 'What equipment do I need?',
-    answer: "Just bring yourself, comfortable workout clothes, and athletic shoes. The Recreation Centre has all the equipment you'll need.",
-  },
-  {
-    question: 'When and where do you train?',
-    answer: 'We train at the Auckland University Recreation Centre on Symonds Street. Sessions run Mon, Wed, Fri 6-8 PM and Sat 10 AM-12 PM.',
-  },
-];
+interface FaqEntry {
+  id: number;
+  question: string;
+  answer: string;
+}
 
 const whyJoinPoints = [
   {
@@ -84,7 +67,7 @@ const whyJoinPoints = [
   },
 ];
 
-function FaqItem({ faq, index }: { faq: typeof faqs[0]; index: number }) {
+function FaqItem({ faq, index }: { faq: FaqEntry; index: number }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -127,7 +110,18 @@ function FaqItem({ faq, index }: { faq: typeof faqs[0]; index: number }) {
 
 export function About() {
   const [mounted, setMounted] = useState(false);
+  const [faqs, setFaqs] = useState<FaqEntry[]>([]);
+
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
+
+  useEffect(() => {
+    fetch('/api/faq')
+      .then((r) => r.json())
+      .then((payload) => {
+        if (Array.isArray(payload?.data)) setFaqs(payload.data);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="bg-black min-h-screen">
@@ -261,9 +255,15 @@ export function About() {
           </FadeIn>
 
           <div className="bg-[#111] border border-white/5 rounded-2xl px-7">
-            {faqs.map((faq, i) => (
-              <FaqItem key={faq.question} faq={faq} index={i} />
-            ))}
+            {faqs.length > 0 ? (
+              faqs.map((faq, i) => (
+                <FaqItem key={faq.id} faq={faq} index={i} />
+              ))
+            ) : (
+              <p className="py-8 text-white/30 text-center" style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif' }}>
+                No FAQ entries yet.
+              </p>
+            )}
           </div>
         </div>
       </div>

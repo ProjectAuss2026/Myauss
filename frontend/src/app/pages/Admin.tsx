@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import {
   Plus, Trash2, Edit3, Save, X, Star, Users,
   Camera, ExternalLink, LogOut, Shield, Image as ImageIcon,
-  Loader2, Calendar, Clock, AlertCircle, Link as LinkIcon, CheckCircle2,
+  Loader2, Calendar, Clock, AlertCircle, HelpCircle, ChevronDown, GripVertical,
+  Link as LinkIcon, CheckCircle2,
 } from 'lucide-react';
 import { AttendeesModal } from '../components/AttendeesModal';
 
@@ -64,6 +66,23 @@ interface Activity {
   updatedAt?: string;
 }
 
+interface ExecRoleItem { id: number; name: string; displayOrder: number; }
+interface ExecTeamItem { id: number; name: string; displayOrder: number; }
+interface ExecMember {
+  id: number;
+  name: string;
+  role: ExecRoleItem | null;
+  team: ExecTeamItem | null;
+  imageUrl?: string | null;
+  bio?: string | null;
+  instagramUrl?: string | null;
+  email?: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+interface ExecGroup { team: ExecTeamItem; members: ExecMember[]; }
+interface FaqItem { id: number; question: string; answer: string; isActive: boolean; }
+
 // ── Default data ──
 const defaultSponsors: Sponsor[] = [];
 const defaultMedia: MediaItem[] = [];
@@ -72,11 +91,123 @@ const defaultActivities: Activity[] = [];
 
 const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
 
-type Tab = 'sponsors' | 'media' | 'activities';
+type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'faq';
+const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq'];
+
+// Synthetic team for members whose role or team was deleted
+const UNASSIGNED_TEAM: ExecTeamItem = { id: -1, name: '⚠ Unassigned — reassign or remove', displayOrder: Infinity };
+
+// ── Exec grouping helper ──
+// ── FLIP animation helpers ──
+function captureFlip(containerEl: HTMLElement | null): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!containerEl) return map;
+  (Array.from(containerEl.children) as HTMLElement[]).forEach((el) => {
+    if (el.dataset.flipId) map.set(el.dataset.flipId, el.getBoundingClientRect().top);
+  });
+  return map;
+}
+function applyFlip(containerEl: HTMLElement | null, snapshot: Map<string, number>) {
+  if (!containerEl || snapshot.size === 0) return;
+  (Array.from(containerEl.children) as HTMLElement[]).forEach((el) => {
+    const prevTop = snapshot.get(el.dataset.flipId ?? '');
+    if (prevTop === undefined) return;
+    const delta = prevTop - el.getBoundingClientRect().top;
+    if (Math.abs(delta) < 1) return;
+    el.style.transform = `translateY(${delta}px)`;
+    el.style.transition = 'none';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.style.transition = 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)';
+      el.style.transform = '';
+    }));
+  });
+}
+
+function groupExecs(executives: ExecMember[]): ExecGroup[] {
+  const teamMap = new Map<number, ExecGroup>();
+  for (const exec of executives) {
+    const key = exec.team?.id ?? -1;
+    if (!teamMap.has(key)) {
+      teamMap.set(key, { team: exec.team ?? UNASSIGNED_TEAM, members: [] });
+    }
+    teamMap.get(key)!.members.push(exec);
+  }
+  const groups = Array.from(teamMap.values());
+  // Sort members within each group by role displayOrder, then role id
+  for (const g of groups) {
+    g.members.sort((a, b) =>
+      (a.role?.displayOrder ?? 9999) - (b.role?.displayOrder ?? 9999) ||
+      (a.role?.id ?? 9999) - (b.role?.id ?? 9999)
+    );
+  }
+  // Sort groups: unassigned last, then by team displayOrder
+  return groups.sort((a, b) => {
+    if (a.team.id === -1) return 1;
+    if (b.team.id === -1) return -1;
+    return a.team.displayOrder - b.team.displayOrder;
+  });
+}
 
 // ── Shared field styles ──
 const inputCls = "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all";
 const labelStyle: React.CSSProperties = { fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 };
+
+// ── Custom Select ──
+function CustomSelect({ value, onChange, options, required }: {
+  value: string | number;
+  onChange: (val: string) => void;
+  options: { value: string | number; label: string }[];
+  required?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selected = options.find((o) => String(o.value) === String(value));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all cursor-pointer"
+        style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+      >
+        <span className={selected ? 'text-white' : 'text-white/30'}>{selected?.label ?? 'Select…'}</span>
+        <ChevronDown className={`w-4 h-4 text-white/40 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          className="absolute z-50 w-full mt-1 bg-[#111] border border-white/10 rounded-xl overflow-hidden shadow-2xl"
+          style={{ maxHeight: '220px', overflowY: 'auto' }}
+        >
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(String(opt.value)); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 transition-all ${
+                String(opt.value) === String(value)
+                  ? 'bg-[#eb7524]/20 text-[#eb7524]'
+                  : 'text-white/80 hover:bg-white/[0.06] hover:text-white'
+              }`}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Shared validation helpers ──
 function isHttpUrl(value: string): boolean {
@@ -271,7 +402,15 @@ export function Admin() {
   const { user, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
   const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
-  const [tab, setTab] = useState<Tab>('sponsors');
+  const [tab, setTab] = useState<Tab>(() => {
+    const saved = localStorage.getItem('admin_tab');
+    return VALID_TABS.includes(saved as Tab) ? (saved as Tab) : 'sponsors';
+  });
+
+  const handleTabChange = (newTab: Tab) => {
+    localStorage.setItem('admin_tab', newTab);
+    setTab(newTab);
+  };
 
   // Sponsor state
   const [sponsors, setSponsors] = useState<Sponsor[]>(defaultSponsors);
@@ -295,7 +434,25 @@ export function Admin() {
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
 
-  useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
+  // Exec state
+  const [execGroups, setExecGroups] = useState<ExecGroup[]>([]);
+  const [execRoles, setExecRoles] = useState<ExecRoleItem[]>([]);
+  const [execTeams, setExecTeams] = useState<ExecTeamItem[]>([]);
+  const [editingExec, setEditingExec] = useState<ExecMember | null>(null);
+  const [showExecForm, setShowExecForm] = useState(false);
+  const [execLoading, setExecLoading] = useState(false);
+  const [execError, setExecError] = useState<string | null>(null);
+
+  // FAQ state
+  const [faqs, setFaqs] = useState<FaqItem[]>([]);
+  const [editingFaq, setEditingFaq] = useState<FaqItem | null>(null);
+  const [showFaqForm, setShowFaqForm] = useState(false);
+  const [faqLoading, setFaqLoading] = useState(false);
+  const [faqError, setFaqError] = useState<string | null>(null);
+
+  const { showToast } = useToast();
+
+  useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, [])
 
   const getAuthToken = () => localStorage.getItem('token');
 
@@ -436,6 +593,204 @@ export function Admin() {
     loadActivities();
   }, [isAdmin, user]);
 
+  // ── Load executives from backend ──
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const loadExecs = async () => {
+      try {
+        setExecLoading(true);
+        setExecError(null);
+        const [groupsRes, rolesRes, teamsRes] = await Promise.all([
+          fetch('/api/admin/executives', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/admin/exec-roles', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/admin/exec-teams', { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        if (groupsRes.ok) {
+          const payload = await groupsRes.json();
+          setExecGroups(groupExecs(Array.isArray(payload?.data) ? payload.data : []));
+        } else {
+          setExecError(await getApiErrorMessage(groupsRes));
+        }
+        if (rolesRes.ok) {
+          const payload = await rolesRes.json();
+          setExecRoles(Array.isArray(payload?.data) ? payload.data : []);
+        }
+        if (teamsRes.ok) {
+          const payload = await teamsRes.json();
+          setExecTeams(Array.isArray(payload?.data) ? payload.data : []);
+        }
+      } catch (err) {
+        setExecError(err instanceof Error ? err.message : 'Failed to load executives');
+      } finally {
+        setExecLoading(false);
+      }
+    };
+
+    loadExecs();
+  }, [isAdmin, user]);
+
+  // ── Load FAQ from backend ──
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const loadFaq = async () => {
+      try {
+        setFaqLoading(true);
+        setFaqError(null);
+        const res = await fetch('/api/admin/faq', { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const payload = await res.json();
+          setFaqs(Array.isArray(payload?.data) ? payload.data : []);
+        } else {
+          setFaqError(await getApiErrorMessage(res));
+        }
+      } catch (err) {
+        setFaqError(err instanceof Error ? err.message : 'Failed to load FAQ');
+      } finally {
+        setFaqLoading(false);
+      }
+    };
+
+    loadFaq();
+  }, [isAdmin, user]);
+
+  const refreshExecs = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const [groupsRes, rolesRes, teamsRes] = await Promise.all([
+      fetch('/api/admin/executives', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/admin/exec-roles', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/admin/exec-teams', { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
+    if (groupsRes.ok) {
+      const p = await groupsRes.json();
+      setExecGroups(groupExecs(Array.isArray(p?.data) ? p.data : []));
+    }
+    if (rolesRes.ok) {
+      const p = await rolesRes.json();
+      setExecRoles(Array.isArray(p?.data) ? p.data : []);
+    }
+    if (teamsRes.ok) {
+      const p = await teamsRes.json();
+      setExecTeams(Array.isArray(p?.data) ? p.data : []);
+    }
+  };
+
+  // Re-sort exec member cards client-side when role display order changes (no fetch needed)
+  const resortExecGroupsByRoles = (newRoles: ExecRoleItem[]) => {
+    const orderMap = new Map(newRoles.map(r => [r.id, r.displayOrder]));
+    setExecGroups(prev => prev.map(g => ({
+      ...g,
+      members: [...g.members].sort((a, b) =>
+        (orderMap.get(a.role?.id ?? -1) ?? 9999) - (orderMap.get(b.role?.id ?? -1) ?? 9999)
+      ),
+    })));
+  };
+
+  const saveExec = async (exec: Partial<ExecMember> & { id: number }) => {
+    const isEdit = exec.id > 0;
+    try {
+      setExecError(null);
+      const token = getAuthToken();
+      if (!token) { setExecError('No authentication token found'); return; }
+      const payload = {
+        name: exec.name,
+        roleId: exec.role?.id,
+        teamId: exec.team?.id,
+        imageUrl: exec.imageUrl || null,
+        bio: exec.bio || null,
+        instagramUrl: exec.instagramUrl || null,
+        email: exec.email || null,
+        isActive: exec.isActive ?? true,
+      };
+      const res = await fetch(isEdit ? `/api/admin/executives/${exec.id}` : '/api/admin/executives', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      await refreshExecs();
+      setEditingExec(null);
+      setShowExecForm(false);
+      showToast(isEdit ? 'Exec member updated' : 'Exec member added', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save executive';
+      setExecError(msg);
+      showToast(msg, 'error');
+    }
+  };
+
+  const deleteExec = async (id: number) => {
+    try {
+      setExecError(null);
+      const token = getAuthToken();
+      if (!token) { showToast('No authentication token', 'error'); return; }
+      const res = await fetch(`/api/admin/executives/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      await refreshExecs();
+      showToast('Exec member deleted', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete executive';
+      setExecError(msg);
+      showToast(msg, 'error');
+    }
+  };
+
+  const saveFaq = async (faq: Partial<FaqItem> & { id: number }) => {
+    const isEdit = faq.id > 0;
+    try {
+      setFaqError(null);
+      const token = getAuthToken();
+      if (!token) { setFaqError('No authentication token found'); return; }
+      const payload = { question: faq.question, answer: faq.answer, isActive: faq.isActive ?? true };
+      const res = await fetch(isEdit ? `/api/admin/faq/${faq.id}` : '/api/admin/faq', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      const refreshRes = await fetch('/api/admin/faq', { headers: { Authorization: `Bearer ${token}` } });
+      if (refreshRes.ok) {
+        const p = await refreshRes.json();
+        setFaqs(Array.isArray(p?.data) ? p.data : []);
+      }
+      setEditingFaq(null);
+      setShowFaqForm(false);
+      showToast(isEdit ? 'FAQ entry updated' : 'FAQ entry added', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save FAQ entry';
+      setFaqError(msg);
+      showToast(msg, 'error');
+    }
+  };
+
+  const deleteFaq = async (id: number) => {
+    try {
+      setFaqError(null);
+      const token = getAuthToken();
+      if (!token) { showToast('No authentication token', 'error'); return; }
+      const res = await fetch(`/api/admin/faq/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      setFaqs((prev) => prev.filter((f) => f.id !== id));
+      showToast('FAQ entry deleted', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete FAQ entry';
+      setFaqError(msg);
+      showToast(msg, 'error');
+    }
+  };
+
   // ── Loading state ──
   // Show a spinner while auth is being resolved to prevent flash of content
   // or premature redirects.
@@ -520,8 +875,11 @@ export function Admin() {
 
       setEditingSponsor(null);
       setShowSponsorForm(false);
+      showToast(sponsor.id > 0 ? 'Sponsor updated' : 'Sponsor added', 'success');
     } catch (error) {
-      setSponsorError(error instanceof Error ? error.message : 'Failed to save sponsor');
+      const msg = error instanceof Error ? error.message : 'Failed to save sponsor';
+      setSponsorError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -529,39 +887,29 @@ export function Admin() {
     try {
       setSponsorError(null);
       const token = getAuthToken();
-      if (!token) {
-        setSponsorError('No authentication token found');
-        return;
-      }
-      // Optimistic removal for instant feedback
+      if (!token) { showToast('No authentication token', 'error'); return; }
       setSponsors((prev) => prev.filter((s) => s.id !== id));
       const response = await fetch(`/api/sponsors/${id}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response));
-      }
-      // Re-fetch with no-store to confirm server state and avoid stale cache reappear
-      const confirm = await fetch('/api/sponsorship', { cache: 'no-store' });
-      if (confirm.ok) {
-        const payload = await confirm.json();
+      if (!response.ok) throw new Error(await getApiErrorMessage(response));
+      const refetch = await fetch('/api/sponsorship', { cache: 'no-store' });
+      if (refetch.ok) {
+        const payload = await refetch.json();
         const rows = Array.isArray(payload?.data?.sponsors) ? payload.data.sponsors : [];
-        setSponsors(
-          rows.map((s: any) => ({
-            id: s.id,
-            name: s.name || '',
-            logoUrl: s.logoUrl || '',
-            websiteUrl: s.websiteUrl || '',
-            displayOrder: typeof s.displayOrder === 'number' ? s.displayOrder : 0,
-            sponsorshipPageId: typeof s.sponsorshipPageId === 'number' ? s.sponsorshipPageId : null,
-          }))
-        );
+        setSponsors(rows.map((s: any) => ({
+          id: s.id, name: s.name || '', logoUrl: s.logoUrl || '',
+          websiteUrl: s.websiteUrl || '',
+          displayOrder: typeof s.displayOrder === 'number' ? s.displayOrder : 0,
+          sponsorshipPageId: typeof s.sponsorshipPageId === 'number' ? s.sponsorshipPageId : null,
+        })));
       }
+      showToast('Sponsor deleted', 'success');
     } catch (error) {
-      setSponsorError(error instanceof Error ? error.message : 'Failed to delete sponsor');
+      const msg = error instanceof Error ? error.message : 'Failed to delete sponsor';
+      setSponsorError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -609,8 +957,11 @@ export function Admin() {
       }
       setEditingMedia(null);
       setShowMediaForm(false);
+      showToast(item.id > 0 ? 'Photo Drive link updated' : 'Photo Drive link added', 'success');
     } catch (error) {
-      setMediaError(error instanceof Error ? error.message : 'Failed to update media link');
+      const msg = error instanceof Error ? error.message : 'Failed to update media link';
+      setMediaError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -618,36 +969,28 @@ export function Admin() {
     try {
       setMediaError(null);
       const token = getAuthToken();
-      if (!token) {
-        setMediaError('No authentication token found');
-        return;
-      }
+      if (!token) { showToast('No authentication token', 'error'); return; }
       const response = await fetch(`/api/media-entries/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response));
-      }
-      // Optimistic removal first for instant feedback
+      if (!response.ok) throw new Error(await getApiErrorMessage(response));
       setMedia((prev) => prev.filter((m) => m.id !== id));
-      // Refetch bypassing cache to confirm server state
       const freshRes = await fetch('/api/media-entries', { cache: 'no-store' });
       if (freshRes.ok) {
         const payload = await freshRes.json();
         const rows = Array.isArray(payload?.data) ? payload.data : [];
         setMedia(rows.map((m: any) => ({
-          id: m.id,
-          activityId: m.activityId,
-          mediaDriveUrl: m.mediaDriveUrl || '',
-          overrideName: m.overrideName || '',
-          overrideCover: m.overrideCover || '',
-          resolvedName: m.resolvedName || '',
-          resolvedCover: m.resolvedCover || '',
+          id: m.id, activityId: m.activityId, mediaDriveUrl: m.mediaDriveUrl || '',
+          overrideName: m.overrideName || '', overrideCover: m.overrideCover || '',
+          resolvedName: m.resolvedName || '', resolvedCover: m.resolvedCover || '',
         })));
       }
+      showToast('Photo Drive link deleted', 'success');
     } catch (error) {
-      setMediaError(error instanceof Error ? error.message : 'Failed to delete media entry');
+      const msg = error instanceof Error ? error.message : 'Failed to delete media entry';
+      setMediaError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -712,10 +1055,11 @@ export function Admin() {
 
       setEditingActivity(null);
       setShowActivityForm(false);
+      showToast(activity.id > 0 ? 'Activity updated' : 'Activity created', 'success');
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to save activity';
       setActivityError(errMsg);
-      console.error('Error saving activity:', err);
+      showToast(errMsg, 'error');
     }
   };
 
@@ -723,27 +1067,18 @@ export function Admin() {
     try {
       setActivityError(null);
       const token = localStorage.getItem('token');
-      if (!token) {
-        setActivityError('No authentication token found');
-        return;
-      }
-
+      if (!token) { showToast('No authentication token', 'error'); return; }
       const response = await fetch(`/api/activities/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-      if (!response.ok) {
-        throw new Error(`Failed to delete activity: ${response.statusText}`);
-      }
-      
+      if (!response.ok) throw new Error(`Failed to delete activity: ${response.statusText}`);
       setActivities((prev) => prev.filter((a) => a.id !== id));
+      showToast('Activity deleted', 'success');
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to delete activity';
       setActivityError(errMsg);
-      console.error('Error deleting activity:', err);
+      showToast(errMsg, 'error');
     }
   };
 
@@ -792,18 +1127,20 @@ export function Admin() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {([
               { key: 'sponsors' as Tab, label: 'Sponsors', icon: Star },
               { key: 'activities' as Tab, label: 'Activities', icon: Calendar },
               { key: 'media' as Tab, label: 'Photo Drive', icon: Camera },
+              { key: 'execs' as Tab, label: 'Execs', icon: Users },
+              { key: 'faq' as Tab, label: 'FAQ', icon: HelpCircle },
             ]).map((t) => {
               const Icon = t.icon;
               const active = tab === t.key;
               return (
                 <button
                   key={t.key}
-                  onClick={() => setTab(t.key)}
+                  onClick={() => handleTabChange(t.key)}
                   className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all cursor-pointer ${
                     active
                       ? 'bg-[#eb7524] text-white shadow-[0_4px_20px_rgba(235,117,36,0.3)]'
@@ -863,8 +1200,39 @@ export function Admin() {
               activityError={activityError}
             />
           )}
+          {tab === 'execs' && (
+            <ExecManager
+              execGroups={execGroups}
+              execRoles={execRoles}
+              execTeams={execTeams}
+              onSave={saveExec}
+              onDelete={deleteExec}
+              editing={editingExec}
+              setEditing={setEditingExec}
+              showForm={showExecForm}
+              setShowForm={setShowExecForm}
+              execLoading={execLoading}
+              execError={execError}
+              refreshExecs={refreshExecs}
+              onRolesReorder={resortExecGroupsByRoles}
+            />
+          )}
+          {tab === 'faq' && (
+            <FaqManager
+              faqs={faqs}
+              onSave={saveFaq}
+              onDelete={deleteFaq}
+              editing={editingFaq}
+              setEditing={setEditingFaq}
+              showForm={showFaqForm}
+              setShowForm={setShowFaqForm}
+              faqLoading={faqLoading}
+              faqError={faqError}
+            />
+          )}
         </div>
       </section>
+
     </div>
   );
 }
@@ -1431,24 +1799,7 @@ function MediaManager({
                 >
                   {item.mediaDriveUrl}
                 </a>
-                <div className="flex items-center gap-2 mt-4">
-                  <button
-                    onClick={() => { setEditing(item); setShowForm(false); }}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
-                    style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    <Edit3 className="w-3 h-3" />
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => onDelete(item.id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
-                    style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Delete
-                  </button>
-                </div>
+                <MediaCardActions item={item} onEdit={() => { setEditing(item); setShowForm(false); }} onDelete={() => onDelete(item.id)} />
               </div>
             </div>
           ))}
@@ -1524,19 +1875,12 @@ function MediaForm({ initial, onSave, activities, onCancel }: { initial: MediaIt
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Linked Activity</label>
-          <select
+          <CustomSelect
             value={activityId}
-            onChange={(e) => setActivityId(e.target.value)}
-            className={inputCls}
-            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            onChange={(v) => setActivityId(v)}
+            options={activities.map((a) => ({ value: a.id, label: a.title }))}
             required
-          >
-            {activities.map((activity) => (
-              <option key={activity.id} value={activity.id} className="bg-[#111] text-white">
-                {activity.title}
-              </option>
-            ))}
-          </select>
+          />
         </div>
         <div>
           <label className="block text-white/60 mb-1.5" style={labelStyle}>Media Drive URL</label>
@@ -2180,6 +2524,1033 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         onConfirm={handleConfirmedSave}
         onCancel={() => { if (!isSubmitting) setConfirmOpen(false); }}
       />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Exec Manager
+// ═══════════════════════════════════════════════
+
+function ExecManager({
+  execGroups, execRoles, execTeams, onSave, onDelete, editing, setEditing, showForm, setShowForm, execLoading, execError, refreshExecs, onRolesReorder,
+}: {
+  execGroups: ExecGroup[];
+  execRoles: ExecRoleItem[];
+  execTeams: ExecTeamItem[];
+  onSave: (exec: Partial<ExecMember> & { id: number }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+  editing: ExecMember | null;
+  setEditing: (e: ExecMember | null) => void;
+  showForm: boolean;
+  setShowForm: (v: boolean) => void;
+  execLoading: boolean;
+  execError: string | null;
+  refreshExecs: () => Promise<void>;
+  onRolesReorder: (roles: ExecRoleItem[]) => void;
+}) {
+  const allMembers = execGroups.flatMap((g) => g.members);
+
+  // FLIP animation for member card reordering
+  const memberPositions = useRef<Map<string, number>>(new Map());
+  useLayoutEffect(() => {
+    document.querySelectorAll<HTMLElement>('[data-flip-member]').forEach((el) => {
+      const prevTop = memberPositions.current.get(el.dataset.flipMember!);
+      if (prevTop === undefined) return;
+      const delta = prevTop - el.getBoundingClientRect().top;
+      if (Math.abs(delta) < 1) return;
+      el.style.transform = `translateY(${delta}px)`;
+      el.style.transition = 'none';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        el.style.transition = 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)';
+        el.style.transform = '';
+      }));
+    });
+  }, [execGroups]);
+  useEffect(() => {
+    memberPositions.current.clear();
+    document.querySelectorAll<HTMLElement>('[data-flip-member]').forEach((el) => {
+      memberPositions.current.set(el.dataset.flipMember!, el.getBoundingClientRect().top);
+    });
+  }, [execGroups]);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between pt-2">
+        <div>
+          <h2 className="text-white" style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>Exec Members</h2>
+          <p className="text-white/40 mt-1" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{allMembers.length} member{allMembers.length !== 1 ? 's' : ''}</p>
+        </div>
+        <button
+          onClick={() => { setEditing(null); setShowForm(true); }}
+          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          <Plus className="w-4 h-4" /> Add Member
+        </button>
+      </div>
+
+      {execError && (
+        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <span className="text-red-400" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{execError}</span>
+        </div>
+      )}
+
+      {execLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-8 h-8 text-[#eb7524] animate-spin" />
+        </div>
+      ) : allMembers.length === 0 ? (
+        <div className="text-center py-16">
+          <Users className="w-12 h-12 text-white/10 mx-auto mb-4" />
+          <p className="text-white/30" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>No exec members yet</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {execGroups.map((group) => (
+            <div key={group.team.id}>
+              <h3 className="text-white/60 mb-3" style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{group.team.name}</h3>
+              <div className="grid gap-3">
+                {group.members.map((member) => (
+                  <div key={member.id} data-flip-member={String(member.id)}>
+                    <ExecMemberCard
+                      member={member}
+                      onEdit={() => { setEditing(member); setShowForm(true); }}
+                      onDelete={() => onDelete(member.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <ExecMemberForm
+              initial={editing}
+              execRoles={execRoles}
+              execTeams={execTeams}
+              onSave={onSave}
+              onCancel={() => { setShowForm(false); setEditing(null); }}
+            />
+          </div>
+        </div>
+      )}
+
+      <ExecRoleTeamManager execRoles={execRoles} execTeams={execTeams} onRefresh={refreshExecs} onRolesReorder={onRolesReorder} />
+    </div>
+  );
+}
+
+function MediaCardActions({ item, onEdit, onDelete }: { item: any; onEdit: () => void; onDelete: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try { await onDelete(); } finally { setIsDeleting(false); setConfirmDelete(false); }
+  };
+
+  return (
+    <div className="flex items-center gap-2 mt-4">
+      <button
+        onClick={onEdit}
+        disabled={isDeleting}
+        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer disabled:opacity-40"
+        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+      >
+        <Edit3 className="w-3 h-3" />
+        Edit
+      </button>
+      {confirmDelete ? (
+        <>
+          <button
+            onClick={handleDelete}
+            disabled={isDeleting}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >
+            {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+            {isDeleting ? 'Deleting' : 'Confirm'}
+          </button>
+          <button
+            onClick={() => setConfirmDelete(false)}
+            disabled={isDeleting}
+            className="flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >Cancel</button>
+        </>
+      ) : (
+        <button
+          onClick={() => setConfirmDelete(true)}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+        >
+          <Trash2 className="w-3 h-3" />
+          Delete
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ExecMemberCard({ member, onEdit, onDelete }: { member: ExecMember; onEdit: () => void; onDelete: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const isUnassigned = !member.role || !member.team;
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try { await onDelete(); } finally { setIsDeleting(false); }
+  };
+
+  return (
+    <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4 hover:bg-white/[0.05] transition-all">
+      <div className="w-10 h-10 rounded-full bg-white/[0.06] border border-white/10 overflow-hidden flex-shrink-0">
+        {member.imageUrl ? (
+          <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Users className="w-4 h-4 text-white/20" />
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-white font-medium truncate" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{member.name}</p>
+          {!member.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.06] text-white/30 border border-white/10">Inactive</span>}
+          {isUnassigned && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">Unassigned</span>}
+        </div>
+        <p className="text-white/40 truncate" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+          {member.role?.name ?? 'No role'} · {member.team?.name ?? 'No team'}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <button onClick={onEdit} disabled={isDeleting} className="p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 hover:text-white transition-all cursor-pointer disabled:opacity-40">
+          <Edit3 className="w-4 h-4" />
+        </button>
+        {confirmDelete ? (
+          <>
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+              {isDeleting ? 'Deleting' : 'Confirm'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              disabled={isDeleting}
+              className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >Cancel</button>
+          </>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="p-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Circle image cropper (URL input / file browse + pan/zoom crop preview) ──
+function CircleImageCropper({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const C = 260; // container px
+  const R = 110; // circle crop radius px
+  const OUT = 256; // output canvas px
+
+  type Stage = 'pick' | 'crop' | 'done';
+  const [stage, setStage] = useState<Stage>(value ? 'done' : 'pick');
+  const [inputUrl, setInputUrl] = useState('');
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
+  const [imgNatural, setImgNatural] = useState({ w: 0, h: 0 });
+  const [loadErr, setLoadErr] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ mx: 0, my: 0, ox: 0, oy: 0 });
+
+  // Non-passive wheel listener (React onWheel is passive in React 17+)
+  useEffect(() => {
+    const el = cropContainerRef.current;
+    if (!el || stage !== 'crop') return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setScale(s => Math.max(0.1, Math.min(15, s * (e.deltaY > 0 ? 0.92 : 1.08))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [stage]);
+
+  const loadSrc = (src: string) => {
+    setCropSrc(src);
+    setOffset({ x: 0, y: 0 });
+    setScale(1);
+    setImgNatural({ w: 0, h: 0 });
+    setLoadErr(false);
+    setStage('crop');
+  };
+
+  const handleImgLoad = () => {
+    const img = imgRef.current;
+    if (!img) return;
+    setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    const minDim = Math.min(img.naturalWidth, img.naturalHeight);
+    setScale(Math.max(0.2, (R * 2.2) / minDim));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    dragStartRef.current = { mx: e.clientX, my: e.clientY, ox: offset.x, oy: offset.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    const { mx, my, ox, oy } = dragStartRef.current;
+    setOffset({ x: ox + e.clientX - mx, y: oy + e.clientY - my });
+  };
+
+  const stopDrag = () => { isDraggingRef.current = false; setIsDragging(false); };
+
+  const confirmCrop = () => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img || imgNatural.w === 0 || loadErr) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width = OUT;
+    canvas.height = OUT;
+    // Map circle crop region to image pixel coords
+    const sx = (-R - offset.x) / scale + imgNatural.w / 2;
+    const sy = (-R - offset.y) / scale + imgNatural.h / 2;
+    const sw = (R * 2) / scale;
+    ctx.beginPath();
+    ctx.arc(OUT / 2, OUT / 2, OUT / 2, 0, Math.PI * 2);
+    ctx.clip();
+    try {
+      ctx.drawImage(img, sx, sy, sw, sw, 0, 0, OUT, OUT);
+      onChange(canvas.toDataURL('image/jpeg', 0.92));
+    } catch {
+      onChange(cropSrc!); // CORS-tainted: fall back to raw URL
+    }
+    setStage('done');
+  };
+
+  if (stage === 'done') return (
+    <div className="flex items-center gap-4">
+      <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-white/[0.05] border-2 border-[#eb7524]/30">
+        <img src={value} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      </div>
+      <button type="button" onClick={() => { setInputUrl(''); setStage('pick'); }}
+        className="px-4 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06] hover:text-white transition-all cursor-pointer"
+        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+        Change Image
+      </button>
+    </div>
+  );
+
+  if (stage === 'pick') return (
+    <div className="space-y-3">
+      {value && (
+        <button type="button" onClick={() => setStage('done')}
+          className="text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+          ← Keep current image
+        </button>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={inputUrl}
+          onChange={(e) => setInputUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (inputUrl.trim()) loadSrc(inputUrl.trim()); } }}
+          placeholder="Paste image URL..."
+          className={inputCls + ' flex-1'}
+          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+        />
+        <button type="button" onClick={() => inputUrl.trim() && loadSrc(inputUrl.trim())} disabled={!inputUrl.trim()}
+          className="px-4 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-40 flex-shrink-0 font-semibold"
+          style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif' }}>
+          Load
+        </button>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-white/[0.06]" />
+        <span className="text-white/25" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>or</span>
+        <div className="flex-1 h-px bg-white/[0.06]" />
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => loadSrc(ev.target?.result as string);
+        reader.readAsDataURL(file);
+        if (fileRef.current) fileRef.current.value = '';
+      }} />
+      <button type="button" onClick={() => fileRef.current?.click()}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white transition-all cursor-pointer"
+        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+        <Camera className="w-4 h-4" />
+        Browse from computer
+      </button>
+    </div>
+  );
+
+  // stage === 'crop'
+  return (
+    <div className="space-y-3">
+      <p className="text-center text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+        Drag to pan · Scroll to zoom · Position photo inside the circle
+      </p>
+      <div className="flex justify-center">
+        <div
+          ref={cropContainerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={stopDrag}
+          onMouseLeave={stopDrag}
+          style={{
+            width: C, height: C, position: 'relative', overflow: 'hidden', borderRadius: 12,
+            background: '#0d0d0d', cursor: isDragging ? 'grabbing' : 'grab', userSelect: 'none',
+          }}
+        >
+          {cropSrc && (
+            <img
+              ref={imgRef}
+              src={cropSrc}
+              alt=""
+              draggable={false}
+              onLoad={handleImgLoad}
+              onError={() => setLoadErr(true)}
+              style={{
+                position: 'absolute', top: '50%', left: '50%',
+                maxWidth: 'none', maxHeight: 'none', pointerEvents: 'none',
+                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+                transformOrigin: '50% 50%',
+              }}
+            />
+          )}
+          {/* Dark vignette with circle cutout */}
+          <div style={{
+            position: 'absolute', inset: 0, pointerEvents: 'none',
+            background: `radial-gradient(circle ${R}px at center, transparent ${R}px, rgba(0,0,0,0.75) ${R}px)`,
+          }} />
+          {/* Orange circle guide border */}
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%',
+            width: R * 2, height: R * 2, borderRadius: '50%',
+            transform: 'translate(-50%, -50%)',
+            border: '1.5px solid rgba(235,117,36,0.55)', pointerEvents: 'none',
+          }} />
+          {loadErr && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <p className="text-red-400 text-center px-6" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                Couldn't load image.<br />Check the URL and try again.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+      {/* Zoom controls */}
+      <div className="flex items-center justify-center gap-3">
+        <button type="button" onClick={() => setScale(s => Math.max(0.1, s * 0.85))}
+          className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.10] transition-all cursor-pointer flex items-center justify-center font-medium leading-none"
+          style={{ fontSize: '20px' }}>−</button>
+        <span className="text-white/30 w-12 text-center" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>{Math.round(scale * 100)}%</span>
+        <button type="button" onClick={() => setScale(s => Math.min(15, s * 1.15))}
+          className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.10] transition-all cursor-pointer flex items-center justify-center font-medium leading-none"
+          style={{ fontSize: '20px' }}>+</button>
+      </div>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setStage('pick')}
+          className="flex-1 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white/50 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer"
+          style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>← Back</button>
+        <button type="button" onClick={confirmCrop} disabled={imgNatural.w === 0 || loadErr}
+          className="flex-1 py-2 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed font-semibold"
+          style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif' }}>Use this crop</button>
+      </div>
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+    </div>
+  );
+}
+
+function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
+  initial: ExecMember | null;
+  execRoles: ExecRoleItem[];
+  execTeams: ExecTeamItem[];
+  onSave: (exec: Partial<ExecMember> & { id: number }) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? '');
+  const [roleId, setRoleId] = useState<number>(initial?.role?.id ?? (execRoles[0]?.id ?? 0));
+  const [teamId, setTeamId] = useState<number>(initial?.team?.id ?? (execTeams[0]?.id ?? 0));
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? '');
+  const [bio, setBio] = useState(initial?.bio ?? '');
+  const [instagramUrl, setInstagramUrl] = useState(initial?.instagramUrl ?? '');
+  const [email, setEmail] = useState(initial?.email ?? '');
+  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // If editing an unassigned member, default selects to first available option
+  useEffect(() => {
+    if (initial?.role == null && execRoles.length > 0) setRoleId(execRoles[0].id);
+    if (initial?.team == null && execTeams.length > 0) setTeamId(execTeams[0].id);
+  }, [execRoles, execTeams]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onSave({
+        id: initial?.id ?? 0,
+        name: name.trim(),
+        role: { id: roleId, name: '', displayOrder: 0 },
+        team: { id: teamId, name: '', displayOrder: 0 },
+        imageUrl: imageUrl.trim() || null,
+        bio: bio.trim() || null,
+        instagramUrl: instagramUrl.trim() || null,
+        email: email.trim() || null,
+        isActive,
+        createdAt: initial?.createdAt ?? '',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>{initial ? 'Edit Member' : 'Add Member'}</h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2">
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Name *</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" required maxLength={100} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Role *</label>
+          <CustomSelect
+            value={roleId}
+            onChange={(v) => setRoleId(Number(v))}
+            options={execRoles.map((r) => ({ value: r.id, label: r.name }))}
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Team *</label>
+          <CustomSelect
+            value={teamId}
+            onChange={(v) => setTeamId(Number(v))}
+            options={execTeams.map((t) => ({ value: t.id, label: t.name }))}
+            required
+          />
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Profile Image</label>
+          <CircleImageCropper value={imageUrl} onChange={setImageUrl} />
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Bio (max 300 chars)</label>
+          <textarea value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Short bio..." maxLength={300} rows={3} className={inputCls} />
+          <p className="text-white/20 mt-1 text-right" style={{ fontSize: '12px' }}>{bio.length}/300</p>
+        </div>
+        <div>
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Instagram URL</label>
+          <input value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} placeholder="https://instagram.com/..." className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="exec@example.com" className={inputCls} />
+        </div>
+        <div className="md:col-span-2 flex items-center gap-3">
+          <input type="checkbox" id="execIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="w-4 h-4 accent-[#eb7524]" />
+          <label htmlFor="execIsActive" className="text-white/60 cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>Active (visible on public site)</label>
+        </div>
+        <div className="md:col-span-2 flex gap-3 justify-end pt-2">
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>Cancel</button>
+          <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : <><Save className="w-4 h-4" />{initial ? 'Update' : 'Add'} Member</>}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }: {
+  execRoles: ExecRoleItem[];
+  execTeams: ExecTeamItem[];
+  onRefresh: () => Promise<void>;
+  onRolesReorder: (roles: ExecRoleItem[]) => void;
+}) {
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newTeamName, setNewTeamName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [localRoles, setLocalRoles] = useState<ExecRoleItem[]>(execRoles);
+  const [localTeams, setLocalTeams] = useState<ExecTeamItem[]>(execTeams);
+  // editingKey: e.g. "roles-3" or "teams-7" — which item is being renamed
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  // Shared refs for drag-and-drop
+  const dragSourceIndex = useRef<number | null>(null);
+  const dragSourceList = useRef<'roles' | 'teams' | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  // FLIP animation refs
+  const rolesListRef = useRef<HTMLDivElement>(null);
+  const teamsListRef = useRef<HTMLDivElement>(null);
+  const flipSnapshot = useRef<Map<string, number>>(new Map());
+  const pendingFlip = useRef<'roles' | 'teams' | null>(null);
+
+  useLayoutEffect(() => {
+    const which = pendingFlip.current;
+    if (!which) return;
+    pendingFlip.current = null;
+    applyFlip(which === 'roles' ? rolesListRef.current : teamsListRef.current, flipSnapshot.current);
+    flipSnapshot.current.clear();
+  });
+
+  const byDisplayOrder = <T extends { id: number; displayOrder: number }>(arr: T[]) =>
+    [...arr].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+
+  // Sync from props: full reset on add/delete, preserve local displayOrder on rename/reorder.
+  // Always sort by displayOrder so the rendered list order matches stored priority.
+  useEffect(() => {
+    setLocalRoles(prev => {
+      const newIds = execRoles.map(r => r.id).sort().join(',');
+      const prevIds = prev.map(r => r.id).sort().join(',');
+      if (newIds !== prevIds) return byDisplayOrder(execRoles);
+      const newMap = new Map(execRoles.map(r => [r.id, r]));
+      return byDisplayOrder(prev.map(r => { const u = newMap.get(r.id); return u ? { ...u, displayOrder: r.displayOrder } : r; }));
+    });
+  }, [execRoles]);
+  useEffect(() => {
+    setLocalTeams(prev => {
+      const newIds = execTeams.map(t => t.id).sort().join(',');
+      const prevIds = prev.map(t => t.id).sort().join(',');
+      if (newIds !== prevIds) return byDisplayOrder(execTeams);
+      const newMap = new Map(execTeams.map(t => [t.id, t]));
+      return byDisplayOrder(prev.map(t => { const u = newMap.get(t.id); return u ? { ...u, displayOrder: t.displayOrder } : t; }));
+    });
+  }, [execTeams]);
+
+  const addRole = async () => {
+    if (!newRoleName.trim()) return;
+    setError(null);
+    const token = localStorage.getItem('token');
+    const res = await fetch('/api/admin/exec-roles', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newRoleName.trim() }),
+    });
+    if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to add role'); return; }
+    setNewRoleName('');
+    await onRefresh();
+  };
+
+  const deleteRole = async (id: number) => {
+    setError(null);
+    const token = localStorage.getItem('token');
+    const res = await fetch(`/api/admin/exec-roles/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to delete role'); return; }
+    await onRefresh();
+  };
+
+  const addTeam = async () => {
+    if (!newTeamName.trim()) return;
+    setError(null);
+    const token = localStorage.getItem('token');
+    const res = await fetch('/api/admin/exec-teams', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newTeamName.trim() }),
+    });
+    if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to add team'); return; }
+    setNewTeamName('');
+    await onRefresh();
+  };
+
+  const deleteTeam = async (id: number) => {
+    setError(null);
+    const token = localStorage.getItem('token');
+    const res = await fetch(`/api/admin/exec-teams/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to delete team'); return; }
+    await onRefresh();
+  };
+
+  const startEdit = (key: string, currentName: string) => {
+    setEditingKey(key);
+    setEditingName(currentName);
+    setError(null);
+  };
+
+  const cancelEdit = () => { setEditingKey(null); setEditingName(''); };
+
+  const saveEdit = async (id: number, list: 'roles' | 'teams') => {
+    if (!editingName.trim()) return;
+    setError(null);
+    const token = localStorage.getItem('token');
+    const url = list === 'roles' ? `/api/admin/exec-roles/${id}` : `/api/admin/exec-teams/${id}`;
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editingName.trim() }),
+    });
+    if (!res.ok) {
+      const p = await res.json().catch(() => ({}));
+      setError(p?.error?.message || `Failed to rename ${list === 'roles' ? 'role' : 'team'}`);
+      return;
+    }
+    setEditingKey(null);
+    setEditingName('');
+    await onRefresh();
+  };
+
+  const handleDrop = async (
+    fromIndex: number,
+    toIndex: number,
+    list: 'roles' | 'teams',
+  ) => {
+    setDragOverKey(null);
+    if (fromIndex === toIndex) return;
+    const token = localStorage.getItem('token');
+
+    const reorder = <T extends ExecRoleItem | ExecTeamItem>(items: T[]): T[] => {
+      const next = [...items];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next.map((item, i) => ({ ...item, displayOrder: i }));
+    };
+
+    if (list === 'roles') {
+      const prevRoles = localRoles;
+      const reordered = reorder(localRoles);
+      flipSnapshot.current = captureFlip(rolesListRef.current);
+      pendingFlip.current = 'roles';
+      setLocalRoles(reordered); // optimistic update — this IS the source of truth
+      onRolesReorder(reordered); // live-resort exec member cards without a fetch
+      const res = await fetch('/api/admin/exec-roles/reorder', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
+      });
+      if (!res.ok) { setLocalRoles(prevRoles); setError('Failed to reorder roles'); }
+    } else {
+      const prevTeams = localTeams;
+      const reordered = reorder(localTeams);
+      flipSnapshot.current = captureFlip(teamsListRef.current);
+      pendingFlip.current = 'teams';
+      setLocalTeams(reordered); // optimistic update
+      const res = await fetch('/api/admin/exec-teams/reorder', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
+      });
+      if (!res.ok) { setLocalTeams(prevTeams); setError('Failed to reorder teams'); }
+      else await onRefresh(); // refresh exec groups since team order affects member grouping
+    }
+  };
+
+  return (
+    <div className="grid md:grid-cols-2 gap-6 mt-2 pt-8 border-t border-white/[0.06]">
+      {error && (
+        <div className="md:col-span-2 flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <span className="text-red-400" style={{ fontSize: '14px' }}>{error}</span>
+        </div>
+      )}
+      {([
+        { label: 'Roles', items: localRoles, newName: newRoleName, setNewName: setNewRoleName, onAdd: addRole, onDelete: deleteRole, list: 'roles' as const, listRef: rolesListRef },
+        { label: 'Teams', items: localTeams, newName: newTeamName, setNewName: setNewTeamName, onAdd: addTeam, onDelete: deleteTeam, list: 'teams' as const, listRef: teamsListRef },
+      ]).map(({ label, items, newName, setNewName, onAdd, onDelete, list, listRef }) => (
+        <div key={label} className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5">
+          <h4 className="text-white/60 mb-1" style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</h4>
+          <p className="text-white/20 mb-4" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>Drag to reorder priority</p>
+          <div ref={listRef} className="space-y-2 mb-4">
+            {items.map((item, index) => {
+              const overKey = `${list}-${index}`;
+              const itemKey = `${list}-${item.id}`;
+              const isOver = dragOverKey === overKey;
+              const isEditing = editingKey === itemKey;
+              return (
+                <div
+                  key={item.id}
+                  data-flip-id={String(item.id)}
+                  draggable={!isEditing}
+                  onDragStart={() => {
+                    if (isEditing) return;
+                    dragSourceIndex.current = index;
+                    dragSourceList.current = list;
+                  }}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverKey(overKey); }}
+                  onDragLeave={() => setDragOverKey(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragSourceIndex.current !== null && dragSourceList.current === list) {
+                      handleDrop(dragSourceIndex.current, index, list);
+                    }
+                    dragSourceIndex.current = null;
+                    dragSourceList.current = null;
+                    setDragOverKey(null);
+                  }}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+                    isEditing
+                      ? 'bg-white/[0.06] border border-[#eb7524]/40'
+                      : isOver
+                        ? 'bg-[#eb7524]/15 border border-[#eb7524]/40 cursor-grab active:cursor-grabbing'
+                        : 'bg-white/[0.03] border border-transparent cursor-grab active:cursor-grabbing'
+                  }`}
+                >
+                  {!isEditing && <GripVertical className="w-3.5 h-3.5 text-white/20 flex-shrink-0" />}
+                  {isEditing ? (
+                    <>
+                      <input
+                        autoFocus
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEdit(item.id, list);
+                          if (e.key === 'Escape') cancelEdit();
+                        }}
+                        maxLength={100}
+                        className="flex-1 bg-transparent text-white outline-none"
+                        style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                      />
+                      <button onClick={() => saveEdit(item.id, list)} className="p-1 rounded text-[#eb7524] hover:text-[#eb7524]/80 transition-all cursor-pointer flex-shrink-0">
+                        <Save className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={cancelEdit} className="p-1 rounded text-white/30 hover:text-white/60 transition-all cursor-pointer flex-shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-white/70 truncate flex-1" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{item.name}</span>
+                      <button onClick={() => startEdit(itemKey, item.name)} className="p-1 rounded text-white/30 hover:text-white/70 transition-all cursor-pointer flex-shrink-0">
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => onDelete(item.id)} className="p-1 rounded text-red-400/60 hover:text-red-400 transition-all cursor-pointer flex-shrink-0">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onAdd()} placeholder={`New ${label.toLowerCase().slice(0, -1)}…`} maxLength={100} className={inputCls + ' text-sm'} />
+            <button onClick={onAdd} disabled={!newName.trim()} className="flex items-center gap-1 px-3 py-2 bg-[#eb7524] text-white rounded-xl disabled:opacity-40 cursor-pointer hover:bg-[#d4691f] transition-all flex-shrink-0">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// FAQ Manager
+// ═══════════════════════════════════════════════
+
+function FaqManager({
+  faqs, onSave, onDelete, editing, setEditing, showForm, setShowForm, faqLoading, faqError,
+}: {
+  faqs: FaqItem[];
+  onSave: (faq: Partial<FaqItem> & { id: number }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+  editing: FaqItem | null;
+  setEditing: (f: FaqItem | null) => void;
+  showForm: boolean;
+  setShowForm: (v: boolean) => void;
+  faqLoading: boolean;
+  faqError: string | null;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between pt-2">
+        <div>
+          <h2 className="text-white" style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>FAQ</h2>
+          <p className="text-white/40 mt-1" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{faqs.length} entr{faqs.length !== 1 ? 'ies' : 'y'}</p>
+        </div>
+        <button
+          onClick={() => { setEditing(null); setShowForm(true); }}
+          className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)]"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          <Plus className="w-4 h-4" /> Add Entry
+        </button>
+      </div>
+
+      {faqError && (
+        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <span className="text-red-400" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{faqError}</span>
+        </div>
+      )}
+
+      {faqLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-8 h-8 text-[#eb7524] animate-spin" />
+        </div>
+      ) : faqs.length === 0 ? (
+        <div className="text-center py-16">
+          <HelpCircle className="w-12 h-12 text-white/10 mx-auto mb-4" />
+          <p className="text-white/30" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>No FAQ entries yet</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {faqs.map((faq) => (
+            <FaqEntryRow
+              key={faq.id}
+              faq={faq}
+              onEdit={() => { setEditing(faq); setShowForm(true); }}
+              onDelete={() => onDelete(faq.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+            <FaqEntryForm
+              initial={editing}
+              onSave={onSave}
+              onCancel={() => { setShowForm(false); setEditing(null); }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FaqEntryRow({ faq, onEdit, onDelete }: { faq: FaqItem; onEdit: () => void; onDelete: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try { await onDelete(); } finally { setIsDeleting(false); }
+  };
+
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4 hover:bg-white/[0.05] transition-all">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="text-white font-medium" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>{faq.question}</p>
+            {!faq.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.06] text-white/30 border border-white/10 flex-shrink-0">Inactive</span>}
+          </div>
+          <p className="text-white/40 line-clamp-2" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{faq.answer}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={onEdit} disabled={isDeleting} className="p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 hover:text-white transition-all cursor-pointer disabled:opacity-40">
+            <Edit3 className="w-4 h-4" />
+          </button>
+          {confirmDelete ? (
+            <>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >
+                {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                {isDeleting ? 'Deleting' : 'Confirm'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                disabled={isDeleting}
+                className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >Cancel</button>
+            </>
+          ) : (
+            <button onClick={() => setConfirmDelete(true)} className="p-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FaqEntryForm({ initial, onSave, onCancel }: {
+  initial: FaqItem | null;
+  onSave: (faq: Partial<FaqItem> & { id: number }) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [question, setQuestion] = useState(initial?.question ?? '');
+  const [answer, setAnswer] = useState(initial?.answer ?? '');
+  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!question.trim() || !answer.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onSave({ id: initial?.id ?? 0, question: question.trim(), answer: answer.trim(), isActive });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#111] border border-[#eb7524]/20 rounded-2xl p-7">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>{initial ? 'Edit FAQ Entry' : 'Add FAQ Entry'}</h3>
+        <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors cursor-pointer">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Question * (max 300 chars)</label>
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. What is AUSS?" required maxLength={300} className={inputCls} />
+          <p className="text-white/20 mt-1 text-right" style={{ fontSize: '12px' }}>{question.length}/300</p>
+        </div>
+        <div>
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Answer *</label>
+          <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Full answer…" required rows={5} className={inputCls} />
+        </div>
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="faqIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="w-4 h-4 accent-[#eb7524]" />
+          <label htmlFor="faqIsActive" className="text-white/60 cursor-pointer" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>Active (visible on About page)</label>
+        </div>
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/50 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif' }}>Cancel</button>
+          <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 bg-[#eb7524] text-white px-6 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer shadow-[0_4px_20px_rgba(235,117,36,0.25)] disabled:opacity-50" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : <><Save className="w-4 h-4" />{initial ? 'Update' : 'Add'} Entry</>}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
