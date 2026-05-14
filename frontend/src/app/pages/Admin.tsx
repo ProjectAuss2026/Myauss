@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import {
   Plus, Trash2, Edit3, Save, X, ChevronLeft, Star, Users, Trophy, Heart,
   Camera, ExternalLink, ArrowRight, LogOut, Shield, Image as ImageIcon,
@@ -268,7 +269,9 @@ export function Admin() {
   const [faqLoading, setFaqLoading] = useState(false);
   const [faqError, setFaqError] = useState<string | null>(null);
 
-  useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, []);
+  const { showToast } = useToast();
+
+  useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, [])
 
   const getAuthToken = () => localStorage.getItem('token');
 
@@ -498,6 +501,7 @@ export function Admin() {
   };
 
   const saveExec = async (exec: Partial<ExecMember> & { id: number }) => {
+    const isEdit = exec.id > 0;
     try {
       setExecError(null);
       const token = getAuthToken();
@@ -512,8 +516,8 @@ export function Admin() {
         email: exec.email || null,
         isActive: exec.isActive ?? true,
       };
-      const res = await fetch(exec.id > 0 ? `/api/admin/executives/${exec.id}` : '/api/admin/executives', {
-        method: exec.id > 0 ? 'PUT' : 'POST',
+      const res = await fetch(isEdit ? `/api/admin/executives/${exec.id}` : '/api/admin/executives', {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -521,8 +525,11 @@ export function Admin() {
       await refreshExecs();
       setEditingExec(null);
       setShowExecForm(false);
+      showToast(isEdit ? 'Exec member updated' : 'Exec member added', 'success');
     } catch (err) {
-      setExecError(err instanceof Error ? err.message : 'Failed to save executive');
+      const msg = err instanceof Error ? err.message : 'Failed to save executive';
+      setExecError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -530,26 +537,30 @@ export function Admin() {
     try {
       setExecError(null);
       const token = getAuthToken();
-      if (!token) { setExecError('No authentication token found'); return; }
+      if (!token) { showToast('No authentication token', 'error'); return; }
       const res = await fetch(`/api/admin/executives/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       await refreshExecs();
+      showToast('Exec member deleted', 'success');
     } catch (err) {
-      setExecError(err instanceof Error ? err.message : 'Failed to delete executive');
+      const msg = err instanceof Error ? err.message : 'Failed to delete executive';
+      setExecError(msg);
+      showToast(msg, 'error');
     }
   };
 
   const saveFaq = async (faq: Partial<FaqItem> & { id: number }) => {
+    const isEdit = faq.id > 0;
     try {
       setFaqError(null);
       const token = getAuthToken();
       if (!token) { setFaqError('No authentication token found'); return; }
       const payload = { question: faq.question, answer: faq.answer, isActive: faq.isActive ?? true };
-      const res = await fetch(faq.id > 0 ? `/api/admin/faq/${faq.id}` : '/api/admin/faq', {
-        method: faq.id > 0 ? 'PUT' : 'POST',
+      const res = await fetch(isEdit ? `/api/admin/faq/${faq.id}` : '/api/admin/faq', {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -561,8 +572,11 @@ export function Admin() {
       }
       setEditingFaq(null);
       setShowFaqForm(false);
+      showToast(isEdit ? 'FAQ entry updated' : 'FAQ entry added', 'success');
     } catch (err) {
-      setFaqError(err instanceof Error ? err.message : 'Failed to save FAQ entry');
+      const msg = err instanceof Error ? err.message : 'Failed to save FAQ entry';
+      setFaqError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -570,15 +584,18 @@ export function Admin() {
     try {
       setFaqError(null);
       const token = getAuthToken();
-      if (!token) { setFaqError('No authentication token found'); return; }
+      if (!token) { showToast('No authentication token', 'error'); return; }
       const res = await fetch(`/api/admin/faq/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       setFaqs((prev) => prev.filter((f) => f.id !== id));
+      showToast('FAQ entry deleted', 'success');
     } catch (err) {
-      setFaqError(err instanceof Error ? err.message : 'Failed to delete FAQ entry');
+      const msg = err instanceof Error ? err.message : 'Failed to delete FAQ entry';
+      setFaqError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -666,8 +683,11 @@ export function Admin() {
 
       setEditingSponsor(null);
       setShowSponsorForm(false);
+      showToast(sponsor.id > 0 ? 'Sponsor updated' : 'Sponsor added', 'success');
     } catch (error) {
-      setSponsorError(error instanceof Error ? error.message : 'Failed to save sponsor');
+      const msg = error instanceof Error ? error.message : 'Failed to save sponsor';
+      setSponsorError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -675,39 +695,29 @@ export function Admin() {
     try {
       setSponsorError(null);
       const token = getAuthToken();
-      if (!token) {
-        setSponsorError('No authentication token found');
-        return;
-      }
-      // Optimistic removal for instant feedback
+      if (!token) { showToast('No authentication token', 'error'); return; }
       setSponsors((prev) => prev.filter((s) => s.id !== id));
       const response = await fetch(`/api/sponsors/${id}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response));
-      }
-      // Re-fetch with no-store to confirm server state and avoid stale cache reappear
-      const confirm = await fetch('/api/sponsorship', { cache: 'no-store' });
-      if (confirm.ok) {
-        const payload = await confirm.json();
+      if (!response.ok) throw new Error(await getApiErrorMessage(response));
+      const refetch = await fetch('/api/sponsorship', { cache: 'no-store' });
+      if (refetch.ok) {
+        const payload = await refetch.json();
         const rows = Array.isArray(payload?.data?.sponsors) ? payload.data.sponsors : [];
-        setSponsors(
-          rows.map((s: any) => ({
-            id: s.id,
-            name: s.name || '',
-            logoUrl: s.logoUrl || '',
-            websiteUrl: s.websiteUrl || '',
-            displayOrder: typeof s.displayOrder === 'number' ? s.displayOrder : 0,
-            sponsorshipPageId: typeof s.sponsorshipPageId === 'number' ? s.sponsorshipPageId : null,
-          }))
-        );
+        setSponsors(rows.map((s: any) => ({
+          id: s.id, name: s.name || '', logoUrl: s.logoUrl || '',
+          websiteUrl: s.websiteUrl || '',
+          displayOrder: typeof s.displayOrder === 'number' ? s.displayOrder : 0,
+          sponsorshipPageId: typeof s.sponsorshipPageId === 'number' ? s.sponsorshipPageId : null,
+        })));
       }
+      showToast('Sponsor deleted', 'success');
     } catch (error) {
-      setSponsorError(error instanceof Error ? error.message : 'Failed to delete sponsor');
+      const msg = error instanceof Error ? error.message : 'Failed to delete sponsor';
+      setSponsorError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -755,8 +765,11 @@ export function Admin() {
       }
       setEditingMedia(null);
       setShowMediaForm(false);
+      showToast(item.id > 0 ? 'Photo Drive link updated' : 'Photo Drive link added', 'success');
     } catch (error) {
-      setMediaError(error instanceof Error ? error.message : 'Failed to update media link');
+      const msg = error instanceof Error ? error.message : 'Failed to update media link';
+      setMediaError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -764,36 +777,28 @@ export function Admin() {
     try {
       setMediaError(null);
       const token = getAuthToken();
-      if (!token) {
-        setMediaError('No authentication token found');
-        return;
-      }
+      if (!token) { showToast('No authentication token', 'error'); return; }
       const response = await fetch(`/api/media-entries/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response));
-      }
-      // Optimistic removal first for instant feedback
+      if (!response.ok) throw new Error(await getApiErrorMessage(response));
       setMedia((prev) => prev.filter((m) => m.id !== id));
-      // Refetch bypassing cache to confirm server state
       const freshRes = await fetch('/api/media-entries', { cache: 'no-store' });
       if (freshRes.ok) {
         const payload = await freshRes.json();
         const rows = Array.isArray(payload?.data) ? payload.data : [];
         setMedia(rows.map((m: any) => ({
-          id: m.id,
-          activityId: m.activityId,
-          mediaDriveUrl: m.mediaDriveUrl || '',
-          overrideName: m.overrideName || '',
-          overrideCover: m.overrideCover || '',
-          resolvedName: m.resolvedName || '',
-          resolvedCover: m.resolvedCover || '',
+          id: m.id, activityId: m.activityId, mediaDriveUrl: m.mediaDriveUrl || '',
+          overrideName: m.overrideName || '', overrideCover: m.overrideCover || '',
+          resolvedName: m.resolvedName || '', resolvedCover: m.resolvedCover || '',
         })));
       }
+      showToast('Photo Drive link deleted', 'success');
     } catch (error) {
-      setMediaError(error instanceof Error ? error.message : 'Failed to delete media entry');
+      const msg = error instanceof Error ? error.message : 'Failed to delete media entry';
+      setMediaError(msg);
+      showToast(msg, 'error');
     }
   };
 
@@ -858,10 +863,11 @@ export function Admin() {
 
       setEditingActivity(null);
       setShowActivityForm(false);
+      showToast(activity.id > 0 ? 'Activity updated' : 'Activity created', 'success');
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to save activity';
       setActivityError(errMsg);
-      console.error('Error saving activity:', err);
+      showToast(errMsg, 'error');
     }
   };
 
@@ -869,27 +875,18 @@ export function Admin() {
     try {
       setActivityError(null);
       const token = localStorage.getItem('token');
-      if (!token) {
-        setActivityError('No authentication token found');
-        return;
-      }
-
+      if (!token) { showToast('No authentication token', 'error'); return; }
       const response = await fetch(`/api/activities/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-      if (!response.ok) {
-        throw new Error(`Failed to delete activity: ${response.statusText}`);
-      }
-      
+      if (!response.ok) throw new Error(`Failed to delete activity: ${response.statusText}`);
       setActivities((prev) => prev.filter((a) => a.id !== id));
+      showToast('Activity deleted', 'success');
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to delete activity';
       setActivityError(errMsg);
-      console.error('Error deleting activity:', err);
+      showToast(errMsg, 'error');
     }
   };
 
@@ -1042,6 +1039,7 @@ export function Admin() {
           )}
         </div>
       </section>
+
     </div>
   );
 }
@@ -1381,24 +1379,7 @@ function MediaManager({
                 >
                   {item.mediaDriveUrl}
                 </a>
-                <div className="flex items-center gap-2 mt-4">
-                  <button
-                    onClick={() => { setEditing(item); setShowForm(false); }}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer"
-                    style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    <Edit3 className="w-3 h-3" />
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => onDelete(item.id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
-                    style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Delete
-                  </button>
-                </div>
+                <MediaCardActions item={item} onEdit={() => { setEditing(item); setShowForm(false); }} onDelete={() => onDelete(item.id)} />
               </div>
             </div>
           ))}
@@ -2101,7 +2082,67 @@ function ExecManager({
   );
 }
 
+function MediaCardActions({ item, onEdit, onDelete }: { item: any; onEdit: () => void; onDelete: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try { await onDelete(); } finally { setIsDeleting(false); setConfirmDelete(false); }
+  };
+
+  return (
+    <div className="flex items-center gap-2 mt-4">
+      <button
+        onClick={onEdit}
+        disabled={isDeleting}
+        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/50 hover:text-[#eb7524] hover:border-[#eb7524]/30 transition-all cursor-pointer disabled:opacity-40"
+        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+      >
+        <Edit3 className="w-3 h-3" />
+        Edit
+      </button>
+      {confirmDelete ? (
+        <>
+          <button
+            onClick={handleDelete}
+            disabled={isDeleting}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >
+            {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+            {isDeleting ? 'Deleting' : 'Confirm'}
+          </button>
+          <button
+            onClick={() => setConfirmDelete(false)}
+            disabled={isDeleting}
+            className="flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50"
+            style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+          >Cancel</button>
+        </>
+      ) : (
+        <button
+          onClick={() => setConfirmDelete(true)}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+        >
+          <Trash2 className="w-3 h-3" />
+          Delete
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ExecMemberCard({ member, onEdit, onDelete }: { member: ExecMember; onEdit: () => void; onDelete: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try { await onDelete(); } finally { setIsDeleting(false); }
+  };
+
   return (
     <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4 hover:bg-white/[0.05] transition-all">
       <div className="w-10 h-10 rounded-full bg-white/[0.06] border border-white/10 overflow-hidden flex-shrink-0">
@@ -2121,12 +2162,35 @@ function ExecMemberCard({ member, onEdit, onDelete }: { member: ExecMember; onEd
         <p className="text-white/40 truncate" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>{member.role.name} · {member.team.name}</p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        <button onClick={onEdit} className="p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 hover:text-white transition-all cursor-pointer">
+        <button onClick={onEdit} disabled={isDeleting} className="p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 hover:text-white transition-all cursor-pointer disabled:opacity-40">
           <Edit3 className="w-4 h-4" />
         </button>
-        <button onClick={onDelete} className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-all cursor-pointer">
-          <Trash2 className="w-4 h-4" />
-        </button>
+        {confirmDelete ? (
+          <>
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+              {isDeleting ? 'Deleting' : 'Confirm'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              disabled={isDeleting}
+              className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >Cancel</button>
+          </>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="p-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -2401,6 +2465,14 @@ function FaqManager({
 }
 
 function FaqEntryRow({ faq, onEdit, onDelete }: { faq: FaqItem; onEdit: () => void; onDelete: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try { await onDelete(); } finally { setIsDeleting(false); }
+  };
+
   return (
     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4 hover:bg-white/[0.05] transition-all">
       <div className="flex items-start justify-between gap-4">
@@ -2412,12 +2484,32 @@ function FaqEntryRow({ faq, onEdit, onDelete }: { faq: FaqItem; onEdit: () => vo
           <p className="text-white/40 line-clamp-2" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{faq.answer}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button onClick={onEdit} className="p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 hover:text-white transition-all cursor-pointer">
+          <button onClick={onEdit} disabled={isDeleting} className="p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 hover:text-white transition-all cursor-pointer disabled:opacity-40">
             <Edit3 className="w-4 h-4" />
           </button>
-          <button onClick={onDelete} className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-all cursor-pointer">
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {confirmDelete ? (
+            <>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >
+                {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                {isDeleting ? 'Deleting' : 'Confirm'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                disabled={isDeleting}
+                className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/40 hover:text-white/70 transition-all cursor-pointer disabled:opacity-50"
+                style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+              >Cancel</button>
+            </>
+          ) : (
+            <button onClick={() => setConfirmDelete(true)} className="p-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 transition-all cursor-pointer">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>

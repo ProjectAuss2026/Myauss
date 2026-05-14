@@ -197,8 +197,8 @@ export async function deleteExecutive(req, res) {
     const existing = await prisma.executive.findUnique({ where: { id } });
     if (!existing) return sendError(res, 404, 'NOT_FOUND', 'Executive not found.');
 
-    await prisma.executive.update({ where: { id }, data: { isActive: false } });
-    return res.status(200).json({ data: { id, isActive: false } });
+    await prisma.executive.delete({ where: { id } });
+    return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
     console.error('[deleteExecutive] error:', err);
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete executive.');

@@ -115,8 +115,8 @@ export async function deleteFaq(req, res) {
       return sendError(res, 404, 'NOT_FOUND', 'FAQ entry not found.');
     }
 
-    await prisma.faq.update({ where: { id }, data: { isActive: false } });
-    return res.status(200).json({ data: { id, isActive: false } });
+    await prisma.faq.delete({ where: { id } });
+    return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
     console.error('[deleteFaq] error:', err);
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete FAQ entry.');
