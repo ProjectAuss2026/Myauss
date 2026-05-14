@@ -4,7 +4,7 @@ function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
 }
 
-const SIMPLE_URL_RE = /^https?:\/\/.+/i;
+const SIMPLE_URL_RE = /^(https?:\/\/.+|data:image\/.+;base64,)/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ── Public endpoints ──

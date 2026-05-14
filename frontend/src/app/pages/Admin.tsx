@@ -2219,6 +2219,234 @@ function ExecMemberCard({ member, onEdit, onDelete }: { member: ExecMember; onEd
   );
 }
 
+// ── Circle image cropper (URL input / file browse + pan/zoom crop preview) ──
+function CircleImageCropper({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const C = 260; // container px
+  const R = 110; // circle crop radius px
+  const OUT = 256; // output canvas px
+
+  type Stage = 'pick' | 'crop' | 'done';
+  const [stage, setStage] = useState<Stage>(value ? 'done' : 'pick');
+  const [inputUrl, setInputUrl] = useState('');
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
+  const [imgNatural, setImgNatural] = useState({ w: 0, h: 0 });
+  const [loadErr, setLoadErr] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ mx: 0, my: 0, ox: 0, oy: 0 });
+
+  // Non-passive wheel listener (React onWheel is passive in React 17+)
+  useEffect(() => {
+    const el = cropContainerRef.current;
+    if (!el || stage !== 'crop') return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setScale(s => Math.max(0.1, Math.min(15, s * (e.deltaY > 0 ? 0.92 : 1.08))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [stage]);
+
+  const loadSrc = (src: string) => {
+    setCropSrc(src);
+    setOffset({ x: 0, y: 0 });
+    setScale(1);
+    setImgNatural({ w: 0, h: 0 });
+    setLoadErr(false);
+    setStage('crop');
+  };
+
+  const handleImgLoad = () => {
+    const img = imgRef.current;
+    if (!img) return;
+    setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    const minDim = Math.min(img.naturalWidth, img.naturalHeight);
+    setScale(Math.max(0.2, (R * 2.2) / minDim));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    dragStartRef.current = { mx: e.clientX, my: e.clientY, ox: offset.x, oy: offset.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    const { mx, my, ox, oy } = dragStartRef.current;
+    setOffset({ x: ox + e.clientX - mx, y: oy + e.clientY - my });
+  };
+
+  const stopDrag = () => { isDraggingRef.current = false; setIsDragging(false); };
+
+  const confirmCrop = () => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img || imgNatural.w === 0 || loadErr) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width = OUT;
+    canvas.height = OUT;
+    // Map circle crop region to image pixel coords
+    const sx = (-R - offset.x) / scale + imgNatural.w / 2;
+    const sy = (-R - offset.y) / scale + imgNatural.h / 2;
+    const sw = (R * 2) / scale;
+    ctx.beginPath();
+    ctx.arc(OUT / 2, OUT / 2, OUT / 2, 0, Math.PI * 2);
+    ctx.clip();
+    try {
+      ctx.drawImage(img, sx, sy, sw, sw, 0, 0, OUT, OUT);
+      onChange(canvas.toDataURL('image/jpeg', 0.92));
+    } catch {
+      onChange(cropSrc!); // CORS-tainted: fall back to raw URL
+    }
+    setStage('done');
+  };
+
+  if (stage === 'done') return (
+    <div className="flex items-center gap-4">
+      <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-white/[0.05] border-2 border-[#eb7524]/30">
+        <img src={value} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      </div>
+      <button type="button" onClick={() => { setInputUrl(''); setStage('pick'); }}
+        className="px-4 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06] hover:text-white transition-all cursor-pointer"
+        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+        Change Image
+      </button>
+    </div>
+  );
+
+  if (stage === 'pick') return (
+    <div className="space-y-3">
+      {value && (
+        <button type="button" onClick={() => setStage('done')}
+          className="text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+          ← Keep current image
+        </button>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={inputUrl}
+          onChange={(e) => setInputUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (inputUrl.trim()) loadSrc(inputUrl.trim()); } }}
+          placeholder="Paste image URL..."
+          className={inputCls + ' flex-1'}
+          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+        />
+        <button type="button" onClick={() => inputUrl.trim() && loadSrc(inputUrl.trim())} disabled={!inputUrl.trim()}
+          className="px-4 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-40 flex-shrink-0 font-semibold"
+          style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif' }}>
+          Load
+        </button>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-white/[0.06]" />
+        <span className="text-white/25" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>or</span>
+        <div className="flex-1 h-px bg-white/[0.06]" />
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => loadSrc(ev.target?.result as string);
+        reader.readAsDataURL(file);
+        if (fileRef.current) fileRef.current.value = '';
+      }} />
+      <button type="button" onClick={() => fileRef.current?.click()}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white transition-all cursor-pointer"
+        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+        <Camera className="w-4 h-4" />
+        Browse from computer
+      </button>
+    </div>
+  );
+
+  // stage === 'crop'
+  return (
+    <div className="space-y-3">
+      <p className="text-center text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+        Drag to pan · Scroll to zoom · Position photo inside the circle
+      </p>
+      <div className="flex justify-center">
+        <div
+          ref={cropContainerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={stopDrag}
+          onMouseLeave={stopDrag}
+          style={{
+            width: C, height: C, position: 'relative', overflow: 'hidden', borderRadius: 12,
+            background: '#0d0d0d', cursor: isDragging ? 'grabbing' : 'grab', userSelect: 'none',
+          }}
+        >
+          {cropSrc && (
+            <img
+              ref={imgRef}
+              src={cropSrc}
+              alt=""
+              draggable={false}
+              onLoad={handleImgLoad}
+              onError={() => setLoadErr(true)}
+              style={{
+                position: 'absolute', top: '50%', left: '50%',
+                maxWidth: 'none', maxHeight: 'none', pointerEvents: 'none',
+                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+                transformOrigin: '50% 50%',
+              }}
+            />
+          )}
+          {/* Dark vignette with circle cutout */}
+          <div style={{
+            position: 'absolute', inset: 0, pointerEvents: 'none',
+            background: `radial-gradient(circle ${R}px at center, transparent ${R}px, rgba(0,0,0,0.75) ${R}px)`,
+          }} />
+          {/* Orange circle guide border */}
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%',
+            width: R * 2, height: R * 2, borderRadius: '50%',
+            transform: 'translate(-50%, -50%)',
+            border: '1.5px solid rgba(235,117,36,0.55)', pointerEvents: 'none',
+          }} />
+          {loadErr && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <p className="text-red-400 text-center px-6" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                Couldn't load image.<br />Check the URL and try again.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+      {/* Zoom controls */}
+      <div className="flex items-center justify-center gap-3">
+        <button type="button" onClick={() => setScale(s => Math.max(0.1, s * 0.85))}
+          className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.10] transition-all cursor-pointer flex items-center justify-center font-medium leading-none"
+          style={{ fontSize: '20px' }}>−</button>
+        <span className="text-white/30 w-12 text-center" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>{Math.round(scale * 100)}%</span>
+        <button type="button" onClick={() => setScale(s => Math.min(15, s * 1.15))}
+          className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.10] transition-all cursor-pointer flex items-center justify-center font-medium leading-none"
+          style={{ fontSize: '20px' }}>+</button>
+      </div>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setStage('pick')}
+          className="flex-1 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white/50 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer"
+          style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>← Back</button>
+        <button type="button" onClick={confirmCrop} disabled={imgNatural.w === 0 || loadErr}
+          className="flex-1 py-2 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed font-semibold"
+          style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif' }}>Use this crop</button>
+      </div>
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+    </div>
+  );
+}
+
 function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
   initial: ExecMember | null;
   execRoles: ExecRoleItem[];
@@ -2296,8 +2524,8 @@ function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
           />
         </div>
         <div className="md:col-span-2">
-          <label className="block text-white/50 mb-1.5" style={labelStyle}>Image URL</label>
-          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://..." className={inputCls} />
+          <label className="block text-white/50 mb-1.5" style={labelStyle}>Profile Image</label>
+          <CircleImageCropper value={imageUrl} onChange={setImageUrl} />
         </div>
         <div className="md:col-span-2">
           <label className="block text-white/50 mb-1.5" style={labelStyle}>Bio (max 300 chars)</label>
