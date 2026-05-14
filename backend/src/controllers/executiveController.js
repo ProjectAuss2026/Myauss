@@ -9,7 +9,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ── Public endpoints ──
 
-// GET /api/executives — active, grouped by team (team.displayOrder ASC → roleId ASC → createdAt ASC)
+// GET /api/executives — active, grouped by team (team.displayOrder ASC → role.displayOrder ASC → createdAt ASC)
 export async function getExecutives(_req, res) {
   try {
     const executives = await prisma.executive.findMany({
@@ -18,7 +18,7 @@ export async function getExecutives(_req, res) {
         role: { select: { id: true, name: true, displayOrder: true } },
         team: { select: { id: true, name: true, displayOrder: true } },
       },
-      orderBy: [{ team: { displayOrder: 'asc' } }, { roleId: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ team: { displayOrder: 'asc' } }, { role: { displayOrder: 'asc' } }, { createdAt: 'asc' }],
     });
 
     // Group by team
@@ -56,7 +56,7 @@ export async function getAdminExecutives(_req, res) {
         role: { select: { id: true, name: true, displayOrder: true } },
         team: { select: { id: true, name: true, displayOrder: true } },
       },
-      orderBy: [{ team: { displayOrder: 'asc' } }, { roleId: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ team: { displayOrder: 'asc' } }, { role: { displayOrder: 'asc' } }, { createdAt: 'asc' }],
     });
     return res.status(200).json({ data: executives });
   } catch (err) {
@@ -208,7 +208,7 @@ export async function deleteExecutive(req, res) {
 
 export async function getExecRoles(_req, res) {
   try {
-    const roles = await prisma.execRole.findMany({ orderBy: { displayOrder: 'asc' } });
+    const roles = await prisma.execRole.findMany({ orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }] });
     return res.status(200).json({ data: roles });
   } catch (err) {
     console.error('[getExecRoles] error:', err);
@@ -275,7 +275,7 @@ export async function updateExecRole(req, res) {
 
 export async function getExecTeams(_req, res) {
   try {
-    const teams = await prisma.execTeam.findMany({ orderBy: { displayOrder: 'asc' } });
+    const teams = await prisma.execTeam.findMany({ orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }] });
     return res.status(200).json({ data: teams });
   } catch (err) {
     console.error('[getExecTeams] error:', err);

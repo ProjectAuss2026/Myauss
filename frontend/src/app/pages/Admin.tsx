@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -98,6 +98,31 @@ const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq'];
 const UNASSIGNED_TEAM: ExecTeamItem = { id: -1, name: '⚠ Unassigned — reassign or remove', displayOrder: Infinity };
 
 // ── Exec grouping helper ──
+// ── FLIP animation helpers ──
+function captureFlip(containerEl: HTMLElement | null): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!containerEl) return map;
+  (Array.from(containerEl.children) as HTMLElement[]).forEach((el) => {
+    if (el.dataset.flipId) map.set(el.dataset.flipId, el.getBoundingClientRect().top);
+  });
+  return map;
+}
+function applyFlip(containerEl: HTMLElement | null, snapshot: Map<string, number>) {
+  if (!containerEl || snapshot.size === 0) return;
+  (Array.from(containerEl.children) as HTMLElement[]).forEach((el) => {
+    const prevTop = snapshot.get(el.dataset.flipId ?? '');
+    if (prevTop === undefined) return;
+    const delta = prevTop - el.getBoundingClientRect().top;
+    if (Math.abs(delta) < 1) return;
+    el.style.transform = `translateY(${delta}px)`;
+    el.style.transition = 'none';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.style.transition = 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)';
+      el.style.transform = '';
+    }));
+  });
+}
+
 function groupExecs(executives: ExecMember[]): ExecGroup[] {
   const teamMap = new Map<number, ExecGroup>();
   for (const exec of executives) {
@@ -107,8 +132,16 @@ function groupExecs(executives: ExecMember[]): ExecGroup[] {
     }
     teamMap.get(key)!.members.push(exec);
   }
-  // Sort: unassigned group last
-  return Array.from(teamMap.values()).sort((a, b) => {
+  const groups = Array.from(teamMap.values());
+  // Sort members within each group by role displayOrder, then role id
+  for (const g of groups) {
+    g.members.sort((a, b) =>
+      (a.role?.displayOrder ?? 9999) - (b.role?.displayOrder ?? 9999) ||
+      (a.role?.id ?? 9999) - (b.role?.id ?? 9999)
+    );
+  }
+  // Sort groups: unassigned last, then by team displayOrder
+  return groups.sort((a, b) => {
     if (a.team.id === -1) return 1;
     if (b.team.id === -1) return -1;
     return a.team.displayOrder - b.team.displayOrder;
@@ -648,6 +681,17 @@ export function Admin() {
     }
   };
 
+  // Re-sort exec member cards client-side when role display order changes (no fetch needed)
+  const resortExecGroupsByRoles = (newRoles: ExecRoleItem[]) => {
+    const orderMap = new Map(newRoles.map(r => [r.id, r.displayOrder]));
+    setExecGroups(prev => prev.map(g => ({
+      ...g,
+      members: [...g.members].sort((a, b) =>
+        (orderMap.get(a.role?.id ?? -1) ?? 9999) - (orderMap.get(b.role?.id ?? -1) ?? 9999)
+      ),
+    })));
+  };
+
   const saveExec = async (exec: Partial<ExecMember> & { id: number }) => {
     const isEdit = exec.id > 0;
     try {
@@ -1170,6 +1214,7 @@ export function Admin() {
               execLoading={execLoading}
               execError={execError}
               refreshExecs={refreshExecs}
+              onRolesReorder={resortExecGroupsByRoles}
             />
           )}
           {tab === 'faq' && (
@@ -2488,7 +2533,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
 // ═══════════════════════════════════════════════
 
 function ExecManager({
-  execGroups, execRoles, execTeams, onSave, onDelete, editing, setEditing, showForm, setShowForm, execLoading, execError, refreshExecs,
+  execGroups, execRoles, execTeams, onSave, onDelete, editing, setEditing, showForm, setShowForm, execLoading, execError, refreshExecs, onRolesReorder,
 }: {
   execGroups: ExecGroup[];
   execRoles: ExecRoleItem[];
@@ -2502,8 +2547,32 @@ function ExecManager({
   execLoading: boolean;
   execError: string | null;
   refreshExecs: () => Promise<void>;
+  onRolesReorder: (roles: ExecRoleItem[]) => void;
 }) {
   const allMembers = execGroups.flatMap((g) => g.members);
+
+  // FLIP animation for member card reordering
+  const memberPositions = useRef<Map<string, number>>(new Map());
+  useLayoutEffect(() => {
+    document.querySelectorAll<HTMLElement>('[data-flip-member]').forEach((el) => {
+      const prevTop = memberPositions.current.get(el.dataset.flipMember!);
+      if (prevTop === undefined) return;
+      const delta = prevTop - el.getBoundingClientRect().top;
+      if (Math.abs(delta) < 1) return;
+      el.style.transform = `translateY(${delta}px)`;
+      el.style.transition = 'none';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        el.style.transition = 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)';
+        el.style.transform = '';
+      }));
+    });
+  }, [execGroups]);
+  useEffect(() => {
+    memberPositions.current.clear();
+    document.querySelectorAll<HTMLElement>('[data-flip-member]').forEach((el) => {
+      memberPositions.current.set(el.dataset.flipMember!, el.getBoundingClientRect().top);
+    });
+  }, [execGroups]);
 
   return (
     <div className="space-y-8">
@@ -2544,12 +2613,13 @@ function ExecManager({
               <h3 className="text-white/60 mb-3" style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{group.team.name}</h3>
               <div className="grid gap-3">
                 {group.members.map((member) => (
-                  <ExecMemberCard
-                    key={member.id}
-                    member={member}
-                    onEdit={() => { setEditing(member); setShowForm(true); }}
-                    onDelete={() => onDelete(member.id)}
-                  />
+                  <div key={member.id} data-flip-member={String(member.id)}>
+                    <ExecMemberCard
+                      member={member}
+                      onEdit={() => { setEditing(member); setShowForm(true); }}
+                      onDelete={() => onDelete(member.id)}
+                    />
+                  </div>
                 ))}
               </div>
             </div>
@@ -2571,7 +2641,7 @@ function ExecManager({
         </div>
       )}
 
-      <ExecRoleTeamManager execRoles={execRoles} execTeams={execTeams} onRefresh={refreshExecs} />
+      <ExecRoleTeamManager execRoles={execRoles} execTeams={execTeams} onRefresh={refreshExecs} onRolesReorder={onRolesReorder} />
     </div>
   );
 }
@@ -3030,10 +3100,11 @@ function ExecMemberForm({ initial, execRoles, execTeams, onSave, onCancel }: {
   );
 }
 
-function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
+function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }: {
   execRoles: ExecRoleItem[];
   execTeams: ExecTeamItem[];
   onRefresh: () => Promise<void>;
+  onRolesReorder: (roles: ExecRoleItem[]) => void;
 }) {
   const [newRoleName, setNewRoleName] = useState('');
   const [newTeamName, setNewTeamName] = useState('');
@@ -3047,25 +3118,41 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
   const dragSourceIndex = useRef<number | null>(null);
   const dragSourceList = useRef<'roles' | 'teams' | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  // FLIP animation refs
+  const rolesListRef = useRef<HTMLDivElement>(null);
+  const teamsListRef = useRef<HTMLDivElement>(null);
+  const flipSnapshot = useRef<Map<string, number>>(new Map());
+  const pendingFlip = useRef<'roles' | 'teams' | null>(null);
 
-  // Sync from props only when the set of IDs changes (role added/deleted).
-  // Preserve local displayOrder on re-renders to prevent drag order being overwritten.
+  useLayoutEffect(() => {
+    const which = pendingFlip.current;
+    if (!which) return;
+    pendingFlip.current = null;
+    applyFlip(which === 'roles' ? rolesListRef.current : teamsListRef.current, flipSnapshot.current);
+    flipSnapshot.current.clear();
+  });
+
+  const byDisplayOrder = <T extends { id: number; displayOrder: number }>(arr: T[]) =>
+    [...arr].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+
+  // Sync from props: full reset on add/delete, preserve local displayOrder on rename/reorder.
+  // Always sort by displayOrder so the rendered list order matches stored priority.
   useEffect(() => {
     setLocalRoles(prev => {
       const newIds = execRoles.map(r => r.id).sort().join(',');
       const prevIds = prev.map(r => r.id).sort().join(',');
-      if (newIds !== prevIds) return execRoles; // add/delete → full reset
+      if (newIds !== prevIds) return byDisplayOrder(execRoles);
       const newMap = new Map(execRoles.map(r => [r.id, r]));
-      return prev.map(r => { const u = newMap.get(r.id); return u ? { ...u, displayOrder: r.displayOrder } : r; });
+      return byDisplayOrder(prev.map(r => { const u = newMap.get(r.id); return u ? { ...u, displayOrder: r.displayOrder } : r; }));
     });
   }, [execRoles]);
   useEffect(() => {
     setLocalTeams(prev => {
       const newIds = execTeams.map(t => t.id).sort().join(',');
       const prevIds = prev.map(t => t.id).sort().join(',');
-      if (newIds !== prevIds) return execTeams;
+      if (newIds !== prevIds) return byDisplayOrder(execTeams);
       const newMap = new Map(execTeams.map(t => [t.id, t]));
-      return prev.map(t => { const u = newMap.get(t.id); return u ? { ...u, displayOrder: t.displayOrder } : t; });
+      return byDisplayOrder(prev.map(t => { const u = newMap.get(t.id); return u ? { ...u, displayOrder: t.displayOrder } : t; }));
     });
   }, [execTeams]);
 
@@ -3160,7 +3247,10 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
     if (list === 'roles') {
       const prevRoles = localRoles;
       const reordered = reorder(localRoles);
+      flipSnapshot.current = captureFlip(rolesListRef.current);
+      pendingFlip.current = 'roles';
       setLocalRoles(reordered); // optimistic update — this IS the source of truth
+      onRolesReorder(reordered); // live-resort exec member cards without a fetch
       const res = await fetch('/api/admin/exec-roles/reorder', {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -3170,6 +3260,8 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
     } else {
       const prevTeams = localTeams;
       const reordered = reorder(localTeams);
+      flipSnapshot.current = captureFlip(teamsListRef.current);
+      pendingFlip.current = 'teams';
       setLocalTeams(reordered); // optimistic update
       const res = await fetch('/api/admin/exec-teams/reorder', {
         method: 'PATCH',
@@ -3190,13 +3282,13 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
         </div>
       )}
       {([
-        { label: 'Roles', items: localRoles, newName: newRoleName, setNewName: setNewRoleName, onAdd: addRole, onDelete: deleteRole, list: 'roles' as const },
-        { label: 'Teams', items: localTeams, newName: newTeamName, setNewName: setNewTeamName, onAdd: addTeam, onDelete: deleteTeam, list: 'teams' as const },
-      ]).map(({ label, items, newName, setNewName, onAdd, onDelete, list }) => (
+        { label: 'Roles', items: localRoles, newName: newRoleName, setNewName: setNewRoleName, onAdd: addRole, onDelete: deleteRole, list: 'roles' as const, listRef: rolesListRef },
+        { label: 'Teams', items: localTeams, newName: newTeamName, setNewName: setNewTeamName, onAdd: addTeam, onDelete: deleteTeam, list: 'teams' as const, listRef: teamsListRef },
+      ]).map(({ label, items, newName, setNewName, onAdd, onDelete, list, listRef }) => (
         <div key={label} className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5">
           <h4 className="text-white/60 mb-1" style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</h4>
           <p className="text-white/20 mb-4" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>Drag to reorder priority</p>
-          <div className="space-y-2 mb-4">
+          <div ref={listRef} className="space-y-2 mb-4">
             {items.map((item, index) => {
               const overKey = `${list}-${index}`;
               const itemKey = `${list}-${item.id}`;
@@ -3205,6 +3297,7 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
               return (
                 <div
                   key={item.id}
+                  data-flip-id={String(item.id)}
                   draggable={!isEditing}
                   onDragStart={() => {
                     if (isEditing) return;
@@ -3222,7 +3315,7 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh }: {
                     dragSourceList.current = null;
                     setDragOverKey(null);
                   }}
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
                     isEditing
                       ? 'bg-white/[0.06] border border-[#eb7524]/40'
                       : isOver

@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Instagram, Mail, Loader2 } from 'lucide-react';
 
-interface ExecRole { id: number; name: string; }
-interface ExecTeam { id: number; name: string; }
+interface ExecRole { id: number; name: string; displayOrder: number; }
+interface ExecTeam { id: number; name: string; displayOrder: number; }
 interface ExecMember {
   id: number;
   name: string;
@@ -187,7 +187,19 @@ export function MeetTheExecs() {
     fetch('/api/executives')
       .then((r) => r.json())
       .then((payload) => {
-        if (Array.isArray(payload?.data)) setGroups(payload.data);
+        if (Array.isArray(payload?.data)) {
+          const sorted = (payload.data as TeamGroup[])
+            .sort((a, b) => (a.team.displayOrder ?? 0) - (b.team.displayOrder ?? 0))
+            .map((g) => ({
+              ...g,
+              members: [...g.members].sort(
+                (a, b) =>
+                  (a.role?.displayOrder ?? 9999) - (b.role?.displayOrder ?? 9999) ||
+                  (a.role?.id ?? 9999) - (b.role?.id ?? 9999)
+              ),
+            }));
+          setGroups(sorted);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
