@@ -4,8 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { Mail, Lock, User, ArrowRight, Eye, EyeOff, ShieldCheck, Users, ChevronLeft } from 'lucide-react';
 
-type AuthView = 'login' | 'register' | 'role-select';
-type RegisterRole = 'member' | 'executive';
+type AuthView = 'login' | 'register';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -32,7 +31,6 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
 
 export function Login() {
   const [view, setView] = useState<AuthView>('login');
-  const [role, setRole] = useState<RegisterRole>('member');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -47,7 +45,6 @@ export function Login() {
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
   const [regStudentId, setRegStudentId] = useState('');
-  const [regExecCode, setRegExecCode] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
@@ -99,10 +96,13 @@ export function Login() {
 
     setSubmitted(true);
     try {
-      const body: any = { email: regEmail, password: regPassword, role, firstName: regFirstName, lastName: regLastName, studentId: regStudentId };
-      if (role === 'executive') {
-        body.execCode = regExecCode;
-      }
+      const body = {
+        email: regEmail,
+        password: regPassword,
+        firstName: regFirstName,
+        lastName: regLastName,
+        studentId: regStudentId,
+      };
 
       const res = await fetch('/api/auth/register', {
         method: 'POST',
@@ -198,7 +198,7 @@ export function Login() {
               className="text-white/50 mb-8"
               style={{ fontSize: '16px', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' }}
             >
-              Sign in to access training schedules, events, and connect with Auckland's strongest community. New here? Register as a member or executive.
+              Sign in to access training schedules, events, and connect with Auckland's strongest community. New here? Create your account.
             </p>
 
             {/* Feature highlights */}
@@ -328,7 +328,7 @@ export function Login() {
                     <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
                       Don't have an account?{' '}
                       <button
-                        onClick={() => switchView('role-select')}
+                        onClick={() => switchView('register')}
                         className="text-[#eb7524] hover:text-[#eb7524]/80 transition-colors cursor-pointer"
                         style={{ fontWeight: 500 }}
                       >
@@ -339,99 +339,11 @@ export function Login() {
                 </>
               )}
 
-              {/* ROLE SELECT VIEW */}
-              {view === 'role-select' && (
-                <>
-                  <h2
-                    className="text-white mb-1"
-                    style={{ fontSize: '24px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                  >
-                    Join AUSS
-                  </h2>
-                  <p className="text-white/40 mb-6" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
-                    Choose how you'd like to register
-                  </p>
-
-                  <div className="space-y-4">
-                    {/* Member Card */}
-                    <button
-                      onClick={() => {
-                        setRole('member');
-                        switchView('register');
-                      }}
-                      className="w-full group cursor-pointer"
-                    >
-                      <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 text-left hover:border-[#eb7524]/30 hover:bg-[#eb7524]/[0.04] transition-all duration-300">
-                        <div className="flex items-start gap-4">
-                          <div className="w-12 h-12 bg-[#eb7524]/10 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-[#eb7524]/20 transition-colors">
-                            <Users className="w-6 h-6 text-[#eb7524]" />
-                          </div>
-                          <div className="flex-1">
-                            <h3
-                              className="text-white mb-1"
-                              style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                            >
-                              Club Member
-                            </h3>
-                            <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
-                              Join as a member to access training sessions, events, competitions, and our community channels.
-                            </p>
-                          </div>
-                          <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-[#eb7524] group-hover:translate-x-1 transition-all flex-shrink-0 mt-1" />
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Executive Card */}
-                    <button
-                      onClick={() => {
-                        setRole('executive');
-                        switchView('register');
-                      }}
-                      className="w-full group cursor-pointer"
-                    >
-                      <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 text-left hover:border-[#eb7524]/30 hover:bg-[#eb7524]/[0.04] transition-all duration-300">
-                        <div className="flex items-start gap-4">
-                          <div className="w-12 h-12 bg-[#eb7524]/10 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-[#eb7524]/20 transition-colors">
-                            <ShieldCheck className="w-6 h-6 text-[#eb7524]" />
-                          </div>
-                          <div className="flex-1">
-                            <h3
-                              className="text-white mb-1"
-                              style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                            >
-                              Executive
-                            </h3>
-                            <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
-                              Register as an exec with your invitation code. Manage events, members, and club operations.
-                            </p>
-                          </div>
-                          <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-[#eb7524] group-hover:translate-x-1 transition-all flex-shrink-0 mt-1" />
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-
-                  <div className="mt-6 pt-6 border-t border-white/[0.06] text-center">
-                    <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
-                      Already have an account?{' '}
-                      <button
-                        onClick={() => switchView('login')}
-                        className="text-[#eb7524] hover:text-[#eb7524]/80 transition-colors cursor-pointer"
-                        style={{ fontWeight: 500 }}
-                      >
-                        Sign In
-                      </button>
-                    </p>
-                  </div>
-                </>
-              )}
-
               {/* REGISTER VIEW */}
               {view === 'register' && (
                 <>
                   <button
-                    onClick={() => switchView('role-select')}
+                    onClick={() => switchView('login')}
                     className="flex items-center gap-1 text-white/40 hover:text-white/70 transition-colors mb-4 cursor-pointer"
                     style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
                   >
@@ -441,21 +353,17 @@ export function Login() {
 
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 bg-[#eb7524]/10 rounded-xl flex items-center justify-center">
-                      {role === 'member' ? (
-                        <Users className="w-5 h-5 text-[#eb7524]" />
-                      ) : (
-                        <ShieldCheck className="w-5 h-5 text-[#eb7524]" />
-                      )}
+                      <Users className="w-5 h-5 text-[#eb7524]" />
                     </div>
                     <div>
                       <h2
                         className="text-white"
                         style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif', lineHeight: 1.2 }}
                       >
-                        {role === 'member' ? 'Member Registration' : 'Executive Registration'}
+                        Member Registration
                       </h2>
                       <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        {role === 'member' ? 'Create your club membership' : 'Register with your exec invite code'}
+                        Create your club membership account
                       </p>
                     </div>
                   </div>
@@ -537,26 +445,6 @@ export function Login() {
                       />
                     </div>
 
-                    {role === 'executive' && (
-                      <div>
-                        <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                          Executive Invitation Code
-                        </label>
-                        <div className="relative">
-                          <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-                          <input
-                            type="text"
-                            value={regExecCode}
-                            onChange={(e) => setRegExecCode(e.target.value)}
-                            placeholder="Enter your invite code"
-                            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
-                            style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                            required
-                          />
-                        </div>
-                      </div>
-                    )}
-
                     <div>
                       <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
                         Password
@@ -623,7 +511,7 @@ export function Login() {
                       className="w-full bg-[#eb7524] text-white py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4691f] transition-all hover:shadow-[0_4px_20px_rgba(235,117,36,0.4)] active:scale-[0.98] disabled:opacity-60 cursor-pointer mt-2"
                       style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
                     >
-                      {submitted ? 'Creating Account...' : `Register as ${role === 'member' ? 'Member' : 'Executive'}`}
+                      {submitted ? 'Creating Account...' : 'Create Account'}
                       {!submitted && <ArrowRight className="w-4 h-4" />}
                     </button>
                   </form>

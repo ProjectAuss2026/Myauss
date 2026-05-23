@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut, Hash, User, Settings } from 'lucide-react';
+import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut, Hash, User, Settings, Loader2 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -28,10 +28,12 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
 }
 
 export function Profile() {
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, setUserFromToken } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
+  const [inviteToken, setInviteToken] = useState('');
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
 
   useEffect(() => {
@@ -44,8 +46,8 @@ export function Profile() {
     requestAnimationFrame(() => setMounted(true));
   }, []);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     showToast('You have signed out', 'info');
     navigate('/');
   };
@@ -58,11 +60,51 @@ export function Profile() {
     );
   }
 
-  const isExec = user.role === 'ADMIN';
-  const roleLabel = isExec ? 'Executive' : 'Member';
+  const hasAdminAccess = user.role === 'ADMIN' || user.role === 'OWNER';
+  const roleLabel = user.role === 'OWNER' ? 'Owner' : user.role === 'ADMIN' ? 'Executive' : 'Member';
   const fullName = user.firstName && user.lastName
     ? `${user.firstName} ${user.lastName}`
     : user.email;
+
+  const handleAcceptInvite = async () => {
+    if (!inviteToken.trim()) {
+      showToast('Please enter an invitation token', 'error');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      showToast('Please sign in again and retry', 'error');
+      return;
+    }
+
+    setAcceptingInvite(true);
+    try {
+      const res = await fetch('/api/auth/admin/invitations/accept', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify({ token: inviteToken.trim() }),
+      });
+
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload?.error || 'Failed to accept invitation');
+      }
+
+      setUserFromToken(payload.token, payload.user);
+      setInviteToken('');
+      showToast('Executive access granted', 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to accept invitation';
+      showToast(message, 'error');
+    } finally {
+      setAcceptingInvite(false);
+    }
+  };
 
   return (
     <div className="bg-black min-h-screen relative overflow-hidden">
@@ -106,7 +148,7 @@ export function Profile() {
               <div className="h-24 bg-gradient-to-r from-[#eb7524]/20 via-[#eb7524]/10 to-transparent relative">
                 <div className="absolute -bottom-8 left-8">
                   <div className="w-16 h-16 rounded-2xl bg-[#1a1a1a] border-2 border-[#eb7524]/30 flex items-center justify-center shadow-lg">
-                    {isExec ? (
+                    {hasAdminAccess ? (
                       <Shield className="w-7 h-7 text-[#eb7524]" />
                     ) : (
                       <Users className="w-7 h-7 text-[#eb7524]" />
@@ -126,13 +168,13 @@ export function Profile() {
                   </h1>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      isExec
+                      hasAdminAccess
                         ? 'bg-[#eb7524]/15 text-[#eb7524] border border-[#eb7524]/25'
                         : 'bg-white/5 text-white/50 border border-white/10'
                     }`}
                     style={{ fontFamily: 'Inter, sans-serif' }}
                   >
-                    {isExec ? 'EXEC' : 'MEMBER'}
+                    {user.role === 'OWNER' ? 'OWNER' : hasAdminAccess ? 'EXEC' : 'MEMBER'}
                   </span>
                 </div>
                 <p className="text-white/40 mb-8" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
@@ -181,7 +223,7 @@ export function Profile() {
 
                   <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
                     <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
-                      {isExec ? (
+                      {hasAdminAccess ? (
                         <Shield className="w-5 h-5 text-[#eb7524]" />
                       ) : (
                         <Users className="w-5 h-5 text-[#eb7524]" />
@@ -208,8 +250,37 @@ export function Profile() {
                   </div>
                 </div>
 
+                {!hasAdminAccess && (
+                  <div className="mt-6 p-4 rounded-xl bg-[#eb7524]/8 border border-[#eb7524]/20">
+                    <p className="text-white mb-2" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}>
+                      Executive invitation
+                    </p>
+                    <p className="text-white/50 mb-3" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                      If an owner invited you to become executive, paste your invitation token below.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        value={inviteToken}
+                        onChange={(e) => setInviteToken(e.target.value)}
+                        placeholder="Paste invitation token"
+                        className="flex-1 bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder:text-white/25 focus:outline-none focus:border-[#eb7524]/40"
+                        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAcceptInvite}
+                        disabled={acceptingInvite}
+                        className="px-4 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-60"
+                        style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}
+                      >
+                        {acceptingInvite ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Accept'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Sign out */}
-                {isExec && (
+                {hasAdminAccess && (
                   <Link
                     to="/manage"
                     className="w-full mt-6 flex items-center justify-center gap-2 py-3 rounded-xl bg-[#eb7524]/10 border border-[#eb7524]/20 text-[#eb7524] hover:bg-[#eb7524]/15 hover:border-[#eb7524]/30 transition-all"
@@ -221,7 +292,7 @@ export function Profile() {
                 )}
                 <button
                   onClick={handleLogout}
-                  className={`w-full ${isExec ? 'mt-3' : 'mt-6'} flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 text-white/60 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all cursor-pointer`}
+                  className={`w-full ${hasAdminAccess ? 'mt-3' : 'mt-6'} flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 text-white/60 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all cursor-pointer`}
                   style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}
                 >
                   <LogOut className="w-4 h-4" />

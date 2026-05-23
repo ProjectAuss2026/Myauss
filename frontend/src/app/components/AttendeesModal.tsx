@@ -3,6 +3,7 @@ import {
   X, Loader2, AlertCircle, Users, Download, Trash2, Mail, Calendar, RefreshCw,
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
+import { fetchWithAuth } from '../lib/authFetch';
 
 interface RsvpRow {
   id: number;
@@ -39,11 +40,6 @@ function formatRegDate(iso: string): string {
   });
 }
 
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function normaliseRsvp(r: RawRsvp): RsvpRow {
   return {
     id: r.id,
@@ -67,9 +63,7 @@ export function AttendeesModal({ activityId, activityTitle, onClose }: Attendees
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`/api/activities/${activityId}/rsvps`, {
-        headers: authHeaders(),
-      });
+      const res = await fetchWithAuth(`/api/activities/${activityId}/rsvps`);
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           throw new Error('You do not have permission to view attendees.');
@@ -107,9 +101,7 @@ export function AttendeesModal({ activityId, activityTitle, onClose }: Attendees
   const handleExport = async () => {
     try {
       setExporting(true);
-      const res = await fetch(`/api/activities/${activityId}/rsvps/export`, {
-        headers: authHeaders(),
-      });
+      const res = await fetchWithAuth(`/api/activities/${activityId}/rsvps/export`);
       if (!res.ok) {
         throw new Error(`Export failed (${res.status})`);
       }
@@ -135,9 +127,8 @@ export function AttendeesModal({ activityId, activityTitle, onClose }: Attendees
     const rsvpId = pendingDeleteId;
     try {
       setDeletingId(rsvpId);
-      const res = await fetch(`/api/activities/${activityId}/rsvps/${rsvpId}`, {
+      const res = await fetchWithAuth(`/api/activities/${activityId}/rsvps/${rsvpId}`, {
         method: 'DELETE',
-        headers: authHeaders(),
       });
       if (!res.ok && res.status !== 204) {
         if (res.status === 404) throw new Error('Attendee no longer exists.');

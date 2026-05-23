@@ -1,4 +1,5 @@
 import prisma from '../src/prismaClient.js';
+import bcrypt from 'bcrypt';
 
 async function main() {
   const sponsorshipPage = await prisma.sponsorshipPage.upsert({
@@ -285,6 +286,44 @@ async function main() {
         },
       ],
     });
+  }
+
+  // ── Optional secure owner bootstrap ──────────────────────────────────────
+  const bootstrapEmail = String(process.env.OWNER_BOOTSTRAP_EMAIL || '').trim().toLowerCase();
+  const bootstrapPassword = String(process.env.OWNER_BOOTSTRAP_PASSWORD || '').trim();
+
+  if (bootstrapEmail && bootstrapPassword) {
+    if (bootstrapPassword.length < 10) {
+      throw new Error('OWNER_BOOTSTRAP_PASSWORD must be at least 10 characters long.');
+    }
+
+    const passwordHash = await bcrypt.hash(bootstrapPassword, 10);
+    const existingOwner = await prisma.user.findUnique({ where: { email: bootstrapEmail } });
+
+    if (existingOwner) {
+      await prisma.user.update({
+        where: { email: bootstrapEmail },
+        data: {
+          passwordHash,
+          role: 'OWNER',
+          isVerified: true,
+          verificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+    } else {
+      await prisma.user.create({
+        data: {
+          email: bootstrapEmail,
+          passwordHash,
+          role: 'OWNER',
+          isVerified: true,
+          lastCodeSentAt: new Date(),
+          verificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+    }
+
+    console.log(`[seed] Bootstrapped OWNER account for ${bootstrapEmail}`);
   }
 }
 

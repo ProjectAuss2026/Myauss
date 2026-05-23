@@ -82,6 +82,22 @@ interface ExecMember {
 }
 interface ExecGroup { team: ExecTeamItem; members: ExecMember[]; }
 interface FaqItem { id: number; question: string; answer: string; isActive: boolean; }
+interface AccessUser {
+  id: string;
+  email: string;
+  role: 'USER' | 'ADMIN' | 'OWNER';
+  firstName: string | null;
+  lastName: string | null;
+  isVerified: boolean;
+  createdAt: string;
+}
+
+interface InviteeSuggestion {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+}
 
 // ── Default data ──
 const defaultSponsors: Sponsor[] = [];
@@ -91,8 +107,8 @@ const defaultActivities: Activity[] = [];
 
 const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
 
-type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'faq';
-const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq'];
+type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'faq' | 'access';
+const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq', 'access'];
 
 // Synthetic team for members whose role or team was deleted
 const UNASSIGNED_TEAM: ExecTeamItem = { id: -1, name: '⚠ Unassigned — reassign or remove', displayOrder: Infinity };
@@ -450,7 +466,21 @@ export function Admin() {
   const [faqLoading, setFaqLoading] = useState(false);
   const [faqError, setFaqError] = useState<string | null>(null);
 
+  // Access management (OWNER only)
+  const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteReason, setInviteReason] = useState('');
+  const [issuingInvite, setIssuingInvite] = useState(false);
+  const [searchingInvitees, setSearchingInvitees] = useState(false);
+  const [inviteSuggestions, setInviteSuggestions] = useState<InviteeSuggestion[]>([]);
+  const [selectedInvitee, setSelectedInvitee] = useState<InviteeSuggestion | null>(null);
+  const [inviteSearchMessage, setInviteSearchMessage] = useState<string | null>(null);
+  const [demotingUserId, setDemotingUserId] = useState<string | null>(null);
+
   const { showToast } = useToast();
+  const isOwner = user?.role === 'OWNER';
 
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, [])
 
@@ -460,7 +490,7 @@ export function Admin() {
     const fallback = `Request failed: ${response.status}`;
     try {
       const payload = await response.json();
-      return payload?.error?.message || payload?.message || fallback;
+      return (typeof payload?.error === 'string' ? payload.error : payload?.error?.message) || payload?.message || fallback;
     } catch (_error) {
       return fallback;
     }
@@ -482,6 +512,12 @@ export function Admin() {
       navigate('/', { replace: true });
     }
   }, [isLoading, isAuthenticated, isAdmin, navigate]);
+
+  useEffect(() => {
+    if (!isOwner && tab === 'access') {
+      handleTabChange('sponsors');
+    }
+  }, [isOwner, tab]);
 
   useEffect(() => {
     if (!isAdmin || !user) return;
@@ -678,6 +714,180 @@ export function Admin() {
     if (teamsRes.ok) {
       const p = await teamsRes.json();
       setExecTeams(Array.isArray(p?.data) ? p.data : []);
+    }
+  };
+
+  const loadAccessUsers = async () => {
+    if (!isOwner) return;
+    const token = getAuthToken();
+    if (!token) {
+      setAccessError('No authentication token found');
+      return;
+    }
+
+    try {
+      setAccessLoading(true);
+      setAccessError(null);
+      const res = await fetch('/api/auth/admin/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      const payload = await res.json();
+      setAccessUsers(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (err) {
+      setAccessError(err instanceof Error ? err.message : 'Failed to load users');
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOwner || !user) return;
+    loadAccessUsers();
+  }, [isOwner, user]);
+
+  useEffect(() => {
+    if (!isOwner) return;
+
+    const query = inviteEmail.trim().toLowerCase();
+    if (!query) {
+      setSearchingInvitees(false);
+      setInviteSuggestions([]);
+      setSelectedInvitee(null);
+      setInviteSearchMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+    const token = getAuthToken();
+    if (!token) {
+      setSearchingInvitees(false);
+      setInviteSuggestions([]);
+      setSelectedInvitee(null);
+      setInviteSearchMessage('No authentication token');
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      setSearchingInvitees(true);
+      try {
+        const res = await fetch(`/api/auth/admin/users/search?query=${encodeURIComponent(query)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          if (res.status === 404) {
+            if (cancelled) return;
+            setInviteSuggestions([]);
+            setSelectedInvitee(null);
+            setInviteSearchMessage('Invite search API is unavailable. Restart backend to load the latest auth routes.');
+            return;
+          }
+          const message = await getApiErrorMessage(res);
+          if (cancelled) return;
+          setInviteSuggestions([]);
+          setSelectedInvitee(null);
+          setInviteSearchMessage(message);
+          return;
+        }
+
+        const payload = await res.json();
+        const matches: InviteeSuggestion[] = Array.isArray(payload?.data) ? payload.data : [];
+        if (cancelled) return;
+        setInviteSuggestions(matches);
+        setInviteSearchMessage(matches.length === 0 ? 'No eligible user found for this email' : null);
+        const exactMatch = matches.find((candidate) => candidate.email === query) || null;
+        setSelectedInvitee((prev) => {
+          if (exactMatch) return exactMatch;
+          if (prev && matches.some((candidate) => candidate.id === prev.id)) return prev;
+          return null;
+        });
+      } catch {
+        if (cancelled) return;
+        setInviteSuggestions([]);
+        setSelectedInvitee(null);
+        setInviteSearchMessage('Failed to search users');
+      } finally {
+        if (!cancelled) setSearchingInvitees(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inviteEmail, isOwner]);
+
+  const promoteUserToAdmin = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) {
+      showToast('Member email is required', 'error');
+      return;
+    }
+
+    const selectedUser = selectedInvitee?.email === email
+      ? selectedInvitee
+      : inviteSuggestions.find((candidate) => candidate.email === email) || null;
+    if (!selectedUser) {
+      showToast('Select an eligible member from the dropdown', 'error');
+      return;
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+      showToast('No authentication token', 'error');
+      return;
+    }
+
+    setIssuingInvite(true);
+    try {
+      const res = await fetch(`/api/auth/admin/users/${selectedUser.id}/promote`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: inviteReason.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      setInviteEmail('');
+      setInviteReason('');
+      setInviteSuggestions([]);
+      setSelectedInvitee(null);
+      setInviteSearchMessage(null);
+      await loadAccessUsers();
+      showToast(`${selectedUser.email} promoted to admin`, 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to promote member';
+      showToast(message, 'error');
+    } finally {
+      setIssuingInvite(false);
+    }
+  };
+
+  const demoteAdminUser = async (targetUser: AccessUser) => {
+    if (!window.confirm(`Demote ${targetUser.email} to member?`)) return;
+
+    const token = getAuthToken();
+    if (!token) {
+      showToast('No authentication token', 'error');
+      return;
+    }
+
+    setDemotingUserId(targetUser.id);
+    try {
+      const res = await fetch(`/api/auth/admin/users/${targetUser.id}/demote`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Offboarded from executive/admin team' }),
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      showToast(`${targetUser.email} demoted to member`, 'success');
+      await loadAccessUsers();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to demote user';
+      showToast(message, 'error');
+    } finally {
+      setDemotingUserId(null);
     }
   };
 
@@ -1134,6 +1344,7 @@ export function Admin() {
               { key: 'media' as Tab, label: 'Photo Drive', icon: Camera },
               { key: 'execs' as Tab, label: 'Execs', icon: Users },
               { key: 'faq' as Tab, label: 'FAQ', icon: HelpCircle },
+              ...(isOwner ? [{ key: 'access' as Tab, label: 'Access', icon: Shield }] : []),
             ]).map((t) => {
               const Icon = t.icon;
               const active = tab === t.key;
@@ -1230,9 +1441,254 @@ export function Admin() {
               faqError={faqError}
             />
           )}
+          {tab === 'access' && isOwner && (
+            <AccessManager
+              users={accessUsers}
+              loading={accessLoading}
+              error={accessError}
+              inviteEmail={inviteEmail}
+              setInviteEmail={setInviteEmail}
+              inviteReason={inviteReason}
+              setInviteReason={setInviteReason}
+              issuingInvite={issuingInvite}
+              searchingInvitees={searchingInvitees}
+              inviteSuggestions={inviteSuggestions}
+              selectedInviteeId={selectedInvitee?.id ?? null}
+              selectedInviteeEmail={selectedInvitee?.email ?? null}
+              inviteSearchMessage={inviteSearchMessage}
+              onSelectInvitee={(candidate) => {
+                setSelectedInvitee(candidate);
+                setInviteEmail(candidate.email);
+                setInviteSuggestions([]);
+                setInviteSearchMessage(null);
+              }}
+              onPromoteUser={promoteUserToAdmin}
+              onRefreshUsers={loadAccessUsers}
+              onDemoteUser={demoteAdminUser}
+              demotingUserId={demotingUserId}
+              currentUserId={user?.id ?? null}
+            />
+          )}
         </div>
       </section>
 
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Access Manager
+// ═══════════════════════════════════════════════
+
+function AccessManager({
+  users,
+  loading,
+  error,
+  inviteEmail,
+  setInviteEmail,
+  inviteReason,
+  setInviteReason,
+  issuingInvite,
+  searchingInvitees,
+  inviteSuggestions,
+  selectedInviteeId,
+  selectedInviteeEmail,
+  inviteSearchMessage,
+  onSelectInvitee,
+  onPromoteUser,
+  onRefreshUsers,
+  onDemoteUser,
+  demotingUserId,
+  currentUserId,
+}: {
+  users: AccessUser[];
+  loading: boolean;
+  error: string | null;
+  inviteEmail: string;
+  setInviteEmail: (value: string) => void;
+  inviteReason: string;
+  setInviteReason: (value: string) => void;
+  issuingInvite: boolean;
+  searchingInvitees: boolean;
+  inviteSuggestions: InviteeSuggestion[];
+  selectedInviteeId: string | null;
+  selectedInviteeEmail: string | null;
+  inviteSearchMessage: string | null;
+  onSelectInvitee: (candidate: InviteeSuggestion) => void;
+  onPromoteUser: () => Promise<void> | void;
+  onRefreshUsers: () => Promise<void> | void;
+  onDemoteUser: (user: AccessUser) => Promise<void> | void;
+  demotingUserId: string | null;
+  currentUserId: string | null;
+}) {
+  const normalizedInviteEmail = inviteEmail.trim().toLowerCase();
+  const hasCommittedSelection = Boolean(
+    selectedInviteeEmail && selectedInviteeEmail.toLowerCase() === normalizedInviteEmail
+  );
+  const showInviteDropdown = !hasCommittedSelection && (
+    searchingInvitees || inviteSuggestions.length > 0 || Boolean(inviteSearchMessage)
+  );
+
+  return (
+    <div className="space-y-8">
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          Access Management
+        </h2>
+        <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+          Promote members to admin and manage privileged users.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <h3 className="text-white mb-4" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          Promote Member to Admin
+        </h3>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-white/60 mb-1.5" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              Member email
+            </label>
+            <div className="relative">
+              <input
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="invitee@aucklanduni.ac.nz"
+                className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 outline-none focus:border-[#eb7524]"
+                style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              />
+
+              {showInviteDropdown && (
+                <div className="absolute z-30 left-0 right-0 mt-2 rounded-xl border border-white/10 bg-[#0f0f0f] shadow-[0_12px_30px_rgba(0,0,0,0.35)] max-h-56 overflow-y-auto">
+                  {searchingInvitees && (
+                    <p className="px-3 py-2.5 text-white/50" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                      Searching eligible users...
+                    </p>
+                  )}
+
+                  {!searchingInvitees && inviteSuggestions.map((candidate) => {
+                    const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'No name set';
+                    const selected = selectedInviteeId === candidate.id;
+                    return (
+                      <button
+                        key={candidate.id}
+                        onClick={() => onSelectInvitee(candidate)}
+                        className={`w-full text-left px-3 py-2.5 border-b border-white/5 transition-all cursor-pointer ${
+                          selected ? 'bg-[#eb7524]/15 text-white' : 'text-white/80 hover:bg-white/[0.05]'
+                        }`}
+                        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+                      >
+                        <p style={{ fontSize: '12px', fontWeight: 600 }}>{candidate.email}</p>
+                        <p className="text-white/50" style={{ fontSize: '11px' }}>{fullName}</p>
+                      </button>
+                    );
+                  })}
+
+                  {!searchingInvitees && inviteSuggestions.length === 0 && inviteSearchMessage && (
+                    <p className="px-3 py-2.5 text-red-200" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                      {inviteSearchMessage}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-white/60 mb-1.5" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              Reason (optional)
+            </label>
+            <input
+              value={inviteReason}
+              onChange={(e) => setInviteReason(e.target.value)}
+              placeholder="Why this promotion is needed"
+              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 outline-none focus:border-[#eb7524]"
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <button
+            onClick={onPromoteUser}
+            disabled={issuingInvite}
+            className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          >
+            {issuingInvite ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {issuingInvite ? 'Promoting...' : 'Promote to Admin'}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Privileged Users
+          </h3>
+          <button
+            onClick={onRefreshUsers}
+            className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/80 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+            style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5" />
+            <p className="text-red-200" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{error}</p>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="py-8 flex justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-[#eb7524]" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {users
+              .filter((u) => u.role !== 'USER')
+              .map((u) => {
+                const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'No name set';
+                const canDemote = u.role === 'ADMIN' && u.id !== currentUserId;
+                return (
+                  <div key={u.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+                    <div>
+                      <p className="text-white" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>{fullName}</p>
+                      <p className="text-white/50" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>{u.email}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="px-2.5 py-1 rounded-lg bg-[#eb7524]/20 text-[#ffb887] border border-[#eb7524]/30" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
+                        {u.role}
+                      </span>
+                      {canDemote ? (
+                        <button
+                          onClick={() => onDemoteUser(u)}
+                          disabled={demotingUserId === u.id}
+                          className="px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+                        >
+                          {demotingUserId === u.id ? 'Demoting...' : 'Demote'}
+                        </button>
+                      ) : (
+                        <span className="text-white/30" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                          {u.role === 'OWNER' ? 'Owner protected' : 'Current user'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            {users.filter((u) => u.role !== 'USER').length === 0 && (
+              <p className="text-white/30 text-center py-6" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+                No privileged users found.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
