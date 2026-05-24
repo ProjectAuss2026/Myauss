@@ -20,8 +20,11 @@ const router = Router();
 const SALT_ROUNDS = 10;
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
+const OTP_MAX_ATTEMPTS = 5;
 const INVITATION_WINDOW_HOURS = 72;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const OTP_RE = /^\d{6}$/;
+const OTP_PEPPER = process.env.OTP_PEPPER || process.env.JWT_SECRET || '';
 
 // ── Email transporter (Nodemailer + Gmail SMTP) ─────────────────────
 const transporter = nodemailer.createTransport({
@@ -35,7 +38,25 @@ const transporter = nodemailer.createTransport({
 });
 
 // ── OTP helpers ─────────────────────────────────────────────────────
-const pendingCodes = new Map(); // email → code
+function generateVerificationCode() {
+  return crypto.randomInt(100000, 1000000).toString();
+}
+
+function hashVerificationCode(code) {
+  return crypto.createHmac('sha256', OTP_PEPPER).update(String(code)).digest('hex');
+}
+
+function timingSafeCodeMatch(expectedHash, code) {
+  try {
+    const providedHash = hashVerificationCode(code);
+    const expected = Buffer.from(expectedHash, 'hex');
+    const provided = Buffer.from(providedHash, 'hex');
+    if (expected.length === 0 || expected.length !== provided.length) return false;
+    return crypto.timingSafeEqual(expected, provided);
+  } catch {
+    return false;
+  }
+}
 
 function normaliseEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -73,18 +94,34 @@ async function getInviteeEligibility(invitedEmail) {
   return { invitee };
 }
 
-async function sendVerificationCode(email) {
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  pendingCodes.set(email, code);
+async function sendVerificationCode(user) {
+  const code = generateVerificationCode();
+  const codeHash = hashVerificationCode(code);
+  const now = Date.now();
+  await prisma.otpCode.upsert({
+    where: { userId: user.id },
+    update: {
+      codeHash,
+      expiresAt: new Date(now + VERIFICATION_WINDOW_MS),
+      attemptsRemaining: OTP_MAX_ATTEMPTS,
+      consumedAt: null,
+    },
+    create: {
+      userId: user.id,
+      codeHash,
+      expiresAt: new Date(now + VERIFICATION_WINDOW_MS),
+      attemptsRemaining: OTP_MAX_ATTEMPTS,
+    },
+  });
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(`[OTP DEV] Code for ${email}: ${code}  ← copy this into the verify step`);
+    console.log(`[OTP DEV] Verification code generated for ${user.email}. SMTP is not configured.`);
     return;
   }
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: email,
+    to: user.email,
     subject: 'AUSS – Your Verification Code',
     text: `Your verification code is: ${code}\n\nThis code expires in 24 hours.`,
     html: `
@@ -96,14 +133,6 @@ async function sendVerificationCode(email) {
       </div>
     `,
   });
-}
-
-function verifyCode(email, code) {
-  const expected = pendingCodes.get(email);
-  if (!expected) return false;
-  const valid = expected === code;
-  if (valid) pendingCodes.delete(email);
-  return valid;
 }
 
 function formatUser(user) {
@@ -185,7 +214,7 @@ router.post('/register', async (req, res) => {
     // Exists but unverified — update password, always force USER role
     if (existing && !existing.isVerified) {
       const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-      await prisma.user.update({
+      const updatedUser = await prisma.user.update({
         where: { email: normalisedEmail },
         data: {
           passwordHash,
@@ -199,8 +228,9 @@ router.post('/register', async (req, res) => {
             },
           },
         },
+        select: { id: true, email: true },
       });
-      await sendVerificationCode(normalisedEmail);
+      await sendVerificationCode(updatedUser);
       return res.status(200).json({
         message: 'Registration pending. Please verify your email.',
         status: 'PENDING_VERIFICATION',
@@ -209,7 +239,7 @@ router.post('/register', async (req, res) => {
 
     // Brand new user
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    await prisma.user.create({
+    const createdUser = await prisma.user.create({
       data: {
         email: normalisedEmail,
         passwordHash,
@@ -221,9 +251,10 @@ router.post('/register', async (req, res) => {
           create: { firstName, lastName, studentId },
         },
       },
+      select: { id: true, email: true },
     });
 
-    await sendVerificationCode(normalisedEmail);
+    await sendVerificationCode(createdUser);
 
     return res.status(200).json({
       message: 'Verification code sent. Please check your email.',
@@ -257,12 +288,15 @@ router.post('/resend-code', async (req, res) => {
       });
     }
 
-    await sendVerificationCode(normalisedEmail);
-
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { email: normalisedEmail },
-      data: { lastCodeSentAt: new Date() },
+      data: {
+        lastCodeSentAt: new Date(),
+        verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
+      },
+      select: { id: true, email: true },
     });
+    await sendVerificationCode(updatedUser);
 
     return res.status(200).json({ message: 'Verification code resent.' });
   } catch (err) {
@@ -275,26 +309,85 @@ router.post('/resend-code', async (req, res) => {
 router.post('/verify', async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
-    const { code } = req.body || {};
+    const code = String(req.body?.code || '').trim();
     if (!normalisedEmail || !code) {
       return res.status(400).json({ error: 'Email and verification code are required' });
     }
-
-    const isValid = verifyCode(normalisedEmail, code);
-    if (!isValid) {
+    if (!OTP_RE.test(code)) {
       return res.status(401).json({ error: 'Invalid or expired code' });
     }
 
-    const user = await prisma.user.update({
+    const user = await prisma.user.findUnique({
       where: { email: normalisedEmail },
+      include: { info: true, otpCode: true },
+    });
+
+    if (!user || user.isVerified) {
+      return res.status(401).json({ error: 'Invalid or expired code' });
+    }
+
+    const now = new Date();
+    if (user.verificationExpiresAt <= now) {
+      await prisma.otpCode.deleteMany({ where: { userId: user.id } });
+      return res.status(401).json({ error: 'Invalid or expired code' });
+    }
+
+    const otpCode = user.otpCode;
+    if (!otpCode || otpCode.consumedAt || otpCode.expiresAt <= now || otpCode.attemptsRemaining <= 0) {
+      if (otpCode) {
+        await prisma.otpCode.deleteMany({ where: { userId: user.id } });
+      }
+      return res.status(401).json({ error: 'Invalid or expired code' });
+    }
+
+    const isValid = timingSafeCodeMatch(otpCode.codeHash, code);
+    if (!isValid) {
+      await prisma.otpCode.updateMany({
+        where: {
+          id: otpCode.id,
+          consumedAt: null,
+          expiresAt: { gt: now },
+          attemptsRemaining: { gt: 0 },
+        },
+        data: { attemptsRemaining: { decrement: 1 } },
+      });
+
+      await prisma.otpCode.deleteMany({
+        where: {
+          userId: user.id,
+          attemptsRemaining: { lte: 0 },
+        },
+      });
+
+      return res.status(401).json({ error: 'Invalid or expired code' });
+    }
+
+    const consumed = await prisma.otpCode.updateMany({
+      where: {
+        id: otpCode.id,
+        consumedAt: null,
+        expiresAt: { gt: now },
+        attemptsRemaining: { gt: 0 },
+      },
+      data: { consumedAt: now },
+    });
+
+    if (consumed.count !== 1) {
+      return res.status(401).json({ error: 'Invalid or expired code' });
+    }
+
+    const verifiedUser = await prisma.user.update({
+      where: { id: user.id },
       data: { isVerified: true },
       include: { info: true },
     });
 
-    const token = await issueTokensForUser(res, user);
+    await prisma.otpCode.deleteMany({ where: { userId: user.id } });
+
+    const token = await issueTokensForUser(res, verifiedUser);
     return res.status(200).json({
       token,
-      user: formatUser(user),
+      user: formatUser(verifiedUser),
     });
   } catch (err) {
     console.error('Verify error:', err);

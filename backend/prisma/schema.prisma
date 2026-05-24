@@ -27,6 +27,7 @@ model User {
   createdAt             DateTime  @default(now())
   info                  UserInfo?
   sessions              AuthSession[]
+  otpCode               OtpCode?
   invitationsSent       AdminInvitation[] @relation("InvitationSender")
   invitationsAccepted   AdminInvitation[] @relation("InvitationAccepter")
   roleChangesMade       RoleChangeAudit[] @relation("RoleChangeActor")
@@ -55,6 +56,20 @@ model AuthSession {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
+}
+
+model OtpCode {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  codeHash          String
+  expiresAt         DateTime
+  attemptsRemaining Int      @default(5)
+  consumedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt, consumedAt])
 }
 
 model AdminInvitation {
