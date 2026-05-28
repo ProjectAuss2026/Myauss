@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import authController from './controllers/auth.controller.js';
@@ -28,6 +29,44 @@ console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
 
 app.use(cors());
 app.use(express.json());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'",'data:'],
+        connectSrc: ["'self'"],
+        frameAncestors: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"]
+      }
+    },
+    referrerPolicy: {
+      policy: 'strict-origin-when-cross-origin'
+    }
+  })
+);
+
+// HSTS (Production only)
+if (process.env.NODE_ENV === 'production') {
+  app.use(
+    helmet.hsts({
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true
+    })
+  );
+}
+
+// Permissions Policy
+app.use((req, res, next) => {
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=()'
+  );
+  next();
+});
 
 // Auth routes
 app.use('/api/auth', authController);
