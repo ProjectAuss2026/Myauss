@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Calendar, Clock, MapPin, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import { getSafeImageSrc } from '../../lib/safeUrl';
 
 interface Activity {
   id: number;
@@ -300,18 +301,19 @@ function ActivityCard({
   onView: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
+  const safeImageSrc = getSafeImageSrc(activity.imageUrl);
 
   return (
     <div className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden group hover:border-white/10 transition-all duration-300">
       {/* Image */}
       <div className="relative h-[200px] overflow-hidden">
-        {imgError ? (
+        {imgError || !safeImageSrc ? (
           <div className="w-full h-full flex items-center justify-center bg-white/[0.02]">
             <Calendar className="w-8 h-8 text-white/10" />
           </div>
         ) : (
           <img
-            src={activity.imageUrl}
+            src={safeImageSrc}
             alt={activity.title}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={() => setImgError(true)}
@@ -380,6 +382,7 @@ function ActivityCard({
 
 function ActivityCardLarge({ activity, onView }: { activity: Activity; onView: () => void }) {
   const [imgError, setImgError] = useState(false);
+  const safeImageSrc = getSafeImageSrc(activity.imageUrl);
 
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -395,13 +398,13 @@ function ActivityCardLarge({ activity, onView }: { activity: Activity; onView: (
       <div className="grid grid-cols-1 md:grid-cols-2 h-full">
         {/* Image */}
         <div className="relative h-[300px] md:h-auto overflow-hidden">
-          {imgError ? (
+          {imgError || !safeImageSrc ? (
             <div className="w-full h-full flex items-center justify-center bg-white/[0.02]">
               <Calendar className="w-8 h-8 text-white/10" />
             </div>
           ) : (
             <img
-              src={activity.imageUrl}
+              src={safeImageSrc}
               alt={activity.title}
               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
               onError={() => setImgError(true)}

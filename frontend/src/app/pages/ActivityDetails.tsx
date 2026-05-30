@@ -10,6 +10,7 @@ import {
   Users,
 } from 'lucide-react';
 import { RSVPModal } from '../components/RSVPModal';
+import { getSafeImageSrc, getSafeLinkHref } from '../../lib/safeUrl';
 
 interface Activity {
   id: number;
@@ -170,6 +171,8 @@ export function ActivityDetails() {
   const isArchived = status === 'archived';
   const isSoldOut = rsvp?.isSoldOut ?? false;
   const rsvpDisabled = isArchived || isSoldOut || rsvpLoading || !!rsvpError;
+  const safeImageSrc = getSafeImageSrc(activity.imageUrl);
+  const safeExternalLink = getSafeLinkHref(activity.externalLink);
 
   let buttonText = 'Register Now';
   if (isArchived) buttonText = 'Event Ended';
@@ -192,13 +195,13 @@ export function ActivityDetails() {
           <div className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden">
             {/* Image */}
             <div className="relative h-[260px] md:h-[360px] overflow-hidden bg-white/[0.02]">
-              {imgError || !activity.imageUrl ? (
+              {imgError || !safeImageSrc ? (
                 <div className="w-full h-full flex items-center justify-center">
                   <Calendar className="w-12 h-12 text-white/10" />
                 </div>
               ) : (
                 <img
-                  src={activity.imageUrl}
+                  src={safeImageSrc}
                   alt={activity.title}
                   className="w-full h-full object-cover"
                   onError={() => setImgError(true)}
@@ -286,9 +289,9 @@ export function ActivityDetails() {
                   >
                     {buttonText}
                   </button>
-                  {activity.externalLink && (
+                  {safeExternalLink && (
                     <a
-                      href={activity.externalLink}
+                      href={safeExternalLink}
                       target="_blank"
                       rel="noreferrer noopener"
                       className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white transition-all cursor-pointer"

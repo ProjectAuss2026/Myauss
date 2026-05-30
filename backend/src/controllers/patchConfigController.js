@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import { isUrlValidationError, validateConfigUrlFields } from '../utils/urlValidation.js';
 
 // Whitelist to strip out fields aren't permitted for that type
 const ALLOWED_FIELDS = {
@@ -72,6 +73,8 @@ const patchConfigController = async (req, res) => {
   }
 
   try {
+    await validateConfigUrlFields(type, filteredData);
+
     let updated;
 
     switch (type) {
@@ -83,27 +86,11 @@ const patchConfigController = async (req, res) => {
         break;
 
       case 'mediaConfig': {
-        const newUrl = typeof filteredData.mediaDriveUrl === 'string'
-          ? filteredData.mediaDriveUrl.trim()
-          : '';
+        const newUrl = filteredData.mediaDriveUrl;
         if (!newUrl) {
           return res.status(400).json({
             error: 'Bad request',
             message: 'Photo Drive URL is required.',
-          });
-        }
-        try {
-          const parsed = new URL(newUrl);
-          if (!['http:', 'https:'].includes(parsed.protocol)) {
-            return res.status(400).json({
-              error: 'Bad request',
-              message: 'Photo Drive URL must use http or https.',
-            });
-          }
-        } catch {
-          return res.status(400).json({
-            error: 'Bad request',
-            message: 'Invalid Photo Drive URL.',
           });
         }
 
@@ -151,6 +138,12 @@ const patchConfigController = async (req, res) => {
       updated,
     });
   } catch (error) {
+    if (isUrlValidationError(error)) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: error.message,
+      });
+    }
     // P2025 means record with that ID doesn't exist
     if (error.code === 'P2025') {
       return res.status(404).json({

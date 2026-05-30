@@ -41,6 +41,7 @@ import {
 import { FaXTwitter, FaThreads } from 'react-icons/fa6';
 import { MdEmail } from 'react-icons/md';
 import { SiLinktree } from 'react-icons/si';
+import { getSafeImageSrc } from '../../lib/safeUrl';
 
 /* ─── Platform Registry ──────────────────────────────────────────────────── */
 
@@ -249,6 +250,7 @@ function ImageUploadField({
   const fileRef = useRef<HTMLInputElement>(null);
   const matched = platformName ? findPlatform(platformName) : undefined;
   const hasBuiltInIcon = !!matched;
+  const safeValue = value === '__builtin__' ? null : getSafeImageSrc(value);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -279,9 +281,9 @@ function ImageUploadField({
         <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center flex-shrink-0 overflow-hidden">
           {value === '__builtin__' && matched ? (
             <matched.icon className="w-6 h-6" style={{ color: matched.color }} />
-          ) : value && value !== '__builtin__' ? (
+          ) : safeValue ? (
             <img
-              src={value}
+              src={safeValue}
               alt="icon preview"
               className="w-8 h-8 object-contain"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -337,15 +339,16 @@ function ImageUploadField({
 function LinkIcon({ link, size = 'md' }: { link: CommunicationLink; size?: 'sm' | 'md' }) {
   const matched = findPlatform(link.platform);
   const px = size === 'sm' ? 'w-6 h-6' : 'w-8 h-8';
+  const safeImgUrl = link.imgUrl === '__builtin__' ? null : getSafeImageSrc(link.imgUrl);
 
   if (link.imgUrl === '__builtin__' && matched) {
     return <matched.icon className={px} style={{ color: matched.color }} />;
   }
 
-  if (link.imgUrl && link.imgUrl !== '__builtin__') {
+  if (safeImgUrl) {
     return (
       <img
-        src={link.imgUrl}
+        src={safeImgUrl}
         alt={link.platform}
         className={`${px} object-contain`}
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

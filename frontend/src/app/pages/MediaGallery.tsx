@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, ExternalLink, Image as ImageIcon, Camera } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { getSafeImageSrc, getSafeLinkHref } from '../../lib/safeUrl';
 
 // ─── Intersection-observer scroll hook ──────────────────────────────────────
 
@@ -78,16 +79,20 @@ const BENTO_CLASSES = [
 // ─── Gallery card ─────────────────────────────────────────────────────────────
 
 function GalleryCard({ entry }: { entry: MediaEntry }) {
+  const safeHref = getSafeLinkHref(entry.mediaDriveUrl);
+  const safeCover = getSafeImageSrc(entry.resolvedCover);
+  if (!safeHref) return null;
+
   return (
     <a
-      href={entry.mediaDriveUrl}
+      href={safeHref}
       target="_blank"
       rel="noopener noreferrer"
       className="relative overflow-hidden rounded-2xl group cursor-pointer block h-full"
     >
-      {entry.resolvedCover ? (
+      {safeCover ? (
         <img
-          src={entry.resolvedCover}
+          src={safeCover}
           alt={entry.resolvedName}
           className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
         />

@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import { isUrlValidationError, validateSponsorUrlFields } from '../utils/urlValidation.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
 
@@ -129,6 +130,16 @@ export async function createSponsor(req, res) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`websiteUrl` must be a string when provided.');
   }
 
+  const urls = { websiteUrl };
+  try {
+    await validateSponsorUrlFields(urls);
+  } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
+    throw error;
+  }
+
   let parsedDisplayOrder = 0;
   if (displayOrder !== undefined) {
     const value = parseNonNegativeInt(displayOrder);
@@ -152,7 +163,7 @@ export async function createSponsor(req, res) {
         sponsorshipPageId: parsedPageId,
         logoUrl: logoUrl || null,
         heroImageUrl: heroImageUrl || null,
-        websiteUrl: websiteUrl || null,
+        websiteUrl: urls.websiteUrl || null,
         displayOrder: parsedDisplayOrder,
       },
     });
@@ -210,12 +221,17 @@ export async function patchSponsor(req, res) {
   }
 
   try {
+    await validateSponsorUrlFields(data);
+
     const updated = await prisma.sponsor.update({
       where: { id: sponsorId },
       data,
     });
     return res.status(200).json({ data: updated });
   } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'SPONSOR_NOT_FOUND', `Sponsor ${sponsorId} was not found.`);
     }

@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import { isUrlValidationError, validateConfigUrlFields } from '../utils/urlValidation.js';
 
 // Fields that must be present, otherwise "400 Bad Request"
 const REQUIRED_FIELDS = {
@@ -59,6 +60,8 @@ const postConfigController = async (req, res) => {
   }
 
   try {
+    await validateConfigUrlFields(type, filteredData);
+
     let created;
 
     switch (type) {
@@ -107,6 +110,12 @@ const postConfigController = async (req, res) => {
       created,
     });
   } catch (error) {
+    if (isUrlValidationError(error)) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: error.message,
+      });
+    }
     // Unique constraint violation
     if (error.code === 'P2002') {
       return res.status(409).json({

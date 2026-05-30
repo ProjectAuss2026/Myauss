@@ -11,6 +11,7 @@
     "prisma:migrate": "npx prisma migrate dev --name init",
     "prisma:studio": "npx prisma studio",
     "prisma:seed": "node prisma/seed.js",
+    "test": "node --test",
     "build": "find src -name '*.js' -print0 | xargs -0 -n1 node --check"
   },
   "keywords": [

@@ -1,4 +1,11 @@
 import prisma from '../prismaClient.js';
+import http from 'node:http';
+import https from 'node:https';
+import {
+  isUrlValidationError,
+  resolvePublicHttpUrl,
+  validateMediaEntryUrlFields,
+} from '../utils/urlValidation.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
 
@@ -12,13 +19,49 @@ function parsePositiveInt(value) {
   return number;
 }
 
-function parseUrl(value) {
-  try {
-    new URL(value);
-    return true;
-  } catch (_error) {
-    return false;
-  }
+async function fetchPinnedPublicHttpUrl(url, options = {}) {
+  const { parsed, resolvedAddresses } = await resolvePublicHttpUrl(url, {
+    fieldName: options.fieldName || 'URL',
+  });
+  const pinnedAddress = resolvedAddresses[0];
+  const isHttps = parsed.protocol === 'https:';
+  const transport = isHttps ? https : http;
+  const port = parsed.port || (isHttps ? 443 : 80);
+  const headers = {
+    ...(options.headers || {}),
+    Host: parsed.host,
+  };
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    const req = transport.request(
+      {
+        protocol: parsed.protocol,
+        hostname: pinnedAddress,
+        port,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: 'GET',
+        headers,
+        servername: parsed.hostname,
+        timeout: 10000,
+      },
+      (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          resolvePromise({
+            ok: response.statusCode >= 200 && response.statusCode < 300,
+            status: response.statusCode,
+            text: async () => body,
+          });
+        });
+      }
+    );
+
+    req.on('timeout', () => req.destroy(new Error('Request timed out.')));
+    req.on('error', rejectPromise);
+    req.end();
+  });
 }
 
 function serializeMediaEntry(entry) {
@@ -90,17 +133,21 @@ export async function createMediaEntry(req, res) {
   if (typeof mediaDriveUrl !== 'string' || !mediaDriveUrl.trim()) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` is required.');
   }
-  if (!parseUrl(mediaDriveUrl)) {
-    return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` must be a valid absolute URL.');
-  }
   if (overrideName !== undefined && overrideName !== null && typeof overrideName !== 'string') {
     return sendError(res, 422, 'VALIDATION_ERROR', '`overrideName` must be a string when provided.');
   }
   if (overrideCover !== undefined && overrideCover !== null && typeof overrideCover !== 'string') {
     return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a string when provided.');
   }
-  if (typeof overrideCover === 'string' && overrideCover.trim() && !parseUrl(overrideCover.trim())) {
-    return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a valid absolute URL.');
+
+  const urls = { mediaDriveUrl, overrideCover };
+  try {
+    await validateMediaEntryUrlFields(urls);
+  } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
+    throw error;
   }
 
   try {
@@ -115,9 +162,9 @@ export async function createMediaEntry(req, res) {
     const created = await prisma.mediaEntry.create({
       data: {
         activityId: parsedActivityId,
-        mediaDriveUrl: mediaDriveUrl.trim(),
+        mediaDriveUrl: urls.mediaDriveUrl,
         overrideName: typeof overrideName === 'string' && overrideName.trim() ? overrideName.trim() : null,
-        overrideCover: typeof overrideCover === 'string' && overrideCover.trim() ? overrideCover.trim() : null,
+        overrideCover: urls.overrideCover || null,
       },
       include: {
         activity: {
@@ -165,10 +212,7 @@ export async function patchMediaEntry(req, res) {
     if (typeof mediaDriveUrl !== 'string' || !mediaDriveUrl.trim()) {
       return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` must be a non-empty string.');
     }
-    if (!parseUrl(mediaDriveUrl)) {
-      return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` must be a valid absolute URL.');
-    }
-    data.mediaDriveUrl = mediaDriveUrl.trim();
+    data.mediaDriveUrl = mediaDriveUrl;
   }
 
   if (overrideName !== undefined) {
@@ -182,10 +226,7 @@ export async function patchMediaEntry(req, res) {
     if (overrideCover !== null && typeof overrideCover !== 'string') {
       return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a string or null.');
     }
-    if (typeof overrideCover === 'string' && overrideCover.trim() && !parseUrl(overrideCover.trim())) {
-      return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a valid absolute URL.');
-    }
-    data.overrideCover = typeof overrideCover === 'string' && overrideCover.trim() ? overrideCover.trim() : null;
+    data.overrideCover = overrideCover;
   }
 
   if (Object.keys(data).length === 0) {
@@ -193,6 +234,11 @@ export async function patchMediaEntry(req, res) {
   }
 
   try {
+    await validateMediaEntryUrlFields(data);
+    if (Object.hasOwn(data, 'overrideCover')) {
+      data.overrideCover = data.overrideCover || null;
+    }
+
     const updated = await prisma.mediaEntry.update({
       where: { id: entryId },
       data,
@@ -211,6 +257,9 @@ export async function patchMediaEntry(req, res) {
     });
     return res.status(200).json({ data: serializeMediaEntry(updated) });
   } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'NOT_FOUND', `Media entry ${entryId} was not found.`);
     }
@@ -258,11 +307,20 @@ export async function resolveCoverUrl(req, res) {
 
   // Not a Pixieset gallery page — return as-is
   if (!trimmed.includes('pixieset.com') || !trimmed.includes('pid=')) {
+    try {
+      await resolvePublicHttpUrl(trimmed, { fieldName: 'Gallery URL' });
+    } catch (error) {
+      if (isUrlValidationError(error)) {
+        return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+      }
+      throw error;
+    }
     return res.json({ directUrl: trimmed });
   }
 
   try {
-    const pageRes = await fetch(trimmed, {
+    const pageRes = await fetchPinnedPublicHttpUrl(trimmed, {
+      fieldName: 'Gallery URL',
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AussBot/1.0)' },
     });
     if (!pageRes.ok) {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Mail, ArrowRight, Star, Users, Trophy, ExternalLink, Heart } from 'lucide-react';
+import { getSafeImageSrc, getSafeLinkHref } from '../../lib/safeUrl';
 
 interface ApiSponsor {
   id: number;
@@ -55,18 +56,17 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
 
 // ─── Sponsor card: homepage screenshot background, logo revealed on hover ────
 function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
-  return (
-    <a
-      href={sponsor.websiteUrl ?? '#'}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group block relative h-[260px] rounded-2xl overflow-hidden cursor-pointer"
-      aria-label={`Visit ${sponsor.name}`}
-    >
+  const safeWebsiteUrl = getSafeLinkHref(sponsor.websiteUrl);
+  const safeHeroImageUrl = getSafeImageSrc(sponsor.heroImageUrl);
+  const safeLogoUrl = getSafeImageSrc(sponsor.logoUrl);
+  const className = `group block relative h-[260px] rounded-2xl overflow-hidden ${safeWebsiteUrl ? 'cursor-pointer' : ''}`;
+
+  const content = (
+    <>
       {/* Background: homepage screenshot */}
-      {sponsor.heroImageUrl ? (
+      {safeHeroImageUrl ? (
         <img
-          src={sponsor.heroImageUrl}
+          src={safeHeroImageUrl}
           alt=""
           className="absolute inset-0 w-full h-full object-cover object-top transition-transform duration-700 group-hover:scale-105"
           loading="lazy"
@@ -86,12 +86,12 @@ function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
 
       {/* Hover: glass pill slides up from below — never opacity:0 so backdrop-blur is always composited */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        {sponsor.logoUrl ? (
+        {safeLogoUrl ? (
           <div
             className="bg-white/15 backdrop-blur-md rounded-2xl px-7 py-5 max-w-[220px] flex items-center justify-center shadow-[0_0_24px_rgba(235,117,36,0.45)] translate-y-[300px] group-hover:translate-y-0 transition-transform duration-500 ease-out"
           >
             <img
-              src={sponsor.logoUrl}
+              src={safeLogoUrl}
               alt={sponsor.name}
               className="h-[52px] max-w-[180px] w-auto object-contain drop-shadow-2xl"
             />
@@ -116,7 +116,23 @@ function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
         </p>
         <ExternalLink className="w-4 h-4 text-white/50 flex-shrink-0" />
       </div>
+    </>
+  );
+
+  return safeWebsiteUrl ? (
+    <a
+      href={safeWebsiteUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={className}
+      aria-label={`Visit ${sponsor.name}`}
+    >
+      {content}
     </a>
+  ) : (
+    <div className={className} aria-label={sponsor.name}>
+      {content}
+    </div>
   );
 }
 

@@ -2,6 +2,7 @@ import prisma from '../prismaClient.js';
 import { unlink } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { isUrlValidationError, validateActivityUrlFields } from '../utils/urlValidation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,16 @@ export const createActivity = async (req, res) => {
     }
   }
 
+  const urls = { imageUrl, externalLink };
+  try {
+    await validateActivityUrlFields(urls);
+  } catch (err) {
+    if (isUrlValidationError(err)) {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
+
   try {
     const activity = await prisma.activity.create({
       data: {
@@ -76,8 +87,8 @@ export const createActivity = async (req, res) => {
         description: description.trim(),
         startTime: parsedStart,
         endTime: parsedEnd,
-        imageUrl: imageUrl || null,
-        externalLink: externalLink || null,
+        imageUrl: urls.imageUrl || null,
+        externalLink: urls.externalLink || null,
         isPublished: isPublished !== undefined ? Boolean(isPublished) : true,
         capacity: parsedCapacity,
       },
@@ -131,8 +142,10 @@ export const updateActivity = async (req, res) => {
       return res.status(400).json({ error: 'endTime must be after startTime' });
     }
 
-    if (imageUrl !== undefined) data.imageUrl = imageUrl || null;
-    if (externalLink !== undefined) data.externalLink = externalLink || null;
+    await validateActivityUrlFields(req.body);
+
+    if (imageUrl !== undefined) data.imageUrl = req.body.imageUrl || null;
+    if (externalLink !== undefined) data.externalLink = req.body.externalLink || null;
     if (isPublished !== undefined) data.isPublished = Boolean(isPublished);
     if (capacity !== undefined) {
       if (capacity === null || capacity === '') {
@@ -158,6 +171,9 @@ export const updateActivity = async (req, res) => {
     const activity = await prisma.activity.update({ where: { id }, data });
     return res.json(activity);
   } catch (err) {
+    if (isUrlValidationError(err)) {
+      return res.status(400).json({ error: err.message });
+    }
     console.error('updateActivity error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
