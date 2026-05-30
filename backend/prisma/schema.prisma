@@ -15,15 +15,30 @@ enum Role {
 }
 
 model User {
-  id                    String    @id @default(uuid())
-  email                 String    @unique
+  id                    String          @id @default(uuid())
+  email                 String          @unique
   passwordHash          String
-  role                  Role      @default(USER)
-  isVerified            Boolean   @default(false)
-  lastCodeSentAt        DateTime  @default(now())
+  role                  Role            @default(USER)
+  isVerified            Boolean         @default(false)
+  lastCodeSentAt        DateTime        @default(now())
   verificationExpiresAt DateTime
-  createdAt             DateTime  @default(now())
+  tokenVersion          Int             @default(0)
+  createdAt             DateTime        @default(now())
   info                  UserInfo?
+  passwordResets        PasswordReset[]
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model UserInfo {

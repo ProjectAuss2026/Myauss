@@ -308,9 +308,9 @@ export function Login() {
                           Remember me
                         </span>
                       </label>
-                      <button type="button" className="text-[#eb7524]/70 hover:text-[#eb7524] transition-colors cursor-pointer" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                      <Link to="/forgot-password" className="text-[#eb7524]/70 hover:text-[#eb7524] transition-colors cursor-pointer" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
                         Forgot password?
-                      </button>
+                      </Link>
                     </div>
 
                     <button
