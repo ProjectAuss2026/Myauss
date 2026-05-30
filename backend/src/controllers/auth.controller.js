@@ -36,6 +36,11 @@ const OTP_MAX_ATTEMPTS = 5;
 const INVITATION_WINDOW_HOURS = 72;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_RE = /^\d{6}$/;
+const DUMMY_PASSWORD_HASH = '$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem';
+const REGISTER_GENERIC_MESSAGE = 'If your email is eligible, a verification code has been sent.';
+const RESEND_GENERIC_MESSAGE = 'If your email has a pending verification, a new code has been sent.';
+const LOGIN_GENERIC_ERROR = 'Invalid email or password.';
+
 function getOtpPepper() {
   return process.env.OTP_PEPPER || process.env.JWT_SECRET || '';
 }
@@ -221,9 +226,9 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, r
 
     const existing = await prisma.user.findUnique({ where: { email: normalisedEmail } });
 
-    // Already verified — can't register again
+    // Already verified — keep the response generic to avoid email enumeration.
     if (existing && existing.isVerified) {
-      return res.status(400).json({ error: 'Email already in use' });
+      return res.status(200).json({ message: REGISTER_GENERIC_MESSAGE });
     }
 
     // Exists but unverified — update password, always force USER role
@@ -247,8 +252,7 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, r
       });
       await sendVerificationCode(updatedUser);
       return res.status(200).json({
-        message: 'Registration pending. Please verify your email.',
-        status: 'PENDING_VERIFICATION',
+        message: REGISTER_GENERIC_MESSAGE,
       });
     }
 
@@ -272,7 +276,7 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, r
     await sendVerificationCode(createdUser);
 
     return res.status(200).json({
-      message: 'Verification code sent. Please check your email.',
+      message: REGISTER_GENERIC_MESSAGE,
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -290,30 +294,23 @@ router.post('/resend-code', resendIpLimiter, resendEmailThrottle, async (req, re
 
     const user = await prisma.user.findUnique({ where: { email: normalisedEmail } });
 
-    if (!user || user.isVerified) {
-      return res.status(400).json({ error: 'No pending verification for this email' });
+    if (user && !user.isVerified) {
+      const elapsed = Date.now() - user.lastCodeSentAt.getTime();
+
+      if (elapsed >= RESEND_COOLDOWN_MS) {
+        const updatedUser = await prisma.user.update({
+          where: { email: normalisedEmail },
+          data: {
+            lastCodeSentAt: new Date(),
+            verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
+          },
+          select: { id: true, email: true },
+        });
+        await sendVerificationCode(updatedUser);
+      }
     }
 
-    // Cooldown check
-    const elapsed = Date.now() - user.lastCodeSentAt.getTime();
-    if (elapsed < RESEND_COOLDOWN_MS) {
-      const waitSeconds = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
-      return res.status(429).json({
-        error: `Please wait ${waitSeconds} seconds before requesting a new code`,
-      });
-    }
-
-    const updatedUser = await prisma.user.update({
-      where: { email: normalisedEmail },
-      data: {
-        lastCodeSentAt: new Date(),
-        verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
-      },
-      select: { id: true, email: true },
-    });
-    await sendVerificationCode(updatedUser);
-
-    return res.status(200).json({ message: 'Verification code resent.' });
+    return res.status(200).json({ message: RESEND_GENERIC_MESSAGE });
   } catch (err) {
     console.error('Resend-code error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -424,23 +421,13 @@ router.post('/login', loginIpLimiter, loginEmailThrottle, async (req, res) => {
     }
 
     const user = await prisma.user.findUnique({ where: { email: normalisedEmail }, include: { info: true } });
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    if (!user.isVerified) {
-      return res.status(403).json({
-        error: 'Please verify your email before logging in',
-        status: 'PENDING_VERIFICATION',
-      });
-    }
-
-    let match = await bcrypt.compare(normalizedPassword, user.passwordHash);
+    const passwordHash = user?.passwordHash || DUMMY_PASSWORD_HASH;
+    let match = await bcrypt.compare(normalizedPassword, passwordHash);
     if (!match && normalizedPassword !== rawPassword) {
-      match = await bcrypt.compare(rawPassword, user.passwordHash);
+      match = await bcrypt.compare(rawPassword, passwordHash);
     }
-    if (!match) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!user || !match || !user.isVerified) {
+      return res.status(401).json({ error: LOGIN_GENERIC_ERROR });
     }
 
     const token = await issueTokensForUser(res, user);
