@@ -22,9 +22,21 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const rawCorsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const ignoredCorsOrigins = rawCorsOrigins.filter((origin) => origin === '*' || origin.toLowerCase() === 'null');
+const allowedCorsOrigins = rawCorsOrigins.filter((origin) => origin !== '*' && origin.toLowerCase() !== 'null');
+const allowedCorsOriginSet = new Set(allowedCorsOrigins);
 
 console.log('Environment loaded - PORT:', PORT);
 console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
+console.log('CORS origins allowlist:', allowedCorsOrigins.length ? allowedCorsOrigins.join(', ') : '(none configured)');
+
+if (ignoredCorsOrigins.length > 0) {
+  console.warn('Ignoring unsafe CORS origins:', ignoredCorsOrigins.join(', '));
+}
 
 if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
@@ -49,7 +61,25 @@ function getAppContentSecurityPolicy() {
   ].join('; ');
 }
 
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) {
+      return callback(null, false);
+    }
+
+    if (origin === 'null' || !allowedCorsOriginSet.has(origin)) {
+      const error = new Error('Not allowed by CORS');
+      error.status = 403;
+      return callback(error);
+    }
+
+    return callback(null, origin);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 600,
+}));
 app.use((_req, res, next) => {
   res.setHeader('Content-Security-Policy', getAppContentSecurityPolicy());
   next();
@@ -99,6 +129,14 @@ app.use('/api', sponsorshipRoutes);
 app.use('/api', faqRoutes);
 app.use('/api', executiveRoutes);
 app.use('/api', mediaRoutes);
+
+app.use((error, _req, res, next) => {
+  if (error.message === 'Not allowed by CORS') {
+    return res.status(error.status || 403).json({ error: 'Not allowed by CORS' });
+  }
+
+  return next(error);
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
