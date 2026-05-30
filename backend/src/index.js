@@ -1,11 +1,12 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import authController from './controllers/auth.controller.js';
 import getPublicConfigController from './controllers/getPublicConfigController.js';
 import { authenticate } from './middleware/authMiddleware.js';
+import { configureSecurity } from './middleware/security.js';
 import './jobs/cleanupUnverified.js';
 import configRoutes from './routes/configRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
@@ -26,6 +27,7 @@ const PORT = process.env.PORT || 3001;
 console.log('Environment loaded - PORT:', PORT);
 console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
 
+configureSecurity(app);
 app.use(cors());
 app.use(express.json());
 
