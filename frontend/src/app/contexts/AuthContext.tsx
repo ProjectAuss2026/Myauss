@@ -6,7 +6,7 @@ interface AuthUser {
   role: string;
   firstName: string | null;
   lastName: string | null;
-  studentId: string | null;
+  studentId?: null;
 }
 
 interface LoginCredentials {

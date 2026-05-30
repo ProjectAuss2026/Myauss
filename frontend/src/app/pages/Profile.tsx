@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut, Hash, User, Settings } from 'lucide-react';
+import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut, User, Settings } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -164,20 +164,6 @@ export function Profile() {
                       </p>
                     </div>
                   </div>
-
-                  {user.studentId && (
-                    <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
-                      <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
-                        <Hash className="w-5 h-5 text-[#eb7524]" />
-                      </div>
-                      <div>
-                        <p className="text-white/40 text-xs mb-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>Student ID</p>
-                        <p className="text-white" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
-                          {user.studentId}
-                        </p>
-                      </div>
-                    </div>
-                  )}
 
                   <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
                     <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">

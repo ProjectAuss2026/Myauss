@@ -6,6 +6,7 @@ import prisma from '../prismaClient.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import validate from '../middleware/validate.js';
 import { loginSchema, registerSchema, resendCodeSchema, verifySchema } from '../schemas/authSchemas.js';
+import { hashStudentId, isStudentIdHashError } from '../utils/studentIdHash.js';
 
 const router = Router();
 const SALT_ROUNDS = 10;
@@ -77,7 +78,7 @@ function formatUser(user) {
     role: user.role,
     firstName: user.info?.firstName || null,
     lastName: user.info?.lastName || null,
-    studentId: user.info?.studentId || null,
+    studentId: null,
   };
 }
 
@@ -85,6 +86,7 @@ function formatUser(user) {
 router.post('/register', validate(registerSchema), async (req, res) => {
   try {
     const { email, password, role, execCode, firstName, lastName, studentId } = req.body;
+    const studentIdHash = hashStudentId(studentId);
 
     // Determine the user role
     let userRole = 'USER';
@@ -120,8 +122,8 @@ router.post('/register', validate(registerSchema), async (req, res) => {
           verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
           info: {
             upsert: {
-              create: { firstName, lastName, studentId },
-              update: { firstName, lastName, studentId },
+              create: { firstName, lastName, studentId: studentIdHash },
+              update: { firstName, lastName, studentId: studentIdHash },
             },
           },
         },
@@ -144,7 +146,7 @@ router.post('/register', validate(registerSchema), async (req, res) => {
         lastCodeSentAt: new Date(),
         verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
         info: {
-          create: { firstName, lastName, studentId },
+          create: { firstName, lastName, studentId: studentIdHash },
         },
       },
     });
@@ -155,7 +157,25 @@ router.post('/register', validate(registerSchema), async (req, res) => {
       message: 'Verification code sent. Please check your email.',
     });
   } catch (err) {
+    if (isStudentIdHashError(err)) {
+      console.error('Student ID storage configuration error:', err.message);
+      return res.status(500).json({ error: 'Student ID storage is not configured' });
+    }
     console.error('Register error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /auth/me/info ───────────────────────────────────────────
+router.delete('/me/info', authenticate, async (req, res) => {
+  try {
+    await prisma.userInfo.delete({ where: { userId: req.user.id } });
+    return res.status(204).send();
+  } catch (err) {
+    if (err?.code === 'P2025') {
+      return res.status(204).send();
+    }
+    console.error('Delete user info error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
