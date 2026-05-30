@@ -6,6 +6,7 @@ import { dirname, resolve } from 'path';
 import authController from './controllers/auth.controller.js';
 import getPublicConfigController from './controllers/getPublicConfigController.js';
 import { authenticate } from './middleware/authMiddleware.js';
+import { globalApiLimiter, uploadUserLimiter } from './middleware/rateLimiters.js';
 import './jobs/cleanupUnverified.js';
 import configRoutes from './routes/configRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
@@ -26,8 +27,13 @@ const PORT = process.env.PORT || 3001;
 console.log('Environment loaded - PORT:', PORT);
 console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
 
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 app.use(cors());
 app.use(express.json());
+app.use('/api', globalApiLimiter);
 
 // Auth routes
 app.use('/api/auth', authController);
@@ -53,7 +59,7 @@ app.use('/api/config', configRoutes);
 app.get('/api/public-config', getPublicConfigController);
 
 // Upload route (protected — must be logged in)
-app.use('/api/upload', authenticate, uploadRoutes);
+app.use('/api/upload', authenticate, uploadUserLimiter, uploadRoutes);
 
 // Activity routes — GET is public, POST/DELETE are admin only
 app.use('/api/activities', activityRoutes);

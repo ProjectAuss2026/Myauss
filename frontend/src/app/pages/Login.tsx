@@ -89,8 +89,8 @@ export function Login() {
       setRegisterError('Passwords do not match.');
       return;
     }
-    if (regPassword.length < 6) {
-      setRegisterError('Password must be at least 6 characters.');
+    if (regPassword.length < 12) {
+      setRegisterError('Password must be at least 12 characters.');
       return;
     }
 

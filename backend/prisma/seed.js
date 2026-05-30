@@ -1,5 +1,6 @@
 import prisma from '../src/prismaClient.js';
 import bcrypt from 'bcrypt';
+import { validatePasswordPolicy } from '../src/utils/passwordPolicy.js';
 
 async function main() {
   const sponsorshipPage = await prisma.sponsorshipPage.upsert({
@@ -290,14 +291,15 @@ async function main() {
 
   // ── Optional secure owner bootstrap ──────────────────────────────────────
   const bootstrapEmail = String(process.env.OWNER_BOOTSTRAP_EMAIL || '').trim().toLowerCase();
-  const bootstrapPassword = String(process.env.OWNER_BOOTSTRAP_PASSWORD || '').trim();
+  const bootstrapPassword = process.env.OWNER_BOOTSTRAP_PASSWORD;
 
   if (bootstrapEmail && bootstrapPassword) {
-    if (bootstrapPassword.length < 10) {
-      throw new Error('OWNER_BOOTSTRAP_PASSWORD must be at least 10 characters long.');
+    const passwordPolicy = validatePasswordPolicy(bootstrapPassword, [bootstrapEmail, 'owner', 'admin']);
+    if (!passwordPolicy.ok) {
+      throw new Error(`OWNER_BOOTSTRAP_PASSWORD is invalid: ${passwordPolicy.error}.`);
     }
 
-    const passwordHash = await bcrypt.hash(bootstrapPassword, 10);
+    const passwordHash = await bcrypt.hash(passwordPolicy.normalizedPassword, 10);
     const existingOwner = await prisma.user.findUnique({ where: { email: bootstrapEmail } });
 
     if (existingOwner) {

@@ -5,6 +5,16 @@ import nodemailer from 'nodemailer';
 import prisma from '../prismaClient.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import {
+  loginEmailThrottle,
+  loginIpLimiter,
+  registerEmailThrottle,
+  registerIpLimiter,
+  resendEmailThrottle,
+  resendIpLimiter,
+  verifyEmailThrottle,
+  verifyIpLimiter,
+} from '../middleware/rateLimiters.js';
+import {
   REFRESH_COOKIE_NAME,
   REFRESH_TOKEN_TTL_MS,
   clearRefreshCookie,
@@ -15,6 +25,7 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from '../utils/authTokens.js';
+import { normalizePassword, validatePasswordPolicy } from '../utils/passwordPolicy.js';
 
 const router = Router();
 const SALT_ROUNDS = 10;
@@ -183,7 +194,7 @@ function getRefreshTokenFromRequest(req) {
 }
 
 // ── POST /auth/register ─────────────────────────────────────────────
-router.post('/register', async (req, res) => {
+router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, res) => {
   try {
     const { email, password, firstName, lastName, studentId } = req.body;
     const normalisedEmail = normaliseEmail(email);
@@ -200,8 +211,9 @@ router.post('/register', async (req, res) => {
     if (!studentId) {
       return res.status(400).json({ error: 'Student ID is required' });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    const passwordPolicy = validatePasswordPolicy(password, [normalisedEmail, firstName, lastName, studentId]);
+    if (!passwordPolicy.ok) {
+      return res.status(400).json({ error: passwordPolicy.error });
     }
 
     const existing = await prisma.user.findUnique({ where: { email: normalisedEmail } });
@@ -213,7 +225,7 @@ router.post('/register', async (req, res) => {
 
     // Exists but unverified — update password, always force USER role
     if (existing && !existing.isVerified) {
-      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+      const passwordHash = await bcrypt.hash(passwordPolicy.normalizedPassword, SALT_ROUNDS);
       const updatedUser = await prisma.user.update({
         where: { email: normalisedEmail },
         data: {
@@ -238,7 +250,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Brand new user
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const passwordHash = await bcrypt.hash(passwordPolicy.normalizedPassword, SALT_ROUNDS);
     const createdUser = await prisma.user.create({
       data: {
         email: normalisedEmail,
@@ -266,7 +278,7 @@ router.post('/register', async (req, res) => {
 });
 
 // ── POST /auth/resend-code ──────────────────────────────────────────
-router.post('/resend-code', async (req, res) => {
+router.post('/resend-code', resendIpLimiter, resendEmailThrottle, async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
     if (!normalisedEmail) {
@@ -306,7 +318,7 @@ router.post('/resend-code', async (req, res) => {
 });
 
 // ── POST /auth/verify ───────────────────────────────────────────────
-router.post('/verify', async (req, res) => {
+router.post('/verify', verifyIpLimiter, verifyEmailThrottle, async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
     const code = String(req.body?.code || '').trim();
@@ -396,11 +408,15 @@ router.post('/verify', async (req, res) => {
 });
 
 // ── POST /auth/login ────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', loginIpLimiter, loginEmailThrottle, async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
-    const { password } = req.body || {};
-    if (!normalisedEmail || !password) {
+    const rawPasswordInput = req.body?.password;
+    const rawPassword = rawPasswordInput === undefined || rawPasswordInput === null
+      ? ''
+      : String(rawPasswordInput);
+    const normalizedPassword = normalizePassword(rawPassword);
+    if (!normalisedEmail || !rawPassword) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
@@ -416,7 +432,10 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const match = await bcrypt.compare(password, user.passwordHash);
+    let match = await bcrypt.compare(normalizedPassword, user.passwordHash);
+    if (!match && normalizedPassword !== rawPassword) {
+      match = await bcrypt.compare(rawPassword, user.passwordHash);
+    }
     if (!match) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
