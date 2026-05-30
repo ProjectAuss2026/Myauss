@@ -1,0 +1,87 @@
+function route(method, path) {
+  return Object.freeze({ method, path });
+}
+
+export function routeKey({ method, path }) {
+  return `${method.toUpperCase()} ${path}`;
+}
+
+export const PUBLIC_ROUTES = Object.freeze([
+  route('GET', '/api/health'),
+  route('GET', '/api/test'),
+  route('GET', '/uploads/*'),
+  route('POST', '/api/auth/register'),
+  route('POST', '/api/auth/resend-code'),
+  route('POST', '/api/auth/verify'),
+  route('POST', '/api/auth/login'),
+  route('GET', '/api/config'),
+  route('GET', '/api/public-config'),
+  route('GET', '/api/activities'),
+  route('POST', '/api/activities/:id/rsvp'),
+  route('GET', '/api/activities/:id/rsvp/count'),
+  route('GET', '/api/sponsorship'),
+  route('GET', '/api/faq'),
+  route('GET', '/api/executives'),
+  route('GET', '/api/media-entries'),
+]);
+
+export const AUTHENTICATED_ROUTES = Object.freeze([
+  route('GET', '/api/auth/me'),
+  route('DELETE', '/api/auth/me/info'),
+  route('POST', '/api/upload'),
+]);
+
+export const ADMIN_ROUTES = Object.freeze([
+  route('PATCH', '/api/config'),
+  route('POST', '/api/config'),
+  route('DELETE', '/api/config'),
+  route('GET', '/api/activities/all'),
+  route('POST', '/api/activities'),
+  route('PATCH', '/api/activities/:id'),
+  route('DELETE', '/api/activities/:id'),
+  route('GET', '/api/activities/:id/rsvps'),
+  route('GET', '/api/activities/:id/rsvps/export'),
+  route('DELETE', '/api/activities/:id/rsvps/:rsvpId'),
+  route('PATCH', '/api/sponsorship'),
+  route('POST', '/api/sponsors'),
+  route('PATCH', '/api/sponsors/:id'),
+  route('DELETE', '/api/sponsors/:id'),
+  route('GET', '/api/admin/faq'),
+  route('POST', '/api/admin/faq'),
+  route('PUT', '/api/admin/faq/:id'),
+  route('DELETE', '/api/admin/faq/:id'),
+  route('GET', '/api/admin/executives'),
+  route('POST', '/api/admin/executives'),
+  route('PUT', '/api/admin/executives/:id'),
+  route('DELETE', '/api/admin/executives/:id'),
+  route('GET', '/api/admin/exec-roles'),
+  route('POST', '/api/admin/exec-roles'),
+  route('PATCH', '/api/admin/exec-roles/reorder'),
+  route('PATCH', '/api/admin/exec-roles/:id'),
+  route('DELETE', '/api/admin/exec-roles/:id'),
+  route('GET', '/api/admin/exec-teams'),
+  route('POST', '/api/admin/exec-teams'),
+  route('PATCH', '/api/admin/exec-teams/reorder'),
+  route('PATCH', '/api/admin/exec-teams/:id'),
+  route('DELETE', '/api/admin/exec-teams/:id'),
+  route('POST', '/api/media-entries'),
+  route('PATCH', '/api/media-entries/:id'),
+  route('DELETE', '/api/media-entries/:id'),
+  route('POST', '/api/resolve-cover'),
+]);
+
+export const PROTECTED_ROUTES = Object.freeze([
+  ...AUTHENTICATED_ROUTES,
+  ...ADMIN_ROUTES,
+]);
+
+export const ROUTE_SECURITY = Object.freeze([
+  ...PUBLIC_ROUTES.map((item) => Object.freeze({ ...item, access: 'public' })),
+  ...AUTHENTICATED_ROUTES.map((item) => Object.freeze({ ...item, access: 'authenticated' })),
+  ...ADMIN_ROUTES.map((item) => Object.freeze({ ...item, access: 'admin' })),
+]);
+
+export const PUBLIC_ROUTE_KEYS = new Set(PUBLIC_ROUTES.map(routeKey));
+export const AUTHENTICATED_ROUTE_KEYS = new Set(AUTHENTICATED_ROUTES.map(routeKey));
+export const ADMIN_ROUTE_KEYS = new Set(ADMIN_ROUTES.map(routeKey));
+export const CLASSIFIED_ROUTE_KEYS = new Set(ROUTE_SECURITY.map(routeKey));
