@@ -16,15 +16,15 @@ enum Role {
 }
 
 model User {
-  id                    String    @id @default(uuid())
-  email                 String    @unique
+  id                    String            @id @default(uuid())
+  email                 String            @unique
   passwordHash          String
-  role                  Role      @default(USER)
-  tokenVersion          Int       @default(0)
-  isVerified            Boolean   @default(false)
-  lastCodeSentAt        DateTime  @default(now())
+  role                  Role              @default(USER)
+  tokenVersion          Int               @default(0)
+  isVerified            Boolean           @default(false)
+  lastCodeSentAt        DateTime          @default(now())
   verificationExpiresAt DateTime
-  createdAt             DateTime  @default(now())
+  createdAt             DateTime          @default(now())
   info                  UserInfo?
   sessions              AuthSession[]
   otpCode               OtpCode?
@@ -32,6 +32,20 @@ model User {
   invitationsAccepted   AdminInvitation[] @relation("InvitationAccepter")
   roleChangesMade       RoleChangeAudit[] @relation("RoleChangeActor")
   roleChangesReceived   RoleChangeAudit[] @relation("RoleChangeTarget")
+  passwordResets        PasswordReset[]
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model UserInfo {
@@ -44,62 +58,62 @@ model UserInfo {
 }
 
 model AuthSession {
-  id              String   @id @default(uuid())
-  userId          String
-  refreshTokenHash String  @unique
-  expiresAt       DateTime
-  lastUsedAt      DateTime @default(now())
-  revokedAt       DateTime?
-  revokedReason   String?  @db.VarChar(120)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(uuid())
+  userId           String
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  lastUsedAt       DateTime  @default(now())
+  revokedAt        DateTime?
+  revokedReason    String?   @db.VarChar(120)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
 }
 
 model OtpCode {
-  id                String   @id @default(uuid())
-  userId            String   @unique
+  id                String    @id @default(uuid())
+  userId            String    @unique
   codeHash          String
   expiresAt         DateTime
-  attemptsRemaining Int      @default(5)
+  attemptsRemaining Int       @default(5)
   consumedAt        DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt, consumedAt])
 }
 
 model AdminInvitation {
-  id               String   @id @default(uuid())
-  tokenHash        String   @unique
+  id               String    @id @default(uuid())
+  tokenHash        String    @unique
   invitedEmail     String
-  invitedRole      Role     @default(ADMIN)
+  invitedRole      Role      @default(ADMIN)
   invitedByUserId  String
   acceptedByUserId String?
   expiresAt        DateTime
   usedAt           DateTime?
   revokedAt        DateTime?
-  createdAt        DateTime @default(now())
-  invitedBy        User     @relation("InvitationSender", fields: [invitedByUserId], references: [id], onDelete: Cascade)
-  acceptedBy       User?    @relation("InvitationAccepter", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  invitedBy        User      @relation("InvitationSender", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  acceptedBy       User?     @relation("InvitationAccepter", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
 
   @@index([invitedEmail, expiresAt])
   @@index([invitedByUserId])
 }
 
 model RoleChangeAudit {
-  id          Int      @id @default(autoincrement())
-  actorUserId String
+  id           Int      @id @default(autoincrement())
+  actorUserId  String
   targetUserId String
-  fromRole    Role
-  toRole      Role
-  reason      String?  @db.VarChar(200)
-  createdAt   DateTime @default(now())
-  actor       User     @relation("RoleChangeActor", fields: [actorUserId], references: [id], onDelete: Cascade)
-  target      User     @relation("RoleChangeTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  fromRole     Role
+  toRole       Role
+  reason       String?  @db.VarChar(200)
+  createdAt    DateTime @default(now())
+  actor        User     @relation("RoleChangeActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  target       User     @relation("RoleChangeTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
 
   @@index([targetUserId, createdAt])
   @@index([actorUserId, createdAt])
