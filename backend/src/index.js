@@ -15,6 +15,7 @@ import sponsorshipRoutes from './routes/sponsorshipRoutes.js';
 import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
+import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,7 +30,30 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
+function getAppContentSecurityPolicy() {
+  const uploadsPublicOrigin = process.env.UPLOADS_PUBLIC_ORIGIN?.replace(/\/+$/, '');
+  const imageSources = ["'self'", 'data:', 'blob:'];
+
+  if (uploadsPublicOrigin) {
+    imageSources.push(uploadsPublicOrigin);
+  }
+
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    `img-src ${imageSources.join(' ')}`,
+  ].join('; ');
+}
+
 app.use(cors());
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', getAppContentSecurityPolicy());
+  next();
+});
 app.use(express.json());
 app.use('/api', globalApiLimiter);
 
@@ -37,7 +61,13 @@ app.use('/api', globalApiLimiter);
 app.use('/api/auth', authController);
 
 // Serve uploaded images as static files
-app.use('/uploads', express.static(resolve(__dirname, '../uploads')));
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  dotfiles: 'deny',
+  index: false,
+  immutable: true,
+  maxAge: '1y',
+  setHeaders: setUploadStaticHeaders,
+}));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Backend is running' });
