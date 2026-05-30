@@ -11,6 +11,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
+const DUMMY_PASSWORD_HASH = '$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem';
+const REGISTER_GENERIC_MESSAGE = 'If your email is eligible, a verification code has been sent.';
+const RESEND_GENERIC_MESSAGE = 'If your email has a pending verification, a new code has been sent.';
+const LOGIN_GENERIC_ERROR = 'Invalid email or password.';
 
 // ── Email transporter (Nodemailer + Gmail SMTP) ─────────────────────
 const transporter = nodemailer.createTransport({
@@ -112,15 +116,15 @@ router.post('/register', async (req, res) => {
     }
 
     const existing = await prisma.user.findUnique({ where: { email } });
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // Already verified — can't register again
+    // Already verified — keep the response generic to avoid email enumeration.
     if (existing && existing.isVerified) {
-      return res.status(400).json({ error: 'Email already in use' });
+      return res.status(200).json({ message: REGISTER_GENERIC_MESSAGE });
     }
 
     // Exists but unverified — update password, send code, redirect to verify
     if (existing && !existing.isVerified) {
-      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
       await prisma.user.update({
         where: { email },
         data: {
@@ -138,13 +142,11 @@ router.post('/register', async (req, res) => {
       });
       await sendVerificationCode(email);
       return res.status(200).json({
-        message: 'Registration pending. Please verify your email.',
-        status: 'PENDING_VERIFICATION',
+        message: REGISTER_GENERIC_MESSAGE,
       });
     }
 
     // Brand new user
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     await prisma.user.create({
       data: {
         email,
@@ -162,7 +164,7 @@ router.post('/register', async (req, res) => {
     await sendVerificationCode(email);
 
     return res.status(200).json({
-      message: 'Verification code sent. Please check your email.',
+      message: REGISTER_GENERIC_MESSAGE,
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -180,27 +182,20 @@ router.post('/resend-code', async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    if (!user || user.isVerified) {
-      return res.status(400).json({ error: 'No pending verification for this email' });
+    if (user && !user.isVerified) {
+      const elapsed = Date.now() - user.lastCodeSentAt.getTime();
+
+      if (elapsed >= RESEND_COOLDOWN_MS) {
+        await sendVerificationCode(email);
+
+        await prisma.user.update({
+          where: { email },
+          data: { lastCodeSentAt: new Date() },
+        });
+      }
     }
 
-    // Cooldown check
-    const elapsed = Date.now() - user.lastCodeSentAt.getTime();
-    if (elapsed < RESEND_COOLDOWN_MS) {
-      const waitSeconds = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
-      return res.status(429).json({
-        error: `Please wait ${waitSeconds} seconds before requesting a new code`,
-      });
-    }
-
-    await sendVerificationCode(email);
-
-    await prisma.user.update({
-      where: { email },
-      data: { lastCodeSentAt: new Date() },
-    });
-
-    return res.status(200).json({ message: 'Verification code resent.' });
+    return res.status(200).json({ message: RESEND_GENERIC_MESSAGE });
   } catch (err) {
     console.error('Resend-code error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -246,20 +241,11 @@ router.post('/login', async (req, res) => {
     }
 
     const user = await prisma.user.findUnique({ where: { email }, include: { info: true } });
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
+    const passwordHash = user?.passwordHash || DUMMY_PASSWORD_HASH;
+    const match = await bcrypt.compare(password, passwordHash);
 
-    if (!user.isVerified) {
-      return res.status(403).json({
-        error: 'Please verify your email before logging in',
-        status: 'PENDING_VERIFICATION',
-      });
-    }
-
-    const match = await bcrypt.compare(password, user.passwordHash);
-    if (!match) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!user || !match || !user.isVerified) {
+      return res.status(401).json({ error: LOGIN_GENERIC_ERROR });
     }
 
     const token = generateToken(user);
