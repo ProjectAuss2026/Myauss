@@ -29,7 +29,7 @@ globalThis.prisma = {
   mediaConfig: {
     create: async (args) => record('mediaConfig.create', args, { id: 1, ...args.data }),
     update: async (args) => record('mediaConfig.update', args, { id: args.where.id, ...args.data }),
-    findFirst: async () => record('mediaConfig.findFirst', {}, { id: 1, mediaDriveUrl: 'https://example.com' }),
+    findFirst: async () => record('mediaConfig.findFirst', {}, { id: 1, mediaDriveUrl: 'https://93.184.216.34' }),
   },
   sponsorshipPage: {
     findUnique: async (args) => record('sponsorshipPage.findUnique', args, { id: args.where.id }),
@@ -46,19 +46,18 @@ globalThis.prisma = {
     update: async (args) => record('activity.update', args, { id: args.where.id, ...args.data }),
     findUnique: async () => record('activity.findUnique', {}, { ...validExistingActivity }),
   },
-  mediaEntry: {
-    create: async (args) => record('mediaEntry.create', args, { id: 1, ...args.data, activity: { id: args.data.activityId, title: 'Activity' } }),
-    update: async (args) => record('mediaEntry.update', args, { id: args.where.id, ...args.data, activity: { id: 1, title: 'Activity' } }),
-  },
 };
 
+const { default: validate } = await import('../middleware/validate.js');
+const { postConfigSchema, patchConfigSchema } = await import('../schemas/configSchemas.js');
+const { createActivitySchema, updateActivitySchema } = await import('../schemas/activitySchemas.js');
 const { default: postConfigController } = await import('./postConfigController.js');
 const { default: patchConfigController } = await import('./patchConfigController.js');
 const { createActivity, updateActivity } = await import('./activityController.js');
-const { createSponsor, patchSponsor } = await import('./sponsorshipController.js');
 
 function resetCalls() {
   calls.length = 0;
+  globalThis.prisma.activity.findUnique = async () => record('activity.findUnique', {}, { ...validExistingActivity });
 }
 
 function createRes() {
@@ -76,6 +75,16 @@ function createRes() {
   };
 }
 
+async function runValidated(schema, controller, req) {
+  const res = createRes();
+  let nextCalled = false;
+  await validate(schema)(req, res, async () => {
+    nextCalled = true;
+    await controller(req, res);
+  });
+  return { res, nextCalled, req };
+}
+
 function activityBody(overrides = {}) {
   return {
     title: 'Activity',
@@ -86,192 +95,195 @@ function activityBody(overrides = {}) {
   };
 }
 
-test('postConfigController rejects unsafe CommunicationLink.url before saving', async () => {
+test('postConfigController rejects unsafe CommunicationLink.url through Zod before saving', async () => {
   resetCalls();
-  const res = createRes();
 
-  await postConfigController({
+  const { res, nextCalled } = await runValidated(postConfigSchema, postConfigController, {
     body: {
       type: 'communicationLink',
       data: { platform: 'Discord', url: 'javascript:alert(1)', imgUrl: '__builtin__' },
     },
-  }, res);
+  });
 
+  assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
-  assert.match(res.body.message, /Communication link URL/i);
+  assert.equal(res.body.error, 'Validation failed');
+  assert.equal(res.body.details[0].path, 'body.data.url');
+  assert.match(res.body.details[0].message, /Communication link URL/i);
   assert.equal(calls.some((call) => call.name === 'communicationLink.create'), false);
 });
 
-test('postConfigController rejects private MediaConfig.mediaDriveUrl before saving', async () => {
+test('postConfigController accepts valid existing CommunicationLink payload shape', async () => {
   resetCalls();
-  const res = createRes();
 
-  await postConfigController({
+  const { res, nextCalled, req } = await runValidated(postConfigSchema, postConfigController, {
     body: {
-      type: 'mediaConfig',
-      data: { mediaDriveUrl: 'http://169.254.169.254/latest/meta-data' },
+      type: 'communicationLink',
+      data: {
+        platform: ' Instagram ',
+        url: 'https://93.184.216.34/instagram',
+        imgUrl: '__builtin__',
+        description: ' Updates ',
+        isActive: 'true',
+        ignored: 'not persisted',
+      },
     },
-  }, res);
+  });
 
-  assert.equal(res.statusCode, 400);
-  assert.match(res.body.message, /Photo Drive URL/i);
-  assert.equal(calls.some((call) => call.name === 'mediaConfig.create'), false);
+  assert.equal(nextCalled, true);
+  assert.equal(res.statusCode, 201);
+  const createCall = calls.find((call) => call.name === 'communicationLink.create');
+  assert.deepEqual(createCall.args.data, {
+    platform: 'Instagram',
+    url: 'https://93.184.216.34/instagram',
+    imgUrl: '__builtin__',
+    description: 'Updates',
+    isActive: true,
+  });
+  assert.equal(Object.hasOwn(req.body.data, 'ignored'), false);
 });
 
-test('postConfigController rejects unsafe Sponsor.websiteUrl before saving', async () => {
+test('postConfigController rejects unsafe Sponsor.websiteUrl through Zod before saving', async () => {
   resetCalls();
-  const res = createRes();
 
-  await postConfigController({
+  const { res, nextCalled } = await runValidated(postConfigSchema, postConfigController, {
     body: {
       type: 'sponsor',
       data: { name: 'Sponsor', sponsorshipPageId: 1, websiteUrl: 'file:///etc/passwd' },
     },
-  }, res);
+  });
 
+  assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
-  assert.match(res.body.message, /Sponsor website URL/i);
+  assert.equal(res.body.error, 'Validation failed');
+  assert.equal(res.body.details[0].path, 'body.data.websiteUrl');
   assert.equal(calls.some((call) => call.name === 'sponsor.create'), false);
 });
 
-test('patchConfigController rejects provided unsafe URL fields', async () => {
+test('patchConfigController rejects invalid provided URL fields through Zod before saving', async () => {
   resetCalls();
-  const res = createRes();
 
-  await patchConfigController({
+  const communicationRes = await runValidated(patchConfigSchema, patchConfigController, {
     body: {
       type: 'communicationLink',
       id: 1,
       data: { url: 'data:text/html,<script>alert(1)</script>' },
     },
-  }, res);
+  });
 
-  assert.equal(res.statusCode, 400);
+  assert.equal(communicationRes.nextCalled, false);
+  assert.equal(communicationRes.res.statusCode, 400);
   assert.equal(calls.some((call) => call.name === 'communicationLink.update'), false);
 
   resetCalls();
-  const imageRes = createRes();
-  await patchConfigController({
-    body: {
-      type: 'communicationLink',
-      id: 1,
-      data: { imgUrl: '/admin' },
-    },
-  }, imageRes);
-
-  assert.equal(imageRes.statusCode, 400);
-  assert.equal(calls.some((call) => call.name === 'communicationLink.update'), false);
-
-  resetCalls();
-  const mediaRes = createRes();
-  await patchConfigController({
+  const mediaRes = await runValidated(patchConfigSchema, patchConfigController, {
     body: {
       type: 'mediaConfig',
       data: { mediaDriveUrl: 'http://10.0.0.1' },
     },
-  }, mediaRes);
+  });
 
-  assert.equal(mediaRes.statusCode, 400);
+  assert.equal(mediaRes.nextCalled, false);
+  assert.equal(mediaRes.res.statusCode, 400);
   assert.equal(calls.some((call) => call.name === 'mediaConfig.update'), false);
 });
 
-test('patchConfigController only validates URL fields that are provided', async () => {
+test('patchConfigController accepts partial valid updates and only validates provided fields', async () => {
   resetCalls();
-  const res = createRes();
 
-  await patchConfigController({
+  const { res, nextCalled } = await runValidated(patchConfigSchema, patchConfigController, {
     body: {
       type: 'sponsor',
-      id: 1,
-      data: { name: 'Updated Sponsor' },
+      id: '1',
+      data: { name: ' Updated Sponsor ' },
     },
-  }, res);
+  });
 
+  assert.equal(nextCalled, true);
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(calls.find((call) => call.name === 'sponsor.update').args.data, { name: 'Updated Sponsor' });
+  assert.deepEqual(calls.find((call) => call.name === 'sponsor.update').args, {
+    where: { id: 1 },
+    data: { name: 'Updated Sponsor' },
+  });
 });
 
-test('sponsorship routes reject unsafe Sponsor.websiteUrl on create and update', async () => {
+test('createActivity accepts valid payloads after Zod normalization', async () => {
   resetCalls();
-  const createResObj = createRes();
-  await createSponsor({
-    body: {
-      name: 'Sponsor',
-      sponsorshipPageId: 1,
-      websiteUrl: 'ftp://example.com',
-    },
-  }, createResObj);
 
-  assert.equal(createResObj.statusCode, 400);
-  assert.equal(calls.some((call) => call.name === 'sponsor.create'), false);
+  const { res, nextCalled } = await runValidated(createActivitySchema, createActivity, {
+    body: activityBody({
+      title: ' Powerlifting 101 ',
+      description: ' Learn the basics ',
+      imageUrl: '/uploads/activity.png',
+      externalLink: 'https://93.184.216.34/event',
+      isPublished: 'false',
+      capacity: '40',
+    }),
+  });
 
-  resetCalls();
-  const patchResObj = createRes();
-  await patchSponsor({
-    params: { id: '1' },
-    body: { websiteUrl: 'http://127.0.0.1' },
-  }, patchResObj);
-
-  assert.equal(patchResObj.statusCode, 400);
-  assert.equal(calls.some((call) => call.name === 'sponsor.update'), false);
+  assert.equal(nextCalled, true);
+  assert.equal(res.statusCode, 201);
+  const createCall = calls.find((call) => call.name === 'activity.create');
+  assert.equal(createCall.args.data.title, 'Powerlifting 101');
+  assert.equal(createCall.args.data.description, 'Learn the basics');
+  assert.equal(createCall.args.data.startTime instanceof Date, true);
+  assert.equal(createCall.args.data.endTime instanceof Date, true);
+  assert.equal(createCall.args.data.imageUrl, '/uploads/activity.png');
+  assert.equal(createCall.args.data.externalLink, 'https://93.184.216.34/event');
+  assert.equal(createCall.args.data.isPublished, false);
+  assert.equal(createCall.args.data.capacity, 40);
 });
 
-test('createActivity rejects unsafe externalLink and imageUrl before saving', async () => {
+test('createActivity rejects unsafe externalLink and imageUrl through Zod before saving', async () => {
   resetCalls();
-  const externalLinkRes = createRes();
-  await createActivity({ body: activityBody({ externalLink: 'data:text/html,<script>alert(1)</script>' }) }, externalLinkRes);
+  const externalLinkResult = await runValidated(createActivitySchema, createActivity, {
+    body: activityBody({ externalLink: 'data:text/html,<script>alert(1)</script>' }),
+  });
 
-  assert.equal(externalLinkRes.statusCode, 400);
+  assert.equal(externalLinkResult.nextCalled, false);
+  assert.equal(externalLinkResult.res.statusCode, 400);
   assert.equal(calls.some((call) => call.name === 'activity.create'), false);
 
   resetCalls();
-  const imageUrlRes = createRes();
-  await createActivity({ body: activityBody({ imageUrl: '/admin' }) }, imageUrlRes);
+  const imageUrlResult = await runValidated(createActivitySchema, createActivity, {
+    body: activityBody({ imageUrl: '/admin' }),
+  });
 
-  assert.equal(imageUrlRes.statusCode, 400);
+  assert.equal(imageUrlResult.nextCalled, false);
+  assert.equal(imageUrlResult.res.statusCode, 400);
   assert.equal(calls.some((call) => call.name === 'activity.create'), false);
 });
 
-test('updateActivity rejects unsafe imageUrl when it is provided', async () => {
+test('updateActivity rejects invalid provided URL fields through Zod before saving', async () => {
   resetCalls();
-  const res = createRes();
 
-  await updateActivity({
-    params: { id: '1' },
-    body: { imageUrl: '../uploads/example.png' },
-  }, res);
-
-  assert.equal(res.statusCode, 400);
-  assert.equal(calls.some((call) => call.name === 'activity.update'), false);
-
-  resetCalls();
-  const externalLinkRes = createRes();
-  await updateActivity({
+  const { res, nextCalled } = await runValidated(updateActivitySchema, updateActivity, {
     params: { id: '1' },
     body: { externalLink: 'javascript:alert(1)' },
-  }, externalLinkRes);
+  });
 
-  assert.equal(externalLinkRes.statusCode, 400);
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
   assert.equal(calls.some((call) => call.name === 'activity.update'), false);
 });
 
-test('updateActivity only validates URL fields that are provided on PATCH', async () => {
+test('updateActivity accepts partial valid updates without revalidating stored URL fields', async () => {
   resetCalls();
-  const res = createRes();
-
   globalThis.prisma.activity.findUnique = async () => record('activity.findUnique', {}, {
     ...validExistingActivity,
     imageUrl: 'javascript:alert(1)',
     externalLink: 'data:text/html,<script>alert(1)</script>',
   });
 
-  await updateActivity({
+  const { res, nextCalled } = await runValidated(updateActivitySchema, updateActivity, {
     params: { id: '1' },
-    body: { title: 'Renamed activity' },
-  }, res);
+    body: { title: ' Renamed activity ' },
+  });
 
+  assert.equal(nextCalled, true);
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(calls.find((call) => call.name === 'activity.update').args.data, { title: 'Renamed activity' });
-
-  globalThis.prisma.activity.findUnique = async () => record('activity.findUnique', {}, { ...validExistingActivity });
+  assert.deepEqual(calls.find((call) => call.name === 'activity.update').args, {
+    where: { id: 1 },
+    data: { title: 'Renamed activity' },
+  });
 });

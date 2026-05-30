@@ -1,14 +1,12 @@
 import prisma from '../prismaClient.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');
-const ALLOWED_TYPES = ['communicationLink', 'mediaConfig', 'sponsorshipPage', 'sponsor'];
 
 // If the imgUrl is a local upload (e.g. http://localhost:5000/uploads/file.jpg),
 // extract the filename and delete it from disk.
@@ -32,27 +30,6 @@ const deleteLocalUpload = (imgUrl) => {
 // DELETE /api/config
 const deleteConfigController = async (req, res) => {
   const { type, id } = req.body;
-
-  if (!type || !id) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: '`type` and `id` fields are required.',
-    });
-  }
-
-  if (!ALLOWED_TYPES.includes(type)) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: `Invalid type "${type}". Must be one of: ${ALLOWED_TYPES.join(', ')}.`,
-    });
-  }
-
-  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: '`id` must be a positive integer.',
-    });
-  }
 
   try {
     switch (type) {

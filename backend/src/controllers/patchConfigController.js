@@ -1,99 +1,22 @@
 import prisma from '../prismaClient.js';
-import { isUrlValidationError, validateConfigUrlFields } from '../utils/urlValidation.js';
-
-// Whitelist to strip out fields aren't permitted for that type
-const ALLOWED_FIELDS = {
-  communicationLink: ['platform', 'url', 'imgUrl', 'description', 'isActive'],
-  mediaConfig: ['mediaDriveUrl'],
-  sponsorshipPage: ['pageContent'],
-  sponsor: ['name', 'logoUrl', 'websiteUrl', 'displayOrder', 'sponsorshipPageId'],
-};
 
 // PATCH /api/config
 const patchConfigController = async (req, res) => {
   const { type, id, data } = req.body;
 
-  if (!type || !data || typeof data !== 'object') {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: '`type` and `data` fields are required.',
-    });
-  }
-
-  const allowedTypes = Object.keys(ALLOWED_FIELDS);
-  if (!allowedTypes.includes(type)) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: `Invalid type "${type}". Must be one of: ${allowedTypes.join(', ')}.`,
-    });
-  }
-
-  // `mediaConfig` is a singleton: id is optional. For all other types id is required.
-  if (type !== 'mediaConfig') {
-    if (id === undefined || id === null) {
-      return res.status(400).json({
-        error: 'Bad request',
-        message: '`id` is required.',
-      });
-    }
-    if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
-      return res.status(400).json({
-        error: 'Bad request',
-        message: '`id` must be a positive integer.',
-      });
-    }
-  } else if (id !== undefined && id !== null) {
-    if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
-      return res.status(400).json({
-        error: 'Bad request',
-        message: '`id` must be a positive integer.',
-      });
-    }
-  }
-
-  // Strip any keys not in the whitelist
-  const filteredData = {};
-  for (const field of ALLOWED_FIELDS[type]) {
-    if (field in data) filteredData[field] = data[field];
-  }
-
-  // Validate description length for communicationLink
-  if (type === 'communicationLink' && filteredData.description && filteredData.description.length > 150) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: 'Description must be 150 characters or fewer.',
-    });
-  }
-
-  if (Object.keys(filteredData).length === 0) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: `No valid fields provided for type "${type}". Allowed fields: ${ALLOWED_FIELDS[type].join(', ')}.`,
-    });
-  }
-
   try {
-    await validateConfigUrlFields(type, filteredData);
-
     let updated;
 
     switch (type) {
       case 'communicationLink':
         updated = await prisma.communicationLink.update({
           where: { id },
-          data: filteredData,
+          data,
         });
         break;
 
       case 'mediaConfig': {
-        const newUrl = filteredData.mediaDriveUrl;
-        if (!newUrl) {
-          return res.status(400).json({
-            error: 'Bad request',
-            message: 'Photo Drive URL is required.',
-          });
-        }
-
+        const newUrl = data.mediaDriveUrl;
         if (id) {
           updated = await prisma.mediaConfig.update({
             where: { id },
@@ -118,7 +41,7 @@ const patchConfigController = async (req, res) => {
       case 'sponsorshipPage':
         updated = await prisma.sponsorshipPage.update({
           where: { id },
-          data: filteredData,
+          data,
           include: { sponsors: true },
         });
         break;
@@ -126,7 +49,7 @@ const patchConfigController = async (req, res) => {
       case 'sponsor':
         updated = await prisma.sponsor.update({
           where: { id },
-          data: filteredData,
+          data,
         });
         break;
     }
@@ -138,12 +61,6 @@ const patchConfigController = async (req, res) => {
       updated,
     });
   } catch (error) {
-    if (isUrlValidationError(error)) {
-      return res.status(400).json({
-        error: 'Bad request',
-        message: error.message,
-      });
-    }
     // P2025 means record with that ID doesn't exist
     if (error.code === 'P2025') {
       return res.status(404).json({

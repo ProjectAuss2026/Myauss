@@ -4,6 +4,8 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import prisma from '../prismaClient.js';
 import { authenticate } from '../middleware/authMiddleware.js';
+import validate from '../middleware/validate.js';
+import { loginSchema, registerSchema, resendCodeSchema, verifySchema } from '../schemas/authSchemas.js';
 
 const router = Router();
 const SALT_ROUNDS = 10;
@@ -80,21 +82,9 @@ function formatUser(user) {
 }
 
 // ── POST /auth/register ─────────────────────────────────────────────
-router.post('/register', async (req, res) => {
+router.post('/register', validate(registerSchema), async (req, res) => {
   try {
     const { email, password, role, execCode, firstName, lastName, studentId } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-    if (!firstName || !lastName) {
-      return res.status(400).json({ error: 'First name and last name are required' });
-    }
-    if (!studentId) {
-      return res.status(400).json({ error: 'Student ID is required' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
 
     // Determine the user role
     let userRole = 'USER';
@@ -114,7 +104,7 @@ router.post('/register', async (req, res) => {
     const existing = await prisma.user.findUnique({ where: { email } });
 
     // Already verified — can't register again
-    if (existing && existing.isVerified) {
+    if (existing?.isVerified) {
       return res.status(400).json({ error: 'Email already in use' });
     }
 
@@ -171,12 +161,9 @@ router.post('/register', async (req, res) => {
 });
 
 // ── POST /auth/resend-code ──────────────────────────────────────────
-router.post('/resend-code', async (req, res) => {
+router.post('/resend-code', validate(resendCodeSchema), async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
 
     const user = await prisma.user.findUnique({ where: { email } });
 
@@ -208,12 +195,9 @@ router.post('/resend-code', async (req, res) => {
 });
 
 // ── POST /auth/verify ───────────────────────────────────────────────
-router.post('/verify', async (req, res) => {
+router.post('/verify', validate(verifySchema), async (req, res) => {
   try {
     const { email, code } = req.body;
-    if (!email || !code) {
-      return res.status(400).json({ error: 'Email and verification code are required' });
-    }
 
     const isValid = verifyCode(email, code);
     if (!isValid) {
@@ -238,12 +222,9 @@ router.post('/verify', async (req, res) => {
 });
 
 // ── POST /auth/login ────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', validate(loginSchema), async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
 
     const user = await prisma.user.findUnique({ where: { email }, include: { info: true } });
     if (!user) {

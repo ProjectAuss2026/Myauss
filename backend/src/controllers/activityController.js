@@ -1,10 +1,16 @@
 import prisma from '../prismaClient.js';
-import { unlink } from 'fs/promises';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { isUrlValidationError, validateActivityUrlFields } from '../utils/urlValidation.js';
+import { unlink } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+async function deleteUploadedActivityImage(imageUrl) {
+  if (!imageUrl?.startsWith('/uploads/')) return;
+  const filename = imageUrl.slice('/uploads/'.length);
+  const filePath = resolve(__dirname, '../../uploads', filename);
+  await unlink(filePath).catch(() => {});
+}
 
 // GET /api/activities/all — admin only (includes unpublished)
 export const getAllActivitiesAdmin = async (_req, res) => {
@@ -37,60 +43,17 @@ export const getActivities = async (_req, res) => {
 export const createActivity = async (req, res) => {
   const { title, description, startTime, endTime, imageUrl, externalLink, isPublished, capacity } = req.body;
 
-  if (!title || !title.trim()) {
-    return res.status(400).json({ error: 'title is required' });
-  }
-  if (!description || !description.trim()) {
-    return res.status(400).json({ error: 'description is required' });
-  }
-  if (!startTime) {
-    return res.status(400).json({ error: 'startTime is required' });
-  }
-  if (!endTime) {
-    return res.status(400).json({ error: 'endTime is required' });
-  }
-
-  const parsedStart = new Date(startTime);
-  const parsedEnd = new Date(endTime);
-  if (isNaN(parsedStart.getTime())) {
-    return res.status(400).json({ error: 'startTime is not a valid date' });
-  }
-  if (isNaN(parsedEnd.getTime())) {
-    return res.status(400).json({ error: 'endTime is not a valid date' });
-  }
-  if (parsedEnd <= parsedStart) {
-    return res.status(400).json({ error: 'endTime must be after startTime' });
-  }
-
-  let parsedCapacity = null;
-  if (capacity !== undefined && capacity !== null && capacity !== '') {
-    parsedCapacity = parseInt(capacity, 10);
-    if (isNaN(parsedCapacity) || parsedCapacity < 0) {
-      return res.status(400).json({ error: 'capacity must be a non-negative integer' });
-    }
-  }
-
-  const urls = { imageUrl, externalLink };
-  try {
-    await validateActivityUrlFields(urls);
-  } catch (err) {
-    if (isUrlValidationError(err)) {
-      return res.status(400).json({ error: err.message });
-    }
-    throw err;
-  }
-
   try {
     const activity = await prisma.activity.create({
       data: {
-        title: title.trim(),
-        description: description.trim(),
-        startTime: parsedStart,
-        endTime: parsedEnd,
-        imageUrl: urls.imageUrl || null,
-        externalLink: urls.externalLink || null,
-        isPublished: isPublished !== undefined ? Boolean(isPublished) : true,
-        capacity: parsedCapacity,
+        title,
+        description,
+        startTime,
+        endTime,
+        imageUrl: imageUrl || null,
+        externalLink: externalLink || null,
+        isPublished: isPublished ?? true,
+        capacity: capacity ?? null,
       },
     });
     return res.status(201).json(activity);
@@ -102,10 +65,7 @@ export const createActivity = async (req, res) => {
 
 // PATCH /api/activities/:id — admin only
 export const updateActivity = async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id || isNaN(id)) {
-    return res.status(400).json({ error: 'Valid id is required' });
-  }
+  const id = req.params.id;
 
   const { title, description, startTime, endTime, imageUrl, externalLink, isPublished, capacity } = req.body;
 
@@ -117,24 +77,10 @@ export const updateActivity = async (req, res) => {
 
     const data = {};
 
-    if (title !== undefined) {
-      if (!String(title).trim()) return res.status(400).json({ error: 'title cannot be empty' });
-      data.title = String(title).trim();
-    }
-    if (description !== undefined) {
-      if (!String(description).trim()) return res.status(400).json({ error: 'description cannot be empty' });
-      data.description = String(description).trim();
-    }
-    if (startTime !== undefined) {
-      const d = new Date(startTime);
-      if (isNaN(d.getTime())) return res.status(400).json({ error: 'startTime is not a valid date' });
-      data.startTime = d;
-    }
-    if (endTime !== undefined) {
-      const d = new Date(endTime);
-      if (isNaN(d.getTime())) return res.status(400).json({ error: 'endTime is not a valid date' });
-      data.endTime = d;
-    }
+    if (title !== undefined) data.title = title;
+    if (description !== undefined) data.description = description;
+    if (startTime !== undefined) data.startTime = startTime;
+    if (endTime !== undefined) data.endTime = endTime;
 
     const effectiveStart = data.startTime ?? existing.startTime;
     const effectiveEnd = data.endTime ?? existing.endTime;
@@ -142,38 +88,19 @@ export const updateActivity = async (req, res) => {
       return res.status(400).json({ error: 'endTime must be after startTime' });
     }
 
-    await validateActivityUrlFields(req.body);
-
-    if (imageUrl !== undefined) data.imageUrl = req.body.imageUrl || null;
-    if (externalLink !== undefined) data.externalLink = req.body.externalLink || null;
-    if (isPublished !== undefined) data.isPublished = Boolean(isPublished);
-    if (capacity !== undefined) {
-      if (capacity === null || capacity === '') {
-        data.capacity = null;
-      } else {
-        const parsedCapacity = parseInt(capacity, 10);
-        if (isNaN(parsedCapacity) || parsedCapacity < 0) {
-          return res.status(400).json({ error: 'capacity must be a non-negative integer' });
-        }
-        data.capacity = parsedCapacity;
-      }
-    }
+    if (imageUrl !== undefined) data.imageUrl = imageUrl || null;
+    if (externalLink !== undefined) data.externalLink = externalLink || null;
+    if (isPublished !== undefined) data.isPublished = isPublished;
+    if (capacity !== undefined) data.capacity = capacity;
 
     // If the image changed and the old one was a local upload, delete old file
     if (imageUrl !== undefined && imageUrl !== existing.imageUrl) {
-      if (existing.imageUrl && existing.imageUrl.startsWith('/uploads/')) {
-        const filename = existing.imageUrl.slice('/uploads/'.length);
-        const filePath = resolve(__dirname, '../../uploads', filename);
-        await unlink(filePath).catch(() => {});
-      }
+      await deleteUploadedActivityImage(existing.imageUrl);
     }
 
     const activity = await prisma.activity.update({ where: { id }, data });
     return res.json(activity);
   } catch (err) {
-    if (isUrlValidationError(err)) {
-      return res.status(400).json({ error: err.message });
-    }
     console.error('updateActivity error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -181,10 +108,7 @@ export const updateActivity = async (req, res) => {
 
 // DELETE /api/activities/:id — admin only
 export const deleteActivity = async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id || isNaN(id)) {
-    return res.status(400).json({ error: 'Valid id is required' });
-  }
+  const id = req.params.id;
 
   try {
     const activity = await prisma.activity.findUnique({ where: { id } });
@@ -195,11 +119,7 @@ export const deleteActivity = async (req, res) => {
     await prisma.activity.delete({ where: { id } });
 
     // Delete the associated uploaded image if it's a local file
-    if (activity.imageUrl && activity.imageUrl.startsWith('/uploads/')) {
-      const filename = activity.imageUrl.slice('/uploads/'.length);
-      const filePath = resolve(__dirname, '../../uploads', filename);
-      await unlink(filePath).catch(() => {}); // silently ignore if already gone
-    }
+    await deleteUploadedActivityImage(activity.imageUrl);
 
     return res.status(200).json({ message: 'Activity deleted' });
   } catch (err) {
