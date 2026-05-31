@@ -3,12 +3,26 @@ import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
+const IMAGE_SRC_VALUES = [
+  "'self'",
+  'data:',
+  'blob:',
+  'https://prodcdn.sporty.co.nz',
+  'https://images.squarespace-cdn.com',
+  'https://www.lskd.co',
+  'https://upload.wikimedia.org',
+  'https://nevafoldcollection.com',
+  'https://avancus.com',
+  'https://assets.shipcode.com',
+  'https://images.pixieset.com',
+]
+
 const SECURITY_HEADERS = {
   'Content-Security-Policy': [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     "style-src 'self' 'unsafe-inline' https:",
-    "img-src 'self' data: blob: https:",
+    `img-src ${IMAGE_SRC_VALUES.join(' ')}`,
     "font-src 'self' data: https:",
     "connect-src 'self' http: https: ws: wss:",
     "frame-ancestors 'none'",

@@ -24,6 +24,20 @@ dotenv.config({ path: resolve(__dirname, '../../.env') });
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const IMAGE_SRC_VALUES = [
+  "'self'",
+  'data:',
+  'blob:',
+  'https://prodcdn.sporty.co.nz',
+  'https://images.squarespace-cdn.com',
+  'https://www.lskd.co',
+  'https://upload.wikimedia.org',
+  'https://nevafoldcollection.com',
+  'https://avancus.com',
+  'https://assets.shipcode.com',
+  'https://images.pixieset.com',
+];
+
 console.log('Environment loaded - PORT:', PORT);
 console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
 
@@ -35,7 +49,7 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        imgSrc: ["'self'",'data:'],
+        imgSrc: IMAGE_SRC_VALUES,
         connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
         objectSrc: ["'none'"],
