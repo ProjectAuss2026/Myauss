@@ -130,6 +130,7 @@ export function Verify() {
       const res = await fetch('/api/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, code: fullCode }),
       });
       const data = await res.json();

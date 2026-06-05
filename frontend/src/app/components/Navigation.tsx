@@ -23,6 +23,8 @@ export function Navigation() {
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [profileDropdown, setProfileDropdown] = useState(false);
+  const hasAdminAccess = user?.role === 'ADMIN' || user?.role === 'OWNER';
+  const roleLabel = user?.role === 'OWNER' ? 'Owner' : user?.role === 'ADMIN' ? 'Executive' : 'Member';
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -104,7 +106,7 @@ export function Navigation() {
                           {user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email}
                         </p>
                         <p className="text-white/40 text-xs mt-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>
-                          {user?.role === 'ADMIN' ? 'Executive' : 'Member'}
+                          {roleLabel}
                         </p>
                       </div>
                       <div className="py-1">
@@ -116,7 +118,7 @@ export function Navigation() {
                           <User className="w-4 h-4" />
                           My Profile
                         </button>
-                        {user?.role === 'ADMIN' && (
+                        {hasAdminAccess && (
                           <>
                             <button
                               onClick={() => { setProfileDropdown(false); navigate('/admin'); }}
@@ -205,7 +207,7 @@ export function Navigation() {
                     <User className="w-4 h-4" />
                     My Profile
                   </Link>
-                  {user?.role === 'ADMIN' && (
+                  {hasAdminAccess && (
                     <>
                       <Link
                         to="/admin"
