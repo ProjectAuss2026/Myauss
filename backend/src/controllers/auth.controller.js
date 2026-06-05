@@ -718,8 +718,15 @@ router.post('/admin/invitations/accept', authenticate, async (req, res) => {
     const updatedUser = await prisma.$transaction(async (tx) => {
       const promoted = await tx.user.update({
         where: { id: user.id },
-        data: { role: invitation.invitedRole },
+        data: {
+          role: invitation.invitedRole,
+          tokenVersion: { increment: 1 },
+        },
         include: { info: true },
+      });
+      await tx.authSession.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: now, revokedReason: 'role-promoted' },
       });
       await tx.adminInvitation.update({
         where: { id: invitation.id },
@@ -804,10 +811,19 @@ router.post('/admin/users/:userId/promote', authenticate, async (req, res) => {
     if (target.role !== 'USER') return res.status(409).json({ error: `Only USER can be promoted (current: ${target.role})` });
 
     const promoted = await prisma.$transaction(async (tx) => {
+      const now = new Date();
       const updated = await tx.user.update({
         where: { id: target.id },
-        data: { role: 'ADMIN' },
+        data: {
+          role: 'ADMIN',
+          tokenVersion: { increment: 1 },
+        },
         include: { info: true },
+      });
+
+      await tx.authSession.updateMany({
+        where: { userId: target.id, revokedAt: null },
+        data: { revokedAt: now, revokedReason: 'role-promoted' },
       });
 
       await tx.adminInvitation.updateMany({
@@ -816,7 +832,7 @@ router.post('/admin/users/:userId/promote', authenticate, async (req, res) => {
           usedAt: null,
           revokedAt: null,
         },
-        data: { revokedAt: new Date() },
+        data: { revokedAt: now },
       });
 
       await tx.roleChangeAudit.create({
