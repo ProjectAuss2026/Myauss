@@ -1,3 +1,4 @@
+import '../env.js';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 
@@ -102,7 +103,7 @@ export function setRefreshCookie(res, refreshToken) {
     httpOnly: true,
     secure: NODE_ENV === 'production',
     sameSite: 'strict',
-    path: '/api/auth/refresh',
+    path: '/api/auth',
     maxAge: REFRESH_TOKEN_TTL_MS,
   });
 }
@@ -112,7 +113,7 @@ export function clearRefreshCookie(res) {
     httpOnly: true,
     secure: NODE_ENV === 'production',
     sameSite: 'strict',
-    path: '/api/auth/refresh',
+    path: '/api/auth',
   });
 }
 

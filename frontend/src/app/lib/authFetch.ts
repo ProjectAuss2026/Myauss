@@ -1,5 +1,6 @@
 const TOKEN_KEY = 'token';
 const USER_KEY = 'user';
+let refreshInFlight: Promise<string | null> | null = null;
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -21,7 +22,14 @@ function withAuthHeader(headers: Headers, token: string | null): Headers {
   return headers;
 }
 
-export async function refreshAccessToken(): Promise<string | null> {
+function withRefreshedAuthHeader(headers: Headers, token: string | null): Headers {
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return headers;
+}
+
+async function performRefreshAccessToken(): Promise<string | null> {
   const res = await fetch('/api/auth/refresh', {
     method: 'POST',
     credentials: 'include',
@@ -46,6 +54,15 @@ export async function refreshAccessToken(): Promise<string | null> {
   return token;
 }
 
+export async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = performRefreshAccessToken().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 export async function fetchWithAuth(url: string, init: RequestInit = {}, retryOnUnauthorized = true): Promise<Response> {
   const initialHeaders = new Headers(init.headers || {});
   const token = getStoredToken();
@@ -68,6 +85,6 @@ export async function fetchWithAuth(url: string, init: RequestInit = {}, retryOn
   return fetch(url, {
     ...init,
     credentials: 'include',
-    headers: withAuthHeader(retryHeaders, refreshedToken),
+    headers: withRefreshedAuthHeader(retryHeaders, refreshedToken),
   });
 }

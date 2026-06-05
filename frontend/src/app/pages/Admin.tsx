@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { fetchWithAuth } from '../lib/authFetch';
 import {
   Plus, Trash2, Edit3, Save, X, Star, Users,
   Camera, ExternalLink, LogOut, Shield, Image as ImageIcon,
@@ -395,13 +396,11 @@ function parseCapacity(value: string): number | null {
  * Upload image file to /api/upload
  */
 async function uploadActivityImage(file: File): Promise<string> {
-  const token = localStorage.getItem('token');
   const formData = new FormData();
   formData.append('image', file);
   
-  const response = await fetch('/api/upload', {
+  const response = await fetchWithAuth('/api/upload', {
     method: 'POST',
-    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
     body: formData,
   });
   
@@ -483,8 +482,6 @@ export function Admin() {
   const isOwner = user?.role === 'OWNER';
 
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, [])
-
-  const getAuthToken = () => localStorage.getItem('token');
 
   const getApiErrorMessage = async (response: Response) => {
     const fallback = `Request failed: ${response.status}`;
@@ -600,17 +597,8 @@ export function Admin() {
       try {
         setActivityLoading(true);
         setActivityError(null);
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setActivityError('No authentication token found');
-          return;
-        }
-        
-        const response = await fetch(`/api/activities/all`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
+        const response = await fetchWithAuth(`/api/activities/all`, {
+          headers: { 'Content-Type': 'application/json' },
         });
         if (!response.ok) {
           throw new Error(`Failed to fetch activities: ${response.statusText}`);
@@ -632,17 +620,15 @@ export function Admin() {
   // ── Load executives from backend ──
   useEffect(() => {
     if (!isAdmin || !user) return;
-    const token = localStorage.getItem('token');
-    if (!token) return;
 
     const loadExecs = async () => {
       try {
         setExecLoading(true);
         setExecError(null);
         const [groupsRes, rolesRes, teamsRes] = await Promise.all([
-          fetch('/api/admin/executives', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/admin/exec-roles', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/admin/exec-teams', { headers: { Authorization: `Bearer ${token}` } }),
+          fetchWithAuth('/api/admin/executives'),
+          fetchWithAuth('/api/admin/exec-roles'),
+          fetchWithAuth('/api/admin/exec-teams'),
         ]);
         if (groupsRes.ok) {
           const payload = await groupsRes.json();
@@ -671,14 +657,12 @@ export function Admin() {
   // ── Load FAQ from backend ──
   useEffect(() => {
     if (!isAdmin || !user) return;
-    const token = localStorage.getItem('token');
-    if (!token) return;
 
     const loadFaq = async () => {
       try {
         setFaqLoading(true);
         setFaqError(null);
-        const res = await fetch('/api/admin/faq', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetchWithAuth('/api/admin/faq');
         if (res.ok) {
           const payload = await res.json();
           setFaqs(Array.isArray(payload?.data) ? payload.data : []);
@@ -696,12 +680,10 @@ export function Admin() {
   }, [isAdmin, user]);
 
   const refreshExecs = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
     const [groupsRes, rolesRes, teamsRes] = await Promise.all([
-      fetch('/api/admin/executives', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/admin/exec-roles', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/admin/exec-teams', { headers: { Authorization: `Bearer ${token}` } }),
+      fetchWithAuth('/api/admin/executives'),
+      fetchWithAuth('/api/admin/exec-roles'),
+      fetchWithAuth('/api/admin/exec-teams'),
     ]);
     if (groupsRes.ok) {
       const p = await groupsRes.json();
@@ -719,18 +701,11 @@ export function Admin() {
 
   const loadAccessUsers = async () => {
     if (!isOwner) return;
-    const token = getAuthToken();
-    if (!token) {
-      setAccessError('No authentication token found');
-      return;
-    }
 
     try {
       setAccessLoading(true);
       setAccessError(null);
-      const res = await fetch('/api/auth/admin/users', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetchWithAuth('/api/auth/admin/users');
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       const payload = await res.json();
       setAccessUsers(Array.isArray(payload?.data) ? payload.data : []);
@@ -759,22 +734,12 @@ export function Admin() {
     }
 
     let cancelled = false;
-    const token = getAuthToken();
-    if (!token) {
-      setSearchingInvitees(false);
-      setInviteSuggestions([]);
-      setSelectedInvitee(null);
-      setInviteSearchMessage('No authentication token');
-      return;
-    }
 
     const timer = setTimeout(async () => {
       if (cancelled) return;
       setSearchingInvitees(true);
       try {
-        const res = await fetch(`/api/auth/admin/users/search?query=${encodeURIComponent(query)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetchWithAuth(`/api/auth/admin/users/search?query=${encodeURIComponent(query)}`);
         if (!res.ok) {
           if (res.status === 404) {
             if (cancelled) return;
@@ -833,17 +798,11 @@ export function Admin() {
       return;
     }
 
-    const token = getAuthToken();
-    if (!token) {
-      showToast('No authentication token', 'error');
-      return;
-    }
-
     setIssuingInvite(true);
     try {
-      const res = await fetch(`/api/auth/admin/users/${selectedUser.id}/promote`, {
+      const res = await fetchWithAuth(`/api/auth/admin/users/${selectedUser.id}/promote`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reason: inviteReason.trim() || undefined,
         }),
@@ -867,17 +826,11 @@ export function Admin() {
   const demoteAdminUser = async (targetUser: AccessUser) => {
     if (!window.confirm(`Demote ${targetUser.email} to member?`)) return;
 
-    const token = getAuthToken();
-    if (!token) {
-      showToast('No authentication token', 'error');
-      return;
-    }
-
     setDemotingUserId(targetUser.id);
     try {
-      const res = await fetch(`/api/auth/admin/users/${targetUser.id}/demote`, {
+      const res = await fetchWithAuth(`/api/auth/admin/users/${targetUser.id}/demote`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Offboarded from executive/admin team' }),
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
@@ -906,8 +859,6 @@ export function Admin() {
     const isEdit = exec.id > 0;
     try {
       setExecError(null);
-      const token = getAuthToken();
-      if (!token) { setExecError('No authentication token found'); return; }
       const payload = {
         name: exec.name,
         roleId: exec.role?.id,
@@ -918,9 +869,9 @@ export function Admin() {
         email: exec.email || null,
         isActive: exec.isActive ?? true,
       };
-      const res = await fetch(isEdit ? `/api/admin/executives/${exec.id}` : '/api/admin/executives', {
+      const res = await fetchWithAuth(isEdit ? `/api/admin/executives/${exec.id}` : '/api/admin/executives', {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
@@ -938,11 +889,8 @@ export function Admin() {
   const deleteExec = async (id: number) => {
     try {
       setExecError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const res = await fetch(`/api/admin/executives/${id}`, {
+      const res = await fetchWithAuth(`/api/admin/executives/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       await refreshExecs();
@@ -958,16 +906,14 @@ export function Admin() {
     const isEdit = faq.id > 0;
     try {
       setFaqError(null);
-      const token = getAuthToken();
-      if (!token) { setFaqError('No authentication token found'); return; }
       const payload = { question: faq.question, answer: faq.answer, isActive: faq.isActive ?? true };
-      const res = await fetch(isEdit ? `/api/admin/faq/${faq.id}` : '/api/admin/faq', {
+      const res = await fetchWithAuth(isEdit ? `/api/admin/faq/${faq.id}` : '/api/admin/faq', {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
-      const refreshRes = await fetch('/api/admin/faq', { headers: { Authorization: `Bearer ${token}` } });
+      const refreshRes = await fetchWithAuth('/api/admin/faq');
       if (refreshRes.ok) {
         const p = await refreshRes.json();
         setFaqs(Array.isArray(p?.data) ? p.data : []);
@@ -985,11 +931,8 @@ export function Admin() {
   const deleteFaq = async (id: number) => {
     try {
       setFaqError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const res = await fetch(`/api/admin/faq/${id}`, {
+      const res = await fetchWithAuth(`/api/admin/faq/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       setFaqs((prev) => prev.filter((f) => f.id !== id));
@@ -1021,11 +964,6 @@ export function Admin() {
   const saveSponsor = async (sponsor: Sponsor) => {
     try {
       setSponsorError(null);
-      const token = getAuthToken();
-      if (!token) {
-        setSponsorError('No authentication token found');
-        return;
-      }
       if (!sponsorshipPageId) {
         setSponsorError('Sponsorship page is not seeded yet.');
         return;
@@ -1040,10 +978,9 @@ export function Admin() {
       };
 
       if (sponsor.id > 0) {
-        const response = await fetch(`/api/sponsors/${sponsor.id}`, {
+        const response = await fetchWithAuth(`/api/sponsors/${sponsor.id}`, {
           method: 'PATCH',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -1061,10 +998,9 @@ export function Admin() {
           sponsorshipPageId: updated.sponsorshipPageId,
         } : s)));
       } else {
-        const response = await fetch('/api/sponsors', {
+        const response = await fetchWithAuth('/api/sponsors', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -1096,12 +1032,9 @@ export function Admin() {
   const deleteSponsor = async (id: number) => {
     try {
       setSponsorError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
       setSponsors((prev) => prev.filter((s) => s.id !== id));
-      const response = await fetch(`/api/sponsors/${id}`, {
+      const response = await fetchWithAuth(`/api/sponsors/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response));
       const refetch = await fetch('/api/sponsorship', { cache: 'no-store' });
@@ -1127,11 +1060,6 @@ export function Admin() {
   const saveMedia = async (item: MediaItem) => {
     try {
       setMediaError(null);
-      const token = getAuthToken();
-      if (!token) {
-        setMediaError('No authentication token found');
-        return;
-      }
       const payload = {
         activityId: item.activityId,
         mediaDriveUrl: item.mediaDriveUrl,
@@ -1139,10 +1067,9 @@ export function Admin() {
         overrideCover: item.overrideCover || null,
       };
 
-      const response = await fetch(item.id > 0 ? `/api/media-entries/${item.id}` : '/api/media-entries', {
+      const response = await fetchWithAuth(item.id > 0 ? `/api/media-entries/${item.id}` : '/api/media-entries', {
         method: item.id > 0 ? 'PATCH' : 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -1178,11 +1105,8 @@ export function Admin() {
   const deleteMedia = async (id: number) => {
     try {
       setMediaError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const response = await fetch(`/api/media-entries/${id}`, {
+      const response = await fetchWithAuth(`/api/media-entries/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response));
       setMedia((prev) => prev.filter((m) => m.id !== id));
@@ -1208,11 +1132,6 @@ export function Admin() {
   const saveActivity = async (activity: Activity) => {
     try {
       setActivityError(null);
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setActivityError('No authentication token found');
-        return;
-      }
 
       const isPublished = activity.isPublished ?? activity.status !== 'archived';
 
@@ -1229,10 +1148,9 @@ export function Admin() {
 
       if (activity.id > 0) {
         // Update existing
-        const response = await fetch(`/api/activities/${activity.id}`, {
+        const response = await fetchWithAuth(`/api/activities/${activity.id}`, {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -1247,10 +1165,9 @@ export function Admin() {
         );
       } else {
         // Create new
-        const response = await fetch(`/api/activities`, {
+        const response = await fetchWithAuth(`/api/activities`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -1276,11 +1193,9 @@ export function Admin() {
   const deleteActivity = async (id: number) => {
     try {
       setActivityError(null);
-      const token = localStorage.getItem('token');
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const response = await fetch(`/api/activities/${id}`, {
+      const response = await fetchWithAuth(`/api/activities/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
       });
       if (!response.ok) throw new Error(`Failed to delete activity: ${response.statusText}`);
       setActivities((prev) => prev.filter((a) => a.id !== id));
@@ -1992,12 +1907,10 @@ function PhotoDriveLinkPanel() {
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/config', {
+      const res = await fetchWithAuth('/api/config', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           type: 'mediaConfig',
@@ -2285,10 +2198,9 @@ function MediaForm({ initial, onSave, activities, onCancel }: { initial: MediaIt
     setIsResolvingCover(true);
     setCoverResolveError(null);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/resolve-cover', {
+      const res = await fetchWithAuth('/api/resolve-cover', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
       const data = await res.json();
@@ -3615,10 +3527,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   const addRole = async () => {
     if (!newRoleName.trim()) return;
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/admin/exec-roles', {
+    const res = await fetchWithAuth('/api/admin/exec-roles', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newRoleName.trim() }),
     });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to add role'); return; }
@@ -3628,8 +3539,7 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
 
   const deleteRole = async (id: number) => {
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api/admin/exec-roles/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetchWithAuth(`/api/admin/exec-roles/${id}`, { method: 'DELETE' });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to delete role'); return; }
     await onRefresh();
   };
@@ -3637,10 +3547,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/admin/exec-teams', {
+    const res = await fetchWithAuth('/api/admin/exec-teams', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newTeamName.trim() }),
     });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to add team'); return; }
@@ -3650,8 +3559,7 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
 
   const deleteTeam = async (id: number) => {
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api/admin/exec-teams/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetchWithAuth(`/api/admin/exec-teams/${id}`, { method: 'DELETE' });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to delete team'); return; }
     await onRefresh();
   };
@@ -3667,11 +3575,10 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   const saveEdit = async (id: number, list: 'roles' | 'teams') => {
     if (!editingName.trim()) return;
     setError(null);
-    const token = localStorage.getItem('token');
     const url = list === 'roles' ? `/api/admin/exec-roles/${id}` : `/api/admin/exec-teams/${id}`;
-    const res = await fetch(url, {
+    const res = await fetchWithAuth(url, {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editingName.trim() }),
     });
     if (!res.ok) {
@@ -3691,7 +3598,6 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   ) => {
     setDragOverKey(null);
     if (fromIndex === toIndex) return;
-    const token = localStorage.getItem('token');
 
     const reorder = <T extends ExecRoleItem | ExecTeamItem>(items: T[]): T[] => {
       const next = [...items];
@@ -3707,9 +3613,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
       pendingFlip.current = 'roles';
       setLocalRoles(reordered); // optimistic update — this IS the source of truth
       onRolesReorder(reordered); // live-resort exec member cards without a fetch
-      const res = await fetch('/api/admin/exec-roles/reorder', {
+      const res = await fetchWithAuth('/api/admin/exec-roles/reorder', {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
       });
       if (!res.ok) { setLocalRoles(prevRoles); setError('Failed to reorder roles'); }
@@ -3719,9 +3625,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
       flipSnapshot.current = captureFlip(teamsListRef.current);
       pendingFlip.current = 'teams';
       setLocalTeams(reordered); // optimistic update
-      const res = await fetch('/api/admin/exec-teams/reorder', {
+      const res = await fetchWithAuth('/api/admin/exec-teams/reorder', {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
       });
       if (!res.ok) { setLocalTeams(prevTeams); setError('Failed to reorder teams'); }

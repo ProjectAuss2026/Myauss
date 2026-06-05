@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import nodemailer from 'nodemailer';
+import '../env.js';
 import prisma from '../prismaClient.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import {
@@ -35,7 +36,9 @@ const OTP_MAX_ATTEMPTS = 5;
 const INVITATION_WINDOW_HOURS = 72;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_RE = /^\d{6}$/;
-const OTP_PEPPER = process.env.OTP_PEPPER || process.env.JWT_SECRET || '';
+function getOtpPepper() {
+  return process.env.OTP_PEPPER || process.env.JWT_SECRET || '';
+}
 
 // ── Email transporter (Nodemailer + Gmail SMTP) ─────────────────────
 const transporter = nodemailer.createTransport({
@@ -54,7 +57,7 @@ function generateVerificationCode() {
 }
 
 function hashVerificationCode(code) {
-  return crypto.createHmac('sha256', OTP_PEPPER).update(String(code)).digest('hex');
+  return crypto.createHmac('sha256', getOtpPepper()).update(String(code)).digest('hex');
 }
 
 function timingSafeCodeMatch(expectedHash, code) {
