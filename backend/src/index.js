@@ -2,7 +2,7 @@ import './env.js';
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
+import { dirname } from 'path';
 import authController from './controllers/auth.controller.js';
 import getPublicConfigController from './controllers/getPublicConfigController.js';
 import { authenticate } from './middleware/authMiddleware.js';

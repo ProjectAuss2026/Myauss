@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom';
 import { ChevronDown, Sparkles, Shield, HeartHandshake } from 'lucide-react';
 import imgGroupPhoto from "/photos/club_photo1.jpg";
 

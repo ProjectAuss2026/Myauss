@@ -84,9 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!res.ok) {
       const message = data.error || 'Login failed. Please check your credentials.';
-      // Attach status for PENDING_VERIFICATION handling
       const err: any = new Error(message);
-      err.status = data.status;
       setError(message);
       throw err;
     }

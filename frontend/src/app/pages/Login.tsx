@@ -68,14 +68,9 @@ export function Login() {
       await new Promise((r) => setTimeout(r, 0));
       navigate('/');
     } catch (err: any) {
-      if (err.status === 'PENDING_VERIFICATION') {
-        showToast('Please verify your email first', 'info');
-        navigate('/verify', { state: { email: loginEmail } });
-      } else {
-        const msg = err.message || 'Login failed. Please try again.';
-        setLoginError(msg);
-        showToast(msg, 'error');
-      }
+      const msg = err?.message || 'Login failed. Please try again.';
+      setLoginError(msg);
+      showToast(msg, 'error');
     } finally {
       setSubmitted(false);
     }
@@ -111,15 +106,14 @@ export function Login() {
       });
       const data = await res.json();
 
-      if (!res.ok && data.status !== 'PENDING_VERIFICATION') {
+      if (!res.ok) {
         const msg = data.error || 'Registration failed.';
         setRegisterError(msg);
         showToast(msg, 'error');
         return;
       }
 
-      // Navigate to verification page with email in state
-      showToast('Verification code sent to your email', 'success');
+      showToast(data.message || 'If your email is eligible, a verification code has been sent.', 'info');
       navigate('/verify', { state: { email: regEmail } });
     } catch {
       setRegisterError('Network error. Please try again.');
