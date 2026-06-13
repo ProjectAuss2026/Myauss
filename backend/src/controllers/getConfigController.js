@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 // Default Photo Drive URL used to seed the singleton MediaConfig row
 // the first time GET /api/config runs without an existing row.
@@ -38,7 +39,7 @@ const getConfigController = async (req, res) => {
           data: { mediaDriveUrl: DEFAULT_MEDIA_DRIVE_URL },
         });
       } catch (seedErr) {
-        console.error('[getConfigController] Failed to seed MediaConfig:', seedErr);
+        logger.error({ err: seedErr }, '[getConfigController] Failed to seed MediaConfig:');
       }
     }
 
@@ -48,7 +49,7 @@ const getConfigController = async (req, res) => {
       sponsorshipPages,
     });
   } catch (error) {
-    console.error('[getConfigController] Error fetching config:', error);
+    logger.error({ err: error }, '[getConfigController] Error fetching config:');
     return res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to fetch configuration.',

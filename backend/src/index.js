@@ -1,12 +1,15 @@
 import './env.js';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import prisma from './prismaClient.js';
 import authController from './controllers/auth.controller.js';
 import getPublicConfigController from './controllers/getPublicConfigController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 import { globalApiLimiter, uploadUserLimiter } from './middleware/rateLimiters.js';
+import logger from './utils/logger.js';
 import './jobs/cleanupUnverified.js';
 import configRoutes from './routes/configRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
@@ -20,6 +23,18 @@ import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadControl
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const sentryDsn = process.env.SENTRY_DSN;
+const sentryEnabled = Boolean(sentryDsn);
+
+if (sentryEnabled) {
+  Sentry.init({
+    dsn: sentryDsn,
+    environment: process.env.NODE_ENV || 'development',
+    integrations: [Sentry.expressIntegration()],
+    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0),
+  });
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const rawCorsOrigins = (process.env.CORS_ORIGINS || '')
@@ -30,12 +45,12 @@ const ignoredCorsOrigins = rawCorsOrigins.filter((origin) => origin === '*' || o
 const allowedCorsOrigins = rawCorsOrigins.filter((origin) => origin !== '*' && origin.toLowerCase() !== 'null');
 const allowedCorsOriginSet = new Set(allowedCorsOrigins);
 
-console.log('Environment loaded - PORT:', PORT);
-console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
-console.log('CORS origins allowlist:', allowedCorsOrigins.length ? allowedCorsOrigins.join(', ') : '(none configured)');
+logger.info({ port: PORT }, 'Environment loaded');
+logger.info({ configured: Boolean(process.env.DATABASE_URL) }, 'DATABASE_URL configuration checked');
+logger.info({ origins: allowedCorsOrigins }, 'CORS origins allowlist configured');
 
 if (ignoredCorsOrigins.length > 0) {
-  console.warn('Ignoring unsafe CORS origins:', ignoredCorsOrigins.join(', '));
+  logger.warn({ origins: ignoredCorsOrigins }, 'Ignoring unsafe CORS origins');
 }
 
 if (process.env.NODE_ENV === 'production') {
@@ -99,8 +114,18 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
   setHeaders: setUploadStaticHeaders,
 }));
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'Backend is running' });
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.get('/readyz', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ status: 'ok' });
+  } catch (error) {
+    logger.error({ err: error }, 'Readiness check failed');
+    return res.status(503).json({ status: 'unavailable' });
+  }
 });
 
 app.get('/api/test', (req, res) => {
@@ -138,6 +163,15 @@ app.use((error, _req, res, next) => {
   return next(error);
 });
 
+if (sentryEnabled) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
+app.use((error, _req, res, _next) => {
+  logger.error({ err: error }, 'Unhandled request error');
+  res.status(error.status || 500).json({ error: 'Internal server error' });
+});
+
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  logger.info({ port: PORT, sentryEnabled }, 'Server is running');
 });

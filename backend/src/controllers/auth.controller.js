@@ -5,6 +5,7 @@ import nodemailer from 'nodemailer';
 import '../env.js';
 import prisma from '../prismaClient.js';
 import { authenticate } from '../middleware/authMiddleware.js';
+import logger from '../utils/logger.js';
 import {
   loginEmailThrottle,
   loginIpLimiter,
@@ -279,7 +280,7 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, r
       message: REGISTER_GENERIC_MESSAGE,
     });
   } catch (err) {
-    console.error('Register error:', err);
+    logger.error({ err }, 'Register error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -312,7 +313,7 @@ router.post('/resend-code', resendIpLimiter, resendEmailThrottle, async (req, re
 
     return res.status(200).json({ message: RESEND_GENERIC_MESSAGE });
   } catch (err) {
-    console.error('Resend-code error:', err);
+    logger.error({ err }, 'Resend-code error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -402,7 +403,7 @@ router.post('/verify', verifyIpLimiter, verifyEmailThrottle, async (req, res) =>
       user: formatUser(verifiedUser),
     });
   } catch (err) {
-    console.error('Verify error:', err);
+    logger.error({ err }, 'Verify error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -436,7 +437,7 @@ router.post('/login', loginIpLimiter, loginEmailThrottle, async (req, res) => {
       user: formatUser(user),
     });
   } catch (err) {
-    console.error('Login error:', err);
+    logger.error({ err }, 'Login error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -528,7 +529,7 @@ router.get('/me', authenticate, async (req, res) => {
       user: formatUser(user),
     });
   } catch (err) {
-    console.error('Me error:', err);
+    logger.error({ err }, 'Me error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -562,7 +563,7 @@ router.get('/admin/users/lookup', authenticate, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Lookup invitee error:', err);
+    logger.error({ err }, 'Lookup invitee error:');
     return res.status(500).json({ error: 'Failed to look up invitee' });
   }
 });
@@ -602,7 +603,7 @@ router.get('/admin/users/search', authenticate, async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error('Search invitees error:', err);
+    logger.error({ err }, 'Search invitees error:');
     return res.status(500).json({ error: 'Failed to search invitees' });
   }
 });
@@ -666,7 +667,7 @@ router.post('/admin/invitations', authenticate, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Create invitation error:', err);
+    logger.error({ err }, 'Create invitation error:');
     return res.status(500).json({ error: 'Failed to create invitation' });
   }
 });
@@ -740,7 +741,7 @@ router.post('/admin/invitations/accept', authenticate, async (req, res) => {
       user: formatUser(updatedUser),
     });
   } catch (err) {
-    console.error('Accept invitation error:', err);
+    logger.error({ err }, 'Accept invitation error:');
     return res.status(500).json({ error: 'Failed to accept invitation' });
   }
 });
@@ -770,7 +771,7 @@ router.get('/admin/users', authenticate, async (req, res) => {
 
     return res.status(200).json({ data });
   } catch (err) {
-    console.error('List users error:', err);
+    logger.error({ err }, 'List users error:');
     return res.status(500).json({ error: 'Failed to load users' });
   }
 });
@@ -837,7 +838,7 @@ router.post('/admin/users/:userId/promote', authenticate, async (req, res) => {
 
     return res.status(200).json({ data: formatUser(promoted) });
   } catch (err) {
-    console.error('Promote error:', err);
+    logger.error({ err }, 'Promote error:');
     return res.status(500).json({ error: 'Failed to promote user' });
   }
 });
@@ -903,7 +904,7 @@ router.post('/admin/users/:userId/demote', authenticate, async (req, res) => {
 
     return res.status(200).json({ data: formatUser(demoted) });
   } catch (err) {
-    console.error('Demote error:', err);
+    logger.error({ err }, 'Demote error:');
     return res.status(500).json({ error: 'Failed to demote admin' });
   }
 });
