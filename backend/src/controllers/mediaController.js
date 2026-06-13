@@ -8,6 +8,8 @@ import {
 } from '../utils/urlValidation.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
+const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
+const RESPONSE_TOO_LARGE_MESSAGE = 'Response body too large.';
 
 function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
@@ -19,7 +21,71 @@ function parsePositiveInt(value) {
   return number;
 }
 
-async function fetchPinnedPublicHttpUrl(url, options = {}) {
+function getMaxResponseBytes(value) {
+  const maxBytes = Number(value);
+  return Number.isFinite(maxBytes) && maxBytes > 0 ? Math.floor(maxBytes) : DEFAULT_MAX_RESPONSE_BYTES;
+}
+
+function getContentLength(headers) {
+  const value = headers?.['content-length'];
+  const contentLength = Array.isArray(value) ? value[0] : value;
+  if (contentLength === undefined) return null;
+
+  const parsed = Number(contentLength);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function bufferResponseWithLimit(response, req, maxBytes, resolvePromise, rejectPromise) {
+  const chunks = [];
+  let totalBytes = 0;
+  let settled = false;
+
+  const rejectWithError = (error) => {
+    if (settled) return;
+    settled = true;
+    chunks.length = 0;
+    rejectPromise(error);
+  };
+
+  const rejectTooLarge = () => {
+    const error = new Error(RESPONSE_TOO_LARGE_MESSAGE);
+    response.destroy(error);
+    req.destroy(error);
+    rejectWithError(error);
+  };
+
+  response.on('error', rejectWithError);
+
+  const contentLength = getContentLength(response.headers);
+  if (contentLength !== null && contentLength > maxBytes) {
+    rejectTooLarge();
+    return;
+  }
+
+  response.on('data', (chunk) => {
+    if (settled) return;
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.byteLength;
+    if (totalBytes > maxBytes) {
+      rejectTooLarge();
+      return;
+    }
+    chunks.push(buffer);
+  });
+
+  response.on('end', () => {
+    if (settled) return;
+    settled = true;
+    const body = Buffer.concat(chunks, totalBytes).toString('utf8');
+    resolvePromise({
+      ok: response.statusCode >= 200 && response.statusCode < 300,
+      status: response.statusCode,
+      text: async () => body,
+    });
+  });
+}
+
+export async function fetchPinnedPublicHttpUrl(url, options = {}) {
   const { parsed, resolvedAddresses } = await resolvePublicHttpUrl(url, {
     fieldName: options.fieldName || 'URL',
   });
@@ -27,12 +93,14 @@ async function fetchPinnedPublicHttpUrl(url, options = {}) {
   const isHttps = parsed.protocol === 'https:';
   const transport = isHttps ? https : http;
   const port = parsed.port || (isHttps ? 443 : 80);
+  const maxBytes = getMaxResponseBytes(options.maxBytes);
   const headers = {
-    ...(options.headers || {}),
+    ...options.headers,
     Host: parsed.host,
   };
 
   return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
     const req = transport.request(
       {
         protocol: parsed.protocol,
@@ -45,21 +113,28 @@ async function fetchPinnedPublicHttpUrl(url, options = {}) {
         timeout: 10000,
       },
       (response) => {
-        const chunks = [];
-        response.on('data', (chunk) => chunks.push(chunk));
-        response.on('end', () => {
-          const body = Buffer.concat(chunks).toString('utf8');
-          resolvePromise({
-            ok: response.statusCode >= 200 && response.statusCode < 300,
-            status: response.statusCode,
-            text: async () => body,
-          });
-        });
+        bufferResponseWithLimit(
+          response,
+          req,
+          maxBytes,
+          (value) => {
+            settled = true;
+            resolvePromise(value);
+          },
+          (error) => {
+            settled = true;
+            rejectPromise(error);
+          }
+        );
       }
     );
 
     req.on('timeout', () => req.destroy(new Error('Request timed out.')));
-    req.on('error', rejectPromise);
+    req.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      rejectPromise(error);
+    });
     req.end();
   });
 }
