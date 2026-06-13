@@ -10,6 +10,9 @@ import {
 } from './urlValidation.js';
 
 const publicResolver = async () => ['93.184.216.34'];
+const failingResolver = async () => {
+  throw new Error('DNS failed');
+};
 
 async function assertInvalidUrl(promise) {
   await assert.rejects(promise, UrlValidationError);
@@ -56,6 +59,24 @@ test('validatePublicHttpUrl rejects public hostnames that resolve to private add
     validatePublicHttpUrl('https://example.com', {
       resolveHostname: async () => ['10.0.0.5'],
     })
+  );
+});
+
+test('validatePublicHttpUrl rejects hostnames when DNS verification fails', async () => {
+  await assertInvalidUrl(
+    validatePublicHttpUrl('https://example.com', {
+      resolveHostname: failingResolver,
+    })
+  );
+});
+
+test('validatePublicHttpUrl allows explicit DNS verification opt out', async () => {
+  assert.equal(
+    await validatePublicHttpUrl('https://example.com', {
+      checkDns: false,
+      resolveHostname: failingResolver,
+    }),
+    'https://example.com'
   );
 });
 
@@ -107,6 +128,14 @@ test('validatePublicImageUrl rejects unsafe schemes and non-upload relative path
   for (const url of invalidImageUrls) {
     await assertInvalidUrl(validatePublicImageUrl(url, { resolveHostname: publicResolver }));
   }
+});
+
+test('validatePublicImageUrl rejects hostnames when DNS verification fails', async () => {
+  await assertInvalidUrl(
+    validatePublicImageUrl('https://example.com/image.png', {
+      resolveHostname: failingResolver,
+    })
+  );
 });
 
 test('validateCommunicationImageUrl preserves builtin icons but rejects unsafe icon URLs', async () => {

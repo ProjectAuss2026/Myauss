@@ -126,11 +126,8 @@ async function assertResolvedAddressesArePublic(hostname, fieldName, options = {
   let addresses;
   try {
     addresses = await resolver(host);
-  } catch (error) {
-    if (options.requireDnsResolution) {
-      throw new UrlValidationError(`${fieldName} host could not be verified.`);
-    }
-    return [];
+  } catch {
+    throw new UrlValidationError(`${fieldName} host could not be verified.`);
   }
 
   const normalizedAddresses = Array.isArray(addresses)
