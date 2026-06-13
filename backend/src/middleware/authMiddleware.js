@@ -1,12 +1,31 @@
-import jwt from 'jsonwebtoken';
+import prisma from '../prismaClient.js';
+import { verifyAccessToken } from '../utils/authTokens.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
+function hasRoleAccess(userRole, allowedRoles) {
+  if (allowedRoles.includes(userRole)) return true;
+  // OWNER inherits ADMIN privileges for route guards that require ADMIN.
+  if (userRole === 'OWNER' && allowedRoles.includes('ADMIN')) return true;
+  return false;
+}
+
+async function decodeAndAttachUser(token) {
+  const decoded = verifyAccessToken(token);
+  const user = await prisma.user.findUnique({
+    where: { id: decoded.sub },
+    select: { id: true, role: true, tokenVersion: true },
+  });
+
+  if (!user) throw new Error('User not found.');
+  if (decoded.tv !== user.tokenVersion) throw new Error('Token version mismatch.');
+
+  return user;
+}
 
 /**
  * Middleware that verifies the JWT from the Authorization header.
- * Attaches the decoded payload to `req.user`.
+ * Attaches a validated { id, role } payload to req.user.
  */
-export function authenticate(req, res, next) {
+export async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader?.startsWith('Bearer ')) {
@@ -16,8 +35,8 @@ export function authenticate(req, res, next) {
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    const user = await decodeAndAttachUser(token);
+    req.user = { id: user.id, role: user.role };
     next();
   } catch (err) {
     if (process.env.NODE_ENV === 'development') {
@@ -39,7 +58,7 @@ export function authorise(...allowedRoles) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!hasRoleAccess(req.user.role, allowedRoles)) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
@@ -55,7 +74,7 @@ export function authorise(...allowedRoles) {
 /**
  * API variant of authenticate() that returns a typed error envelope.
  */
-export function authenticateApi(req, res, next) {
+export async function authenticateApi(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader?.startsWith('Bearer ')) {
@@ -70,8 +89,8 @@ export function authenticateApi(req, res, next) {
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    const user = await decodeAndAttachUser(token);
+    req.user = { id: user.id, role: user.role };
     next();
   } catch (err) {
     if (process.env.NODE_ENV === 'development') {
@@ -102,7 +121,7 @@ export function authoriseApi(...allowedRoles) {
       });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!hasRoleAccess(req.user.role, allowedRoles)) {
       return res.status(403).json({
         error: {
           code: 'FORBIDDEN',

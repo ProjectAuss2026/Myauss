@@ -33,6 +33,7 @@ globalThis.prisma = {
           id: 'user-token',
           email: 'member@example.com',
           role: 'USER',
+          tokenVersion: 0,
           info: { firstName: 'Member', lastName: 'User', studentId: 'redacted-hash' },
         };
       }
@@ -41,6 +42,7 @@ globalThis.prisma = {
           id: 'admin-token',
           email: 'admin@example.com',
           role: 'ADMIN',
+          tokenVersion: 0,
           info: { firstName: 'Admin', lastName: 'User', studentId: 'redacted-hash' },
         };
       }
@@ -220,7 +222,11 @@ function appRoutes() {
 
 function authToken(role) {
   const id = role === 'ADMIN' ? 'admin-token' : 'user-token';
-  return jwt.sign({ id, role }, process.env.JWT_SECRET);
+  return jwt.sign(
+    { sub: id, role, tv: 0, type: 'access' },
+    process.env.JWT_SECRET,
+    { issuer: 'auss-api', audience: 'auss-web' },
+  );
 }
 
 async function requestApp(app, { method = 'GET', path, body, token } = {}) {

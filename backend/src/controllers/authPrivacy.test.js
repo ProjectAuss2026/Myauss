@@ -12,6 +12,8 @@ process.env.STUDENT_ID_PEPPER = 'privacy-test-pepper';
 delete process.env.SMTP_USER;
 delete process.env.SMTP_PASS;
 
+const STRONG_TEST_PASSWORD = 'CorrectHorseBatteryStaple!2026';
+
 const calls = [];
 const usersByEmail = new Map();
 const usersById = new Map();
@@ -26,6 +28,7 @@ function makeUser(data) {
     email: data.email,
     passwordHash: data.passwordHash || 'hashed-password',
     role: data.role || 'USER',
+    tokenVersion: data.tokenVersion ?? 0,
     isVerified: data.isVerified ?? false,
     lastCodeSentAt: data.lastCodeSentAt || new Date(),
     verificationExpiresAt: data.verificationExpiresAt || new Date(Date.now() + 60000),
@@ -88,6 +91,12 @@ globalThis.prisma = {
       const deleted = user.info;
       user.info = null;
       return deleted;
+    },
+  },
+  otpCode: {
+    upsert: async (args) => {
+      record('otpCode.upsert', args);
+      return { id: 'otp-code-1', userId: args.where.userId, ...args.create, ...args.update };
     },
   },
 };
@@ -156,7 +165,11 @@ async function requestApp(app, { method = 'GET', path, body, token } = {}) {
 }
 
 function authToken(user) {
-  return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET);
+  return jwt.sign(
+    { sub: user.id, role: user.role, tv: user.tokenVersion, type: 'access' },
+    process.env.JWT_SECRET,
+    { issuer: 'auss-api', audience: 'auss-web' },
+  );
 }
 
 test('register stores a hashed student ID instead of plaintext', async () => {
@@ -167,7 +180,7 @@ test('register stores a hashed student ID instead of plaintext', async () => {
     path: '/api/auth/register',
     body: {
       email: 'member@example.com',
-      password: 'password123',
+      password: STRONG_TEST_PASSWORD,
       firstName: 'Ava',
       lastName: 'Member',
       studentId: ' 123456789 ',
@@ -191,7 +204,7 @@ test('register fails safely when STUDENT_ID_PEPPER is missing', async () => {
     path: '/api/auth/register',
     body: {
       email: 'member@example.com',
-      password: 'password123',
+      password: STRONG_TEST_PASSWORD,
       firstName: 'Ava',
       lastName: 'Member',
       studentId: '123456789',

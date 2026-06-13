@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { fetchWithAuth } from '../lib/authFetch';
 import {
   Plus, Trash2, Edit3, Save, X, Star, Users,
   Camera, ExternalLink, LogOut, Shield, Image as ImageIcon,
@@ -83,6 +84,22 @@ interface ExecMember {
 }
 interface ExecGroup { team: ExecTeamItem; members: ExecMember[]; }
 interface FaqItem { id: number; question: string; answer: string; isActive: boolean; }
+interface AccessUser {
+  id: string;
+  email: string;
+  role: 'USER' | 'ADMIN' | 'OWNER';
+  firstName: string | null;
+  lastName: string | null;
+  isVerified: boolean;
+  createdAt: string;
+}
+
+interface InviteeSuggestion {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+}
 
 // ── Default data ──
 const defaultSponsors: Sponsor[] = [];
@@ -92,8 +109,8 @@ const defaultActivities: Activity[] = [];
 
 const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
 
-type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'faq';
-const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq'];
+type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'faq' | 'access';
+const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq', 'access'];
 
 // Synthetic team for members whose role or team was deleted
 const UNASSIGNED_TEAM: ExecTeamItem = { id: -1, name: '⚠ Unassigned — reassign or remove', displayOrder: Infinity };
@@ -371,13 +388,11 @@ function parseCapacity(value: string): number | null {
  * Upload image file to /api/upload
  */
 async function uploadActivityImage(file: File): Promise<string> {
-  const token = localStorage.getItem('token');
   const formData = new FormData();
   formData.append('image', file);
   
-  const response = await fetch('/api/upload', {
+  const response = await fetchWithAuth('/api/upload', {
     method: 'POST',
-    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
     body: formData,
   });
   
@@ -442,17 +457,29 @@ export function Admin() {
   const [faqLoading, setFaqLoading] = useState(false);
   const [faqError, setFaqError] = useState<string | null>(null);
 
+  // Access management (OWNER only)
+  const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteReason, setInviteReason] = useState('');
+  const [issuingInvite, setIssuingInvite] = useState(false);
+  const [searchingInvitees, setSearchingInvitees] = useState(false);
+  const [inviteSuggestions, setInviteSuggestions] = useState<InviteeSuggestion[]>([]);
+  const [selectedInvitee, setSelectedInvitee] = useState<InviteeSuggestion | null>(null);
+  const [inviteSearchMessage, setInviteSearchMessage] = useState<string | null>(null);
+  const [demotingUserId, setDemotingUserId] = useState<string | null>(null);
+
   const { showToast } = useToast();
+  const isOwner = user?.role === 'OWNER';
 
   useEffect(() => { requestAnimationFrame(() => setMounted(true)); }, [])
-
-  const getAuthToken = () => localStorage.getItem('token');
 
   const getApiErrorMessage = async (response: Response) => {
     const fallback = `Request failed: ${response.status}`;
     try {
       const payload = await response.json();
-      return payload?.error?.message || payload?.message || fallback;
+      return (typeof payload?.error === 'string' ? payload.error : payload?.error?.message) || payload?.message || fallback;
     } catch (_error) {
       return fallback;
     }
@@ -474,6 +501,12 @@ export function Admin() {
       navigate('/', { replace: true });
     }
   }, [isLoading, isAuthenticated, isAdmin, navigate]);
+
+  useEffect(() => {
+    if (!isOwner && tab === 'access') {
+      handleTabChange('sponsors');
+    }
+  }, [isOwner, tab]);
 
   useEffect(() => {
     if (!isAdmin || !user) return;
@@ -556,17 +589,8 @@ export function Admin() {
       try {
         setActivityLoading(true);
         setActivityError(null);
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setActivityError('No authentication token found');
-          return;
-        }
-        
-        const response = await fetch(`/api/activities/all`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
+        const response = await fetchWithAuth(`/api/activities/all`, {
+          headers: { 'Content-Type': 'application/json' },
         });
         if (!response.ok) {
           throw new Error(`Failed to fetch activities: ${response.statusText}`);
@@ -588,17 +612,15 @@ export function Admin() {
   // ── Load executives from backend ──
   useEffect(() => {
     if (!isAdmin || !user) return;
-    const token = localStorage.getItem('token');
-    if (!token) return;
 
     const loadExecs = async () => {
       try {
         setExecLoading(true);
         setExecError(null);
         const [groupsRes, rolesRes, teamsRes] = await Promise.all([
-          fetch('/api/admin/executives', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/admin/exec-roles', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/admin/exec-teams', { headers: { Authorization: `Bearer ${token}` } }),
+          fetchWithAuth('/api/admin/executives'),
+          fetchWithAuth('/api/admin/exec-roles'),
+          fetchWithAuth('/api/admin/exec-teams'),
         ]);
         if (groupsRes.ok) {
           const payload = await groupsRes.json();
@@ -627,14 +649,12 @@ export function Admin() {
   // ── Load FAQ from backend ──
   useEffect(() => {
     if (!isAdmin || !user) return;
-    const token = localStorage.getItem('token');
-    if (!token) return;
 
     const loadFaq = async () => {
       try {
         setFaqLoading(true);
         setFaqError(null);
-        const res = await fetch('/api/admin/faq', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetchWithAuth('/api/admin/faq');
         if (res.ok) {
           const payload = await res.json();
           setFaqs(Array.isArray(payload?.data) ? payload.data : []);
@@ -652,12 +672,10 @@ export function Admin() {
   }, [isAdmin, user]);
 
   const refreshExecs = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
     const [groupsRes, rolesRes, teamsRes] = await Promise.all([
-      fetch('/api/admin/executives', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/admin/exec-roles', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/admin/exec-teams', { headers: { Authorization: `Bearer ${token}` } }),
+      fetchWithAuth('/api/admin/executives'),
+      fetchWithAuth('/api/admin/exec-roles'),
+      fetchWithAuth('/api/admin/exec-teams'),
     ]);
     if (groupsRes.ok) {
       const p = await groupsRes.json();
@@ -670,6 +688,151 @@ export function Admin() {
     if (teamsRes.ok) {
       const p = await teamsRes.json();
       setExecTeams(Array.isArray(p?.data) ? p.data : []);
+    }
+  };
+
+  const loadAccessUsers = async () => {
+    if (!isOwner) return;
+
+    try {
+      setAccessLoading(true);
+      setAccessError(null);
+      const res = await fetchWithAuth('/api/auth/admin/users');
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      const payload = await res.json();
+      setAccessUsers(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (err) {
+      setAccessError(err instanceof Error ? err.message : 'Failed to load users');
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOwner || !user) return;
+    loadAccessUsers();
+  }, [isOwner, user]);
+
+  useEffect(() => {
+    if (!isOwner) return;
+
+    const query = inviteEmail.trim().toLowerCase();
+    if (!query) {
+      setSearchingInvitees(false);
+      setInviteSuggestions([]);
+      setSelectedInvitee(null);
+      setInviteSearchMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      setSearchingInvitees(true);
+      try {
+        const res = await fetchWithAuth(`/api/auth/admin/users/search?query=${encodeURIComponent(query)}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            if (cancelled) return;
+            setInviteSuggestions([]);
+            setSelectedInvitee(null);
+            setInviteSearchMessage('Invite search API is unavailable. Restart backend to load the latest auth routes.');
+            return;
+          }
+          const message = await getApiErrorMessage(res);
+          if (cancelled) return;
+          setInviteSuggestions([]);
+          setSelectedInvitee(null);
+          setInviteSearchMessage(message);
+          return;
+        }
+
+        const payload = await res.json();
+        const matches: InviteeSuggestion[] = Array.isArray(payload?.data) ? payload.data : [];
+        if (cancelled) return;
+        setInviteSuggestions(matches);
+        setInviteSearchMessage(matches.length === 0 ? 'No eligible user found for this email' : null);
+        const exactMatch = matches.find((candidate) => candidate.email === query) || null;
+        setSelectedInvitee((prev) => {
+          if (exactMatch) return exactMatch;
+          if (prev && matches.some((candidate) => candidate.id === prev.id)) return prev;
+          return null;
+        });
+      } catch {
+        if (cancelled) return;
+        setInviteSuggestions([]);
+        setSelectedInvitee(null);
+        setInviteSearchMessage('Failed to search users');
+      } finally {
+        if (!cancelled) setSearchingInvitees(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inviteEmail, isOwner]);
+
+  const promoteUserToAdmin = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) {
+      showToast('Member email is required', 'error');
+      return;
+    }
+
+    const selectedUser = selectedInvitee?.email === email
+      ? selectedInvitee
+      : inviteSuggestions.find((candidate) => candidate.email === email) || null;
+    if (!selectedUser) {
+      showToast('Select an eligible member from the dropdown', 'error');
+      return;
+    }
+
+    setIssuingInvite(true);
+    try {
+      const res = await fetchWithAuth(`/api/auth/admin/users/${selectedUser.id}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: inviteReason.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      setInviteEmail('');
+      setInviteReason('');
+      setInviteSuggestions([]);
+      setSelectedInvitee(null);
+      setInviteSearchMessage(null);
+      await loadAccessUsers();
+      showToast(`${selectedUser.email} promoted to admin`, 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to promote member';
+      showToast(message, 'error');
+    } finally {
+      setIssuingInvite(false);
+    }
+  };
+
+  const demoteAdminUser = async (targetUser: AccessUser) => {
+    if (!window.confirm(`Demote ${targetUser.email} to member?`)) return;
+
+    setDemotingUserId(targetUser.id);
+    try {
+      const res = await fetchWithAuth(`/api/auth/admin/users/${targetUser.id}/demote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Offboarded from executive/admin team' }),
+      });
+      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      showToast(`${targetUser.email} demoted to member`, 'success');
+      await loadAccessUsers();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to demote user';
+      showToast(message, 'error');
+    } finally {
+      setDemotingUserId(null);
     }
   };
 
@@ -688,8 +851,6 @@ export function Admin() {
     const isEdit = exec.id > 0;
     try {
       setExecError(null);
-      const token = getAuthToken();
-      if (!token) { setExecError('No authentication token found'); return; }
       const payload = {
         name: exec.name,
         roleId: exec.role?.id,
@@ -700,9 +861,9 @@ export function Admin() {
         email: exec.email || null,
         isActive: exec.isActive ?? true,
       };
-      const res = await fetch(isEdit ? `/api/admin/executives/${exec.id}` : '/api/admin/executives', {
+      const res = await fetchWithAuth(isEdit ? `/api/admin/executives/${exec.id}` : '/api/admin/executives', {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
@@ -720,11 +881,8 @@ export function Admin() {
   const deleteExec = async (id: number) => {
     try {
       setExecError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const res = await fetch(`/api/admin/executives/${id}`, {
+      const res = await fetchWithAuth(`/api/admin/executives/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       await refreshExecs();
@@ -740,16 +898,14 @@ export function Admin() {
     const isEdit = faq.id > 0;
     try {
       setFaqError(null);
-      const token = getAuthToken();
-      if (!token) { setFaqError('No authentication token found'); return; }
       const payload = { question: faq.question, answer: faq.answer, isActive: faq.isActive ?? true };
-      const res = await fetch(isEdit ? `/api/admin/faq/${faq.id}` : '/api/admin/faq', {
+      const res = await fetchWithAuth(isEdit ? `/api/admin/faq/${faq.id}` : '/api/admin/faq', {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
-      const refreshRes = await fetch('/api/admin/faq', { headers: { Authorization: `Bearer ${token}` } });
+      const refreshRes = await fetchWithAuth('/api/admin/faq');
       if (refreshRes.ok) {
         const p = await refreshRes.json();
         setFaqs(Array.isArray(p?.data) ? p.data : []);
@@ -767,11 +923,8 @@ export function Admin() {
   const deleteFaq = async (id: number) => {
     try {
       setFaqError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const res = await fetch(`/api/admin/faq/${id}`, {
+      const res = await fetchWithAuth(`/api/admin/faq/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       setFaqs((prev) => prev.filter((f) => f.id !== id));
@@ -803,11 +956,6 @@ export function Admin() {
   const saveSponsor = async (sponsor: Sponsor) => {
     try {
       setSponsorError(null);
-      const token = getAuthToken();
-      if (!token) {
-        setSponsorError('No authentication token found');
-        return;
-      }
       if (!sponsorshipPageId) {
         setSponsorError('Sponsorship page is not seeded yet.');
         return;
@@ -822,10 +970,9 @@ export function Admin() {
       };
 
       if (sponsor.id > 0) {
-        const response = await fetch(`/api/sponsors/${sponsor.id}`, {
+        const response = await fetchWithAuth(`/api/sponsors/${sponsor.id}`, {
           method: 'PATCH',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -843,10 +990,9 @@ export function Admin() {
           sponsorshipPageId: updated.sponsorshipPageId,
         } : s)));
       } else {
-        const response = await fetch('/api/sponsors', {
+        const response = await fetchWithAuth('/api/sponsors', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -878,12 +1024,9 @@ export function Admin() {
   const deleteSponsor = async (id: number) => {
     try {
       setSponsorError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
       setSponsors((prev) => prev.filter((s) => s.id !== id));
-      const response = await fetch(`/api/sponsors/${id}`, {
+      const response = await fetchWithAuth(`/api/sponsors/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response));
       const refetch = await fetch('/api/sponsorship', { cache: 'no-store' });
@@ -909,11 +1052,6 @@ export function Admin() {
   const saveMedia = async (item: MediaItem) => {
     try {
       setMediaError(null);
-      const token = getAuthToken();
-      if (!token) {
-        setMediaError('No authentication token found');
-        return;
-      }
       const payload = {
         activityId: item.activityId,
         mediaDriveUrl: item.mediaDriveUrl,
@@ -921,10 +1059,9 @@ export function Admin() {
         overrideCover: item.overrideCover || null,
       };
 
-      const response = await fetch(item.id > 0 ? `/api/media-entries/${item.id}` : '/api/media-entries', {
+      const response = await fetchWithAuth(item.id > 0 ? `/api/media-entries/${item.id}` : '/api/media-entries', {
         method: item.id > 0 ? 'PATCH' : 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -960,11 +1097,8 @@ export function Admin() {
   const deleteMedia = async (id: number) => {
     try {
       setMediaError(null);
-      const token = getAuthToken();
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const response = await fetch(`/api/media-entries/${id}`, {
+      const response = await fetchWithAuth(`/api/media-entries/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response));
       setMedia((prev) => prev.filter((m) => m.id !== id));
@@ -990,11 +1124,6 @@ export function Admin() {
   const saveActivity = async (activity: Activity) => {
     try {
       setActivityError(null);
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setActivityError('No authentication token found');
-        return;
-      }
 
       const isPublished = activity.isPublished ?? activity.status !== 'archived';
 
@@ -1011,10 +1140,9 @@ export function Admin() {
 
       if (activity.id > 0) {
         // Update existing
-        const response = await fetch(`/api/activities/${activity.id}`, {
+        const response = await fetchWithAuth(`/api/activities/${activity.id}`, {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -1029,10 +1157,9 @@ export function Admin() {
         );
       } else {
         // Create new
-        const response = await fetch(`/api/activities`, {
+        const response = await fetchWithAuth(`/api/activities`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -1058,11 +1185,9 @@ export function Admin() {
   const deleteActivity = async (id: number) => {
     try {
       setActivityError(null);
-      const token = localStorage.getItem('token');
-      if (!token) { showToast('No authentication token', 'error'); return; }
-      const response = await fetch(`/api/activities/${id}`, {
+      const response = await fetchWithAuth(`/api/activities/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
       });
       if (!response.ok) throw new Error(`Failed to delete activity: ${response.statusText}`);
       setActivities((prev) => prev.filter((a) => a.id !== id));
@@ -1126,6 +1251,7 @@ export function Admin() {
               { key: 'media' as Tab, label: 'Photo Drive', icon: Camera },
               { key: 'execs' as Tab, label: 'Execs', icon: Users },
               { key: 'faq' as Tab, label: 'FAQ', icon: HelpCircle },
+              ...(isOwner ? [{ key: 'access' as Tab, label: 'Access', icon: Shield }] : []),
             ]).map((t) => {
               const Icon = t.icon;
               const active = tab === t.key;
@@ -1222,9 +1348,254 @@ export function Admin() {
               faqError={faqError}
             />
           )}
+          {tab === 'access' && isOwner && (
+            <AccessManager
+              users={accessUsers}
+              loading={accessLoading}
+              error={accessError}
+              inviteEmail={inviteEmail}
+              setInviteEmail={setInviteEmail}
+              inviteReason={inviteReason}
+              setInviteReason={setInviteReason}
+              issuingInvite={issuingInvite}
+              searchingInvitees={searchingInvitees}
+              inviteSuggestions={inviteSuggestions}
+              selectedInviteeId={selectedInvitee?.id ?? null}
+              selectedInviteeEmail={selectedInvitee?.email ?? null}
+              inviteSearchMessage={inviteSearchMessage}
+              onSelectInvitee={(candidate) => {
+                setSelectedInvitee(candidate);
+                setInviteEmail(candidate.email);
+                setInviteSuggestions([]);
+                setInviteSearchMessage(null);
+              }}
+              onPromoteUser={promoteUserToAdmin}
+              onRefreshUsers={loadAccessUsers}
+              onDemoteUser={demoteAdminUser}
+              demotingUserId={demotingUserId}
+              currentUserId={user?.id ?? null}
+            />
+          )}
         </div>
       </section>
 
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Access Manager
+// ═══════════════════════════════════════════════
+
+function AccessManager({
+  users,
+  loading,
+  error,
+  inviteEmail,
+  setInviteEmail,
+  inviteReason,
+  setInviteReason,
+  issuingInvite,
+  searchingInvitees,
+  inviteSuggestions,
+  selectedInviteeId,
+  selectedInviteeEmail,
+  inviteSearchMessage,
+  onSelectInvitee,
+  onPromoteUser,
+  onRefreshUsers,
+  onDemoteUser,
+  demotingUserId,
+  currentUserId,
+}: {
+  users: AccessUser[];
+  loading: boolean;
+  error: string | null;
+  inviteEmail: string;
+  setInviteEmail: (value: string) => void;
+  inviteReason: string;
+  setInviteReason: (value: string) => void;
+  issuingInvite: boolean;
+  searchingInvitees: boolean;
+  inviteSuggestions: InviteeSuggestion[];
+  selectedInviteeId: string | null;
+  selectedInviteeEmail: string | null;
+  inviteSearchMessage: string | null;
+  onSelectInvitee: (candidate: InviteeSuggestion) => void;
+  onPromoteUser: () => Promise<void> | void;
+  onRefreshUsers: () => Promise<void> | void;
+  onDemoteUser: (user: AccessUser) => Promise<void> | void;
+  demotingUserId: string | null;
+  currentUserId: string | null;
+}) {
+  const normalizedInviteEmail = inviteEmail.trim().toLowerCase();
+  const hasCommittedSelection = Boolean(
+    selectedInviteeEmail && selectedInviteeEmail.toLowerCase() === normalizedInviteEmail
+  );
+  const showInviteDropdown = !hasCommittedSelection && (
+    searchingInvitees || inviteSuggestions.length > 0 || Boolean(inviteSearchMessage)
+  );
+
+  return (
+    <div className="space-y-8">
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          Access Management
+        </h2>
+        <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+          Promote members to admin and manage privileged users.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <h3 className="text-white mb-4" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          Promote Member to Admin
+        </h3>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-white/60 mb-1.5" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              Member email
+            </label>
+            <div className="relative">
+              <input
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="invitee@aucklanduni.ac.nz"
+                className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 outline-none focus:border-[#eb7524]"
+                style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+              />
+
+              {showInviteDropdown && (
+                <div className="absolute z-30 left-0 right-0 mt-2 rounded-xl border border-white/10 bg-[#0f0f0f] shadow-[0_12px_30px_rgba(0,0,0,0.35)] max-h-56 overflow-y-auto">
+                  {searchingInvitees && (
+                    <p className="px-3 py-2.5 text-white/50" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                      Searching eligible users...
+                    </p>
+                  )}
+
+                  {!searchingInvitees && inviteSuggestions.map((candidate) => {
+                    const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'No name set';
+                    const selected = selectedInviteeId === candidate.id;
+                    return (
+                      <button
+                        key={candidate.id}
+                        onClick={() => onSelectInvitee(candidate)}
+                        className={`w-full text-left px-3 py-2.5 border-b border-white/5 transition-all cursor-pointer ${
+                          selected ? 'bg-[#eb7524]/15 text-white' : 'text-white/80 hover:bg-white/[0.05]'
+                        }`}
+                        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+                      >
+                        <p style={{ fontSize: '12px', fontWeight: 600 }}>{candidate.email}</p>
+                        <p className="text-white/50" style={{ fontSize: '11px' }}>{fullName}</p>
+                      </button>
+                    );
+                  })}
+
+                  {!searchingInvitees && inviteSuggestions.length === 0 && inviteSearchMessage && (
+                    <p className="px-3 py-2.5 text-red-200" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                      {inviteSearchMessage}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-white/60 mb-1.5" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              Reason (optional)
+            </label>
+            <input
+              value={inviteReason}
+              onChange={(e) => setInviteReason(e.target.value)}
+              placeholder="Why this promotion is needed"
+              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 outline-none focus:border-[#eb7524]"
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <button
+            onClick={onPromoteUser}
+            disabled={issuingInvite}
+            className="flex items-center gap-2 bg-[#eb7524] text-white px-5 py-2.5 rounded-xl hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          >
+            {issuingInvite ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {issuingInvite ? 'Promoting...' : 'Promote to Admin'}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            Privileged Users
+          </h3>
+          <button
+            onClick={onRefreshUsers}
+            className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/80 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+            style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5" />
+            <p className="text-red-200" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{error}</p>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="py-8 flex justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-[#eb7524]" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {users
+              .filter((u) => u.role !== 'USER')
+              .map((u) => {
+                const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'No name set';
+                const canDemote = u.role === 'ADMIN' && u.id !== currentUserId;
+                return (
+                  <div key={u.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+                    <div>
+                      <p className="text-white" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>{fullName}</p>
+                      <p className="text-white/50" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>{u.email}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="px-2.5 py-1 rounded-lg bg-[#eb7524]/20 text-[#ffb887] border border-[#eb7524]/30" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
+                        {u.role}
+                      </span>
+                      {canDemote ? (
+                        <button
+                          onClick={() => onDemoteUser(u)}
+                          disabled={demotingUserId === u.id}
+                          className="px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+                        >
+                          {demotingUserId === u.id ? 'Demoting...' : 'Demote'}
+                        </button>
+                      ) : (
+                        <span className="text-white/30" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                          {u.role === 'OWNER' ? 'Owner protected' : 'Current user'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            {users.filter((u) => u.role !== 'USER').length === 0 && (
+              <p className="text-white/30 text-center py-6" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+                No privileged users found.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1530,12 +1901,10 @@ function PhotoDriveLinkPanel() {
 
     try {
       setSaving(true);
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/config', {
+      const res = await fetchWithAuth('/api/config', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           type: 'mediaConfig',
@@ -1829,10 +2198,9 @@ function MediaForm({ initial, onSave, activities, onCancel }: { initial: MediaIt
     setIsResolvingCover(true);
     setCoverResolveError(null);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/resolve-cover', {
+      const res = await fetchWithAuth('/api/resolve-cover', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
       const data = await res.json();
@@ -3161,10 +3529,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   const addRole = async () => {
     if (!newRoleName.trim()) return;
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/admin/exec-roles', {
+    const res = await fetchWithAuth('/api/admin/exec-roles', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newRoleName.trim() }),
     });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to add role'); return; }
@@ -3174,8 +3541,7 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
 
   const deleteRole = async (id: number) => {
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api/admin/exec-roles/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetchWithAuth(`/api/admin/exec-roles/${id}`, { method: 'DELETE' });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to delete role'); return; }
     await onRefresh();
   };
@@ -3183,10 +3549,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/admin/exec-teams', {
+    const res = await fetchWithAuth('/api/admin/exec-teams', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newTeamName.trim() }),
     });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to add team'); return; }
@@ -3196,8 +3561,7 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
 
   const deleteTeam = async (id: number) => {
     setError(null);
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api/admin/exec-teams/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetchWithAuth(`/api/admin/exec-teams/${id}`, { method: 'DELETE' });
     if (!res.ok) { const p = await res.json().catch(() => ({})); setError(p?.error?.message || 'Failed to delete team'); return; }
     await onRefresh();
   };
@@ -3213,11 +3577,10 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   const saveEdit = async (id: number, list: 'roles' | 'teams') => {
     if (!editingName.trim()) return;
     setError(null);
-    const token = localStorage.getItem('token');
     const url = list === 'roles' ? `/api/admin/exec-roles/${id}` : `/api/admin/exec-teams/${id}`;
-    const res = await fetch(url, {
+    const res = await fetchWithAuth(url, {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editingName.trim() }),
     });
     if (!res.ok) {
@@ -3237,7 +3600,6 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
   ) => {
     setDragOverKey(null);
     if (fromIndex === toIndex) return;
-    const token = localStorage.getItem('token');
 
     const reorder = <T extends ExecRoleItem | ExecTeamItem>(items: T[]): T[] => {
       const next = [...items];
@@ -3253,9 +3615,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
       pendingFlip.current = 'roles';
       setLocalRoles(reordered); // optimistic update — this IS the source of truth
       onRolesReorder(reordered); // live-resort exec member cards without a fetch
-      const res = await fetch('/api/admin/exec-roles/reorder', {
+      const res = await fetchWithAuth('/api/admin/exec-roles/reorder', {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
       });
       if (!res.ok) { setLocalRoles(prevRoles); setError('Failed to reorder roles'); }
@@ -3265,9 +3627,9 @@ function ExecRoleTeamManager({ execRoles, execTeams, onRefresh, onRolesReorder }
       flipSnapshot.current = captureFlip(teamsListRef.current);
       pendingFlip.current = 'teams';
       setLocalTeams(reordered); // optimistic update
-      const res = await fetch('/api/admin/exec-teams/reorder', {
+      const res = await fetchWithAuth('/api/admin/exec-teams/reorder', {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: reordered.map(({ id, displayOrder }) => ({ id, displayOrder })) }),
       });
       if (!res.ok) { setLocalTeams(prevTeams); setError('Failed to reorder teams'); }

@@ -1,23 +1,25 @@
 import prisma from '../prismaClient.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { UPLOADS_DIR } from './uploadController.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const ALLOWED_TYPES = ['communicationLink', 'mediaConfig', 'sponsorshipPage', 'sponsor'];
 
-const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');
-
-// If the imgUrl is a local upload (e.g. http://localhost:5000/uploads/file.jpg),
-// extract the filename and delete it from disk.
+// If the imgUrl is a local upload, delete the matching file under backend/uploads/.
 const deleteLocalUpload = (imgUrl) => {
   if (!imgUrl) return;
   try {
-    const url = new URL(imgUrl);
+    const url = new URL(imgUrl, 'http://localhost');
+    const pathname = url.pathname;
+
     // Only delete files served from our own /uploads/ path
-    if (!url.pathname.startsWith('/uploads/')) return;
-    const filename = path.basename(url.pathname);
-    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!pathname.startsWith('/uploads/')) return;
+
+    const relativePath = pathname.slice('/uploads/'.length);
+    const filePath = path.resolve(UPLOADS_DIR, relativePath);
+
+    if (!filePath.startsWith(`${UPLOADS_DIR}${path.sep}`)) return;
+
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
       console.log(`[deleteConfigController] Deleted file: ${filePath}`);
@@ -30,6 +32,13 @@ const deleteLocalUpload = (imgUrl) => {
 // DELETE /api/config
 const deleteConfigController = async (req, res) => {
   const { type, id } = req.body;
+
+  if (!ALLOWED_TYPES.includes(type)) {
+    return res.status(400).json({
+      error: 'Bad request',
+      message: `Unsupported config type: ${type}`,
+    });
+  }
 
   try {
     switch (type) {

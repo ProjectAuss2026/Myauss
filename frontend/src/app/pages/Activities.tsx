@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Calendar, Clock, MapPin, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { getSafeImageSrc } from '../../lib/safeUrl';

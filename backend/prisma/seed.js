@@ -1,4 +1,6 @@
 import prisma from '../src/prismaClient.js';
+import bcrypt from 'bcrypt';
+import { validatePasswordPolicy } from '../src/utils/passwordPolicy.js';
 
 async function main() {
   const sponsorshipPage = await prisma.sponsorshipPage.upsert({
@@ -285,6 +287,45 @@ async function main() {
         },
       ],
     });
+  }
+
+  // ── Optional secure owner bootstrap ──────────────────────────────────────
+  const bootstrapEmail = String(process.env.OWNER_BOOTSTRAP_EMAIL || '').trim().toLowerCase();
+  const bootstrapPassword = process.env.OWNER_BOOTSTRAP_PASSWORD;
+
+  if (bootstrapEmail && bootstrapPassword) {
+    const passwordPolicy = validatePasswordPolicy(bootstrapPassword, [bootstrapEmail, 'owner', 'admin']);
+    if (!passwordPolicy.ok) {
+      throw new Error(`OWNER_BOOTSTRAP_PASSWORD is invalid: ${passwordPolicy.error}.`);
+    }
+
+    const passwordHash = await bcrypt.hash(passwordPolicy.normalizedPassword, 10);
+    const existingOwner = await prisma.user.findUnique({ where: { email: bootstrapEmail } });
+
+    if (existingOwner) {
+      await prisma.user.update({
+        where: { email: bootstrapEmail },
+        data: {
+          passwordHash,
+          role: 'OWNER',
+          isVerified: true,
+          verificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+    } else {
+      await prisma.user.create({
+        data: {
+          email: bootstrapEmail,
+          passwordHash,
+          role: 'OWNER',
+          isVerified: true,
+          lastCodeSentAt: new Date(),
+          verificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+    }
+
+    console.log(`[seed] Bootstrapped OWNER account for ${bootstrapEmail}`);
   }
 }
 

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { clearStoredAuth, fetchWithAuth, getStoredToken, refreshAccessToken, setStoredToken } from '../lib/authFetch';
 
 interface AuthUser {
   id: string;
@@ -24,7 +25,7 @@ interface AuthContextType {
   login: (credentials: LoginCredentials) => Promise<AuthUser>;
   /** Store token + user from external auth flows (e.g. email verification) */
   setUserFromToken: (token: string, user: AuthUser) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -38,24 +39,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Rehydrate session on app load
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
+      let token = getStoredToken();
+      if (!token) token = await refreshAccessToken();
+      if (!token) return setIsLoading(false);
 
       try {
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetchWithAuth('/api/auth/me');
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
           localStorage.setItem('user', JSON.stringify(data.user));
         } else {
           // Token expired or invalid — clear
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+          clearStoredAuth();
         }
       } catch {
         // Fallback: use cached user if backend is unreachable
@@ -80,6 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(credentials),
     });
 
@@ -87,28 +84,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!res.ok) {
       const message = data.error || 'Login failed. Please check your credentials.';
-      // Attach status for PENDING_VERIFICATION handling
       const err: any = new Error(message);
-      err.status = data.status;
       setError(message);
       throw err;
     }
 
-    localStorage.setItem('token', data.token);
+    setStoredToken(data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
     setUser(data.user);
     return data.user as AuthUser;
   }, []);
 
   const setUserFromToken = useCallback((token: string, userData: AuthUser) => {
-    localStorage.setItem('token', token);
+    setStoredToken(token);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const logout = useCallback(async () => {
+    const token = getStoredToken();
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).catch(() => {});
+    clearStoredAuth();
     setUser(null);
     setError(null);
   }, []);
@@ -123,11 +123,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: !!user,
         /**
-         * TODO (backend): Currently derived from user.role on the client.
-         * Backend should enforce admin-only access on all admin API routes
-         * independently of this flag (e.g. middleware that checks JWT role claim).
+         * Backend enforces this independently on all protected admin routes.
          */
-        isAdmin: user?.role === 'ADMIN',
+        isAdmin: user?.role === 'ADMIN' || user?.role === 'OWNER',
         isLoading,
         error,
         login,

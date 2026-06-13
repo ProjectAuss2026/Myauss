@@ -12,6 +12,7 @@ datasource db {
 enum Role {
   USER
   ADMIN
+  OWNER
 }
 
 model User {
@@ -19,11 +20,18 @@ model User {
   email                 String    @unique
   passwordHash          String
   role                  Role      @default(USER)
+  tokenVersion          Int       @default(0)
   isVerified            Boolean   @default(false)
   lastCodeSentAt        DateTime  @default(now())
   verificationExpiresAt DateTime
   createdAt             DateTime  @default(now())
   info                  UserInfo?
+  sessions              AuthSession[]
+  otpCode               OtpCode?
+  invitationsSent       AdminInvitation[] @relation("InvitationSender")
+  invitationsAccepted   AdminInvitation[] @relation("InvitationAccepter")
+  roleChangesMade       RoleChangeAudit[] @relation("RoleChangeActor")
+  roleChangesReceived   RoleChangeAudit[] @relation("RoleChangeTarget")
 }
 
 model UserInfo {
@@ -33,6 +41,68 @@ model UserInfo {
   studentId String // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER; field name retained to avoid a risky data migration.
   userId    String @unique
   user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuthSession {
+  id              String   @id @default(uuid())
+  userId          String
+  refreshTokenHash String  @unique
+  expiresAt       DateTime
+  lastUsedAt      DateTime @default(now())
+  revokedAt       DateTime?
+  revokedReason   String?  @db.VarChar(120)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+}
+
+model OtpCode {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  codeHash          String
+  expiresAt         DateTime
+  attemptsRemaining Int      @default(5)
+  consumedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt, consumedAt])
+}
+
+model AdminInvitation {
+  id               String   @id @default(uuid())
+  tokenHash        String   @unique
+  invitedEmail     String
+  invitedRole      Role     @default(ADMIN)
+  invitedByUserId  String
+  acceptedByUserId String?
+  expiresAt        DateTime
+  usedAt           DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime @default(now())
+  invitedBy        User     @relation("InvitationSender", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  acceptedBy       User?    @relation("InvitationAccepter", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([invitedEmail, expiresAt])
+  @@index([invitedByUserId])
+}
+
+model RoleChangeAudit {
+  id          Int      @id @default(autoincrement())
+  actorUserId String
+  targetUserId String
+  fromRole    Role
+  toRole      Role
+  reason      String?  @db.VarChar(200)
+  createdAt   DateTime @default(now())
+  actor       User     @relation("RoleChangeActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  target      User     @relation("RoleChangeTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 // --- COMMUNICATION LINKS ---
