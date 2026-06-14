@@ -17,24 +17,34 @@ const IMAGE_SRC_VALUES = [
   'https://images.pixieset.com',
 ]
 
-const SECURITY_HEADERS = {
-  'Content-Security-Policy': [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-    "style-src 'self' 'unsafe-inline' https:",
-    `img-src ${IMAGE_SRC_VALUES.join(' ')}`,
-    "font-src 'self' data: https:",
-    "connect-src 'self' http: https: ws: wss:",
-    "frame-ancestors 'none'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ].join('; '),
-  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+const createContentSecurityPolicy = ({ allowEval, allowWebSockets }: { allowEval: boolean, allowWebSockets: boolean }) => [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${allowEval ? " 'unsafe-eval'" : ''}`,
+  "style-src 'self' 'unsafe-inline' https:",
+  `img-src ${IMAGE_SRC_VALUES.join(' ')}`,
+  "font-src 'self' data: https:",
+  `connect-src 'self' http: https:${allowWebSockets ? ' ws: wss:' : ''}`,
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ')
+
+const SHARED_SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   'X-Frame-Options': 'DENY',
+}
+
+const DEV_SECURITY_HEADERS = {
+  ...SHARED_SECURITY_HEADERS,
+  'Content-Security-Policy': createContentSecurityPolicy({ allowEval: true, allowWebSockets: true }),
+}
+
+const PREVIEW_SECURITY_HEADERS = {
+  ...SHARED_SECURITY_HEADERS,
+  'Content-Security-Policy': createContentSecurityPolicy({ allowEval: false, allowWebSockets: false }),
 }
 
 export default defineConfig(({ mode }) => {
@@ -53,7 +63,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5174,
-      headers: SECURITY_HEADERS,
+      headers: DEV_SECURITY_HEADERS,
       proxy: {
         '/api': {
           target: `http://localhost:${backendPort}`,
@@ -66,7 +76,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     preview: {
-      headers: SECURITY_HEADERS,
+      headers: PREVIEW_SECURITY_HEADERS,
     },
     assetsInclude: ['**/*.svg', '**/*.csv'],
   }
