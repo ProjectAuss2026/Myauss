@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/react';
 import { createBrowserRouter } from 'react-router-dom';
 import { Root } from './pages/Root';
 import { Home } from './pages/Home';
@@ -16,9 +15,7 @@ import { Activities } from './pages/Activities';
 import { ActivityDetails } from './pages/ActivityDetails';
 import { MediaGallery } from './pages/MediaGallery';
 
-const createSentryBrowserRouter = Sentry.wrapCreateBrowserRouterV7(createBrowserRouter);
-
-export const router = createSentryBrowserRouter([
+export const router = createBrowserRouter([
   {
     path: '/',
     Component: Root,
