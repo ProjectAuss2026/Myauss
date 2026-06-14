@@ -372,28 +372,34 @@ router.post('/forgot-password', async (req, res) => {
       const user = await prisma.user.findUnique({ where: { email: normalisedEmail } });
 
       if (user?.isVerified) {
-        const token = crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
-        const tokenHash = hashToken(token);
-        const usedAt = new Date();
+        const now = new Date();
+        const activeReset = await prisma.passwordReset.findFirst({
+          where: {
+            userId: user.id,
+            usedAt: null,
+            expiresAt: { gt: now },
+          },
+          select: { id: true },
+        });
 
-        await prisma.$transaction([
-          prisma.passwordReset.updateMany({
-            where: { userId: user.id, usedAt: null },
-            data: { usedAt },
-          }),
-          prisma.passwordReset.create({
+        // Keep an active link valid instead of rotating tokens on each request.
+        if (!activeReset) {
+          const token = crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
+          const tokenHash = hashToken(token);
+
+          await prisma.passwordReset.create({
             data: {
               userId: user.id,
               tokenHash,
-              expiresAt: new Date(Date.now() + RESET_TOKEN_WINDOW_MS),
+              expiresAt: new Date(now.getTime() + RESET_TOKEN_WINDOW_MS),
             },
-          }),
-        ]);
+          });
 
-        try {
-          await sendPasswordResetEmail(user.email, token);
-        } catch (emailError) {
-          console.error('Password reset email error:', emailError);
+          try {
+            await sendPasswordResetEmail(user.email, token);
+          } catch (emailError) {
+            console.error('Password reset email error:', emailError);
+          }
         }
       }
     }
@@ -414,8 +420,9 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'Token and new password are required' });
     }
 
+    const tokenHash = hashToken(token);
     const reset = await prisma.passwordReset.findUnique({
-      where: { tokenHash: hashToken(token) },
+      where: { tokenHash },
       include: { user: { include: { info: true } } },
     });
 
@@ -436,31 +443,49 @@ router.post('/reset-password', async (req, res) => {
     const passwordHash = await bcrypt.hash(passwordPolicy.normalizedPassword, SALT_ROUNDS);
     const usedAt = new Date();
 
-    await prisma.$transaction([
-      prisma.user.update({
+    const consumed = await prisma.$transaction(async (tx) => {
+      const claim = await tx.passwordReset.updateMany({
+        where: {
+          id: reset.id,
+          tokenHash,
+          usedAt: null,
+          expiresAt: { gt: usedAt },
+        },
+        data: { usedAt },
+      });
+
+      if (claim.count !== 1) {
+        return false;
+      }
+
+      await tx.user.update({
         where: { id: reset.userId },
         data: {
           passwordHash,
           tokenVersion: { increment: 1 },
         },
-      }),
-      prisma.authSession.updateMany({
+      });
+
+      await tx.authSession.updateMany({
         where: { userId: reset.userId, revokedAt: null },
         data: { revokedAt: usedAt, revokedReason: 'password_reset' },
-      }),
-      prisma.passwordReset.update({
-        where: { id: reset.id },
-        data: { usedAt },
-      }),
-      prisma.passwordReset.updateMany({
+      });
+
+      await tx.passwordReset.updateMany({
         where: {
           userId: reset.userId,
           id: { not: reset.id },
           usedAt: null,
         },
         data: { usedAt },
-      }),
-    ]);
+      });
+
+      return true;
+    });
+
+    if (!consumed) {
+      return res.status(400).json({ error: RESET_TOKEN_ERROR });
+    }
 
     clearRefreshCookie(res);
 
