@@ -21,8 +21,5 @@
     "fullstack"
   ],
   "author": "ProjectAuss2026",
-  "license": "MIT",
-  "dependencies": {
-    "helmet": "^8.2.0"
-  }
+  "license": "MIT"
 }
