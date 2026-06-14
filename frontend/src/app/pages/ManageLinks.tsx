@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { fetchWithAuth } from '../lib/authFetch';
 import {
   ChevronLeft,
   Plus,
@@ -112,29 +113,11 @@ type EditingLink = Partial<Pick<CommunicationLink, 'platform' | 'url' | 'imgUrl'
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 
-function getToken(): string | null {
-  return localStorage.getItem('token');
-}
-
-async function authFetch(url: string, opts: RequestInit = {}) {
-  const token = getToken();
-  return fetch(url, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(opts.headers || {}),
-    },
-  });
-}
-
 async function uploadFile(file: File): Promise<string> {
-  const token = getToken();
   const formData = new FormData();
   formData.append('image', file);
-  const res = await fetch('/api/upload', {
+  const res = await fetchWithAuth('/api/upload', {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
   });
   if (!res.ok) {
@@ -381,7 +364,7 @@ export function ManageLinks() {
 
   /* ── Auth guard ─────────────────────────────────────────────────────── */
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || user?.role !== 'ADMIN')) {
+    if (!authLoading && (!isAuthenticated || (user?.role !== 'ADMIN' && user?.role !== 'OWNER'))) {
       navigate('/profile');
     }
   }, [authLoading, isAuthenticated, user, navigate]);
@@ -390,7 +373,7 @@ export function ManageLinks() {
   const fetchLinks = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await authFetch('/api/config');
+      const res = await fetchWithAuth('/api/config');
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       setLinks(data.communicationLinks ?? []);
@@ -402,7 +385,7 @@ export function ManageLinks() {
   }, [showToast]);
 
   useEffect(() => {
-    if (isAuthenticated && user?.role === 'ADMIN') fetchLinks();
+    if (isAuthenticated && (user?.role === 'ADMIN' || user?.role === 'OWNER')) fetchLinks();
   }, [isAuthenticated, user, fetchLinks]);
 
   /* ── Editing helpers ────────────────────────────────────────────────── */
@@ -434,7 +417,7 @@ export function ManageLinks() {
     if (!data) return;
     setSaving(id);
     try {
-      const res = await authFetch('/api/config', {
+      const res = await fetchWithAuth('/api/config', {
         method: 'PATCH',
         body: JSON.stringify({ type: 'communicationLink', id, data }),
       });
@@ -456,7 +439,7 @@ export function ManageLinks() {
   const handleToggleActive = async (link: CommunicationLink) => {
     setSaving(link.id);
     try {
-      const res = await authFetch('/api/config', {
+      const res = await fetchWithAuth('/api/config', {
         method: 'PATCH',
         body: JSON.stringify({ type: 'communicationLink', id: link.id, data: { isActive: !link.isActive } }),
       });
@@ -489,7 +472,7 @@ export function ManageLinks() {
     }
     setSaving('new');
     try {
-      const res = await authFetch('/api/config', {
+      const res = await fetchWithAuth('/api/config', {
         method: 'POST',
         body: JSON.stringify({ type: 'communicationLink', data: { ...newLink, imgUrl } }),
       });
@@ -513,7 +496,7 @@ export function ManageLinks() {
     if (!window.confirm(`Delete "${link.platform}"? This cannot be undone.`)) return;
     setDeleting(link.id);
     try {
-      const res = await authFetch('/api/config', {
+      const res = await fetchWithAuth('/api/config', {
         method: 'DELETE',
         body: JSON.stringify({ type: 'communicationLink', id: link.id }),
       });
@@ -528,7 +511,7 @@ export function ManageLinks() {
   };
 
   /* ── Guard render ───────────────────────────────────────────────────── */
-  if (authLoading || !user || user.role !== 'ADMIN') {
+  if (authLoading || !user || (user.role !== 'ADMIN' && user.role !== 'OWNER')) {
     return (
       <div className="bg-black min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-[#eb7524]/30 border-t-[#eb7524] rounded-full animate-spin" />

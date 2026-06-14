@@ -17,9 +17,17 @@ const IMAGE_SRC_VALUES = [
   'https://images.pixieset.com',
 ]
 
-const createContentSecurityPolicy = ({ allowEval, allowWebSockets }: { allowEval: boolean, allowWebSockets: boolean }) => [
+const createContentSecurityPolicy = ({
+  allowEval,
+  allowInlineScripts,
+  allowWebSockets,
+}: {
+  allowEval: boolean
+  allowInlineScripts: boolean
+  allowWebSockets: boolean
+}) => [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${allowEval ? " 'unsafe-eval'" : ''}`,
+  `script-src 'self'${allowInlineScripts ? " 'unsafe-inline'" : ''}${allowEval ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline' https:",
   `img-src ${IMAGE_SRC_VALUES.join(' ')}`,
   "font-src 'self' data: https:",
@@ -39,12 +47,20 @@ const SHARED_SECURITY_HEADERS = {
 
 const DEV_SECURITY_HEADERS = {
   ...SHARED_SECURITY_HEADERS,
-  'Content-Security-Policy': createContentSecurityPolicy({ allowEval: true, allowWebSockets: true }),
+  'Content-Security-Policy': createContentSecurityPolicy({
+    allowEval: true,
+    allowInlineScripts: true,
+    allowWebSockets: true,
+  }),
 }
 
 const PREVIEW_SECURITY_HEADERS = {
   ...SHARED_SECURITY_HEADERS,
-  'Content-Security-Policy': createContentSecurityPolicy({ allowEval: false, allowWebSockets: false }),
+  'Content-Security-Policy': createContentSecurityPolicy({
+    allowEval: false,
+    allowInlineScripts: false,
+    allowWebSockets: false,
+  }),
 }
 
 export default defineConfig(({ mode }) => {
