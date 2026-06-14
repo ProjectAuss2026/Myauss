@@ -17,6 +17,7 @@ import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
+import { CSP_IMAGE_SRC_VALUES } from '../../shared/securityHeaders.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -31,19 +32,7 @@ const ignoredCorsOrigins = rawCorsOrigins.filter((origin) => origin === '*' || o
 const allowedCorsOrigins = rawCorsOrigins.filter((origin) => origin !== '*' && origin.toLowerCase() !== 'null');
 const allowedCorsOriginSet = new Set(allowedCorsOrigins);
 
-const IMAGE_SRC_VALUES = [
-  "'self'",
-  'data:',
-  'blob:',
-  'https://prodcdn.sporty.co.nz',
-  'https://images.squarespace-cdn.com',
-  'https://www.lskd.co',
-  'https://upload.wikimedia.org',
-  'https://nevafoldcollection.com',
-  'https://avancus.com',
-  'https://assets.shipcode.com',
-  'https://images.pixieset.com',
-];
+const ENABLE_HSTS_PRELOAD = process.env.HSTS_PRELOAD === 'true';
 
 console.log('Environment loaded - PORT:', PORT);
 console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
@@ -63,7 +52,7 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        imgSrc: IMAGE_SRC_VALUES,
+        imgSrc: CSP_IMAGE_SRC_VALUES,
         connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
         objectSrc: ["'none'"],
@@ -86,7 +75,7 @@ if (process.env.NODE_ENV === 'production') {
     helmet.hsts({
       maxAge: 31536000,
       includeSubDomains: true,
-      preload: true
+      preload: ENABLE_HSTS_PRELOAD
     })
   );
 }

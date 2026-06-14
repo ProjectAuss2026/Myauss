@@ -2,20 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-
-const IMAGE_SRC_VALUES = [
-  "'self'",
-  'data:',
-  'blob:',
-  'https://prodcdn.sporty.co.nz',
-  'https://images.squarespace-cdn.com',
-  'https://www.lskd.co',
-  'https://upload.wikimedia.org',
-  'https://nevafoldcollection.com',
-  'https://avancus.com',
-  'https://assets.shipcode.com',
-  'https://images.pixieset.com',
-]
+import { CSP_IMAGE_SRC_VALUES } from '../shared/securityHeaders.mjs'
 
 const createContentSecurityPolicy = ({
   allowEval,
@@ -25,18 +12,22 @@ const createContentSecurityPolicy = ({
   allowEval: boolean
   allowInlineScripts: boolean
   allowWebSockets: boolean
-}) => [
-  "default-src 'self'",
-  `script-src 'self'${allowInlineScripts ? " 'unsafe-inline'" : ''}${allowEval ? " 'unsafe-eval'" : ''}`,
-  "style-src 'self' 'unsafe-inline' https:",
-  `img-src ${IMAGE_SRC_VALUES.join(' ')}`,
-  "font-src 'self' data: https:",
-  `connect-src 'self' http: https:${allowWebSockets ? ' ws: wss:' : ''}`,
-  "frame-ancestors 'none'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join('; ')
+}) => {
+  const connectSrcValues = ["'self'", ...(allowWebSockets ? ['ws:', 'wss:'] : [])]
+
+  return [
+    "default-src 'self'",
+    `script-src 'self'${allowInlineScripts ? " 'unsafe-inline'" : ''}${allowEval ? " 'unsafe-eval'" : ''}`,
+    "style-src 'self' 'unsafe-inline' https:",
+    `img-src ${CSP_IMAGE_SRC_VALUES.join(' ')}`,
+    "font-src 'self' data: https:",
+    `connect-src ${connectSrcValues.join(' ')}`,
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; ')
+}
 
 const SHARED_SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
