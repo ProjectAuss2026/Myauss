@@ -7,6 +7,8 @@ import { MeetTheExecs } from './pages/MeetTheExecs';
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
 import { Verify } from './pages/Verify';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 import { Profile } from './pages/Profile';
 import { ManageLinks } from './pages/ManageLinks';
 import { Admin } from './pages/Admin';
@@ -27,6 +29,8 @@ export const router = createBrowserRouter([
       { path: 'meet-the-execs', Component: MeetTheExecs },
       { path: 'login', Component: Login },
       { path: 'verify', Component: Verify },
+      { path: 'forgot-password', Component: ForgotPassword },
+      { path: 'reset', Component: ResetPassword },
       { path: 'profile', Component: Profile },
       { path: 'activities', Component: Activities },
       { path: 'activities/:id', Component: ActivityDetails },

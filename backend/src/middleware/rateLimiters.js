@@ -38,6 +38,7 @@ function createLimiter({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator,
+    skip: (req) => req.method === 'OPTIONS',
     handler: build429Handler(scope),
   });
 }
