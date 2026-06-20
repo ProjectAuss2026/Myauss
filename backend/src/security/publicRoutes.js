@@ -14,6 +14,8 @@ export const PUBLIC_ROUTES = Object.freeze([
   route('POST', '/api/auth/resend-code'),
   route('POST', '/api/auth/verify'),
   route('POST', '/api/auth/login'),
+  route('POST', '/api/auth/forgot-password'),
+  route('POST', '/api/auth/reset-password'),
   route('POST', '/api/auth/refresh'),
   route('POST', '/api/auth/logout'),
   route('GET', '/api/config'),

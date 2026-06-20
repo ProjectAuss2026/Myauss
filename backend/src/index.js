@@ -7,9 +7,7 @@ const rawCorsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-const ignoredCorsOrigins = rawCorsOrigins.filter((origin) => origin === '*' || origin.toLowerCase() === 'null');
 const allowedCorsOrigins = rawCorsOrigins.filter((origin) => origin !== '*' && origin.toLowerCase() !== 'null');
-const allowedCorsOriginSet = new Set(allowedCorsOrigins);
 
 console.log('Environment loaded - PORT:', PORT);
 console.log('DATABASE_URL loaded:', process.env.DATABASE_URL ? 'Yes' : 'No');
