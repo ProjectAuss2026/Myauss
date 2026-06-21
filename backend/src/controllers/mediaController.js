@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
 
@@ -99,8 +100,9 @@ export async function createMediaEntry(req, res) {
   if (overrideCover !== undefined && overrideCover !== null && typeof overrideCover !== 'string') {
     return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a string when provided.');
   }
-  if (typeof overrideCover === 'string' && overrideCover.trim() && !parseUrl(overrideCover.trim())) {
-    return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a valid absolute URL.');
+  const normalizedOverrideCover = normalizeOptionalImageUrl(overrideCover, 'overrideCover');
+  if (!normalizedOverrideCover.ok) {
+    return sendError(res, 422, 'VALIDATION_ERROR', normalizedOverrideCover.message);
   }
 
   try {
@@ -117,7 +119,7 @@ export async function createMediaEntry(req, res) {
         activityId: parsedActivityId,
         mediaDriveUrl: mediaDriveUrl.trim(),
         overrideName: typeof overrideName === 'string' && overrideName.trim() ? overrideName.trim() : null,
-        overrideCover: typeof overrideCover === 'string' && overrideCover.trim() ? overrideCover.trim() : null,
+        overrideCover: normalizedOverrideCover.value ?? null,
       },
       include: {
         activity: {
@@ -179,13 +181,11 @@ export async function patchMediaEntry(req, res) {
   }
 
   if (overrideCover !== undefined) {
-    if (overrideCover !== null && typeof overrideCover !== 'string') {
-      return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a string or null.');
+    const normalizedOverrideCover = normalizeOptionalImageUrl(overrideCover, 'overrideCover');
+    if (!normalizedOverrideCover.ok) {
+      return sendError(res, 422, 'VALIDATION_ERROR', normalizedOverrideCover.message);
     }
-    if (typeof overrideCover === 'string' && overrideCover.trim() && !parseUrl(overrideCover.trim())) {
-      return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a valid absolute URL.');
-    }
-    data.overrideCover = typeof overrideCover === 'string' && overrideCover.trim() ? overrideCover.trim() : null;
+    data.overrideCover = normalizedOverrideCover.value;
   }
 
   if (Object.keys(data).length === 0) {
@@ -248,6 +248,16 @@ function toAbsolute(url) {
   return url.startsWith('//') ? `https:${url}` : url;
 }
 
+function sendAllowedCoverUrl(res, directUrl) {
+  const normalized = normalizeOptionalImageUrl(directUrl, 'directUrl');
+
+  if (!normalized.ok) {
+    return sendError(res, 422, 'VALIDATION_ERROR', normalized.message);
+  }
+
+  return res.json({ directUrl: normalized.value });
+}
+
 export async function resolveCoverUrl(req, res) {
   const { url } = req.body ?? {};
   if (!url || typeof url !== 'string' || !url.trim()) {
@@ -258,7 +268,7 @@ export async function resolveCoverUrl(req, res) {
 
   // Not a Pixieset gallery page — return as-is
   if (!trimmed.includes('pixieset.com') || !trimmed.includes('pid=')) {
-    return res.json({ directUrl: trimmed });
+    return sendAllowedCoverUrl(res, trimmed);
   }
 
   try {
@@ -272,11 +282,11 @@ export async function resolveCoverUrl(req, res) {
 
     for (const re of OG_IMAGE_RE) {
       const m = html.match(re);
-      if (m?.[1]) return res.json({ directUrl: toAbsolute(m[1]) });
+      if (m?.[1]) return sendAllowedCoverUrl(res, toAbsolute(m[1]));
     }
 
     const imgMatch = html.match(PIXIESET_IMG_RE);
-    if (imgMatch) return res.json({ directUrl: toAbsolute(imgMatch[0]) });
+    if (imgMatch) return sendAllowedCoverUrl(res, toAbsolute(imgMatch[0]));
 
     return sendError(res, 422, 'NOT_FOUND', 'Could not extract an image URL from this Pixieset page.');
   } catch (error) {

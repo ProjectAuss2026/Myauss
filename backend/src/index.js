@@ -17,7 +17,10 @@ import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
-import { CSP_IMAGE_SRC_VALUES } from '../../shared/securityHeaders.mjs';
+import {
+  getConfiguredCspConnectSrcValues,
+  getConfiguredCspImageSrcValues,
+} from '../../shared/securityHeaders.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -52,8 +55,8 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        imgSrc: CSP_IMAGE_SRC_VALUES,
-        connectSrc: ["'self'"],
+        imgSrc: getConfiguredCspImageSrcValues(process.env),
+        connectSrc: getConfiguredCspConnectSrcValues({ env: process.env }),
         frameAncestors: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"]

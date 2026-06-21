@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
 
@@ -129,6 +130,15 @@ export async function createSponsor(req, res) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`websiteUrl` must be a string when provided.');
   }
 
+  const normalizedLogoUrl = normalizeOptionalImageUrl(logoUrl, 'logoUrl');
+  if (!normalizedLogoUrl.ok) {
+    return sendError(res, 422, 'VALIDATION_ERROR', normalizedLogoUrl.message);
+  }
+  const normalizedHeroImageUrl = normalizeOptionalImageUrl(heroImageUrl, 'heroImageUrl');
+  if (!normalizedHeroImageUrl.ok) {
+    return sendError(res, 422, 'VALIDATION_ERROR', normalizedHeroImageUrl.message);
+  }
+
   let parsedDisplayOrder = 0;
   if (displayOrder !== undefined) {
     const value = parseNonNegativeInt(displayOrder);
@@ -150,8 +160,8 @@ export async function createSponsor(req, res) {
       data: {
         name: name.trim(),
         sponsorshipPageId: parsedPageId,
-        logoUrl: logoUrl || null,
-        heroImageUrl: heroImageUrl || null,
+        logoUrl: normalizedLogoUrl.value ?? null,
+        heroImageUrl: normalizedHeroImageUrl.value ?? null,
         websiteUrl: websiteUrl || null,
         displayOrder: parsedDisplayOrder,
       },
@@ -180,16 +190,18 @@ export async function patchSponsor(req, res) {
     data.name = name.trim();
   }
   if (logoUrl !== undefined) {
-    if (logoUrl !== null && typeof logoUrl !== 'string') {
-      return sendError(res, 422, 'VALIDATION_ERROR', '`logoUrl` must be a string or null.');
+    const normalizedLogoUrl = normalizeOptionalImageUrl(logoUrl, 'logoUrl');
+    if (!normalizedLogoUrl.ok) {
+      return sendError(res, 422, 'VALIDATION_ERROR', normalizedLogoUrl.message);
     }
-    data.logoUrl = logoUrl || null;
+    data.logoUrl = normalizedLogoUrl.value;
   }
   if (heroImageUrl !== undefined) {
-    if (heroImageUrl !== null && typeof heroImageUrl !== 'string') {
-      return sendError(res, 422, 'VALIDATION_ERROR', '`heroImageUrl` must be a string or null.');
+    const normalizedHeroImageUrl = normalizeOptionalImageUrl(heroImageUrl, 'heroImageUrl');
+    if (!normalizedHeroImageUrl.ok) {
+      return sendError(res, 422, 'VALIDATION_ERROR', normalizedHeroImageUrl.message);
     }
-    data.heroImageUrl = heroImageUrl || null;
+    data.heroImageUrl = normalizedHeroImageUrl.value;
   }
   if (websiteUrl !== undefined) {
     if (websiteUrl !== null && typeof websiteUrl !== 'string') {
