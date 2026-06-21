@@ -13,6 +13,7 @@ const logger = pino({
       'refreshToken',
       'DATABASE_URL',
       'SENTRY_DSN',
+      'VITE_SENTRY_DSN',
     ],
     censor: '[redacted]',
   },

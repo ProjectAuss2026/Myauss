@@ -26,12 +26,28 @@ const __dirname = dirname(__filename);
 const sentryDsn = process.env.SENTRY_DSN;
 const sentryEnabled = Boolean(sentryDsn);
 
+function getSentryTracesSampleRate() {
+  const rawSampleRate = process.env.SENTRY_TRACES_SAMPLE_RATE;
+
+  if (rawSampleRate === undefined || rawSampleRate === '') {
+    return 0;
+  }
+
+  const sampleRate = Number(rawSampleRate);
+
+  if (!Number.isFinite(sampleRate) || sampleRate < 0 || sampleRate > 1) {
+    throw new Error('SENTRY_TRACES_SAMPLE_RATE must be a number between 0 and 1');
+  }
+
+  return sampleRate;
+}
+
 if (sentryEnabled) {
   Sentry.init({
     dsn: sentryDsn,
     environment: process.env.NODE_ENV || 'development',
     integrations: [Sentry.expressIntegration()],
-    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0),
+    tracesSampleRate: getSentryTracesSampleRate(),
   });
 }
 
@@ -100,6 +116,25 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(express.json());
+
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.get('/readyz', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ status: 'ok' });
+  } catch (error) {
+    logger.error({ err: error }, 'Readiness check failed');
+    return res.status(503).json({ status: 'unavailable' });
+  }
+});
+
 app.use('/api', globalApiLimiter);
 
 // Auth routes
@@ -113,20 +148,6 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
   maxAge: '1y',
   setHeaders: setUploadStaticHeaders,
 }));
-
-app.get('/healthz', (_req, res) => {
-  res.json({ status: 'ok' });
-});
-
-app.get('/readyz', async (_req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    return res.json({ status: 'ok' });
-  } catch (error) {
-    logger.error({ err: error }, 'Readiness check failed');
-    return res.status(503).json({ status: 'unavailable' });
-  }
-});
 
 app.get('/api/test', (req, res) => {
   res.json({
