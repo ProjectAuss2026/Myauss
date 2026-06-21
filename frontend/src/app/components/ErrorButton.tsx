@@ -14,12 +14,10 @@ export function ErrorButton() {
           level: 'info',
           message: 'Sentry test error button clicked',
         });
-        Sentry.captureException(error);
-        void Sentry.flush(2000).finally(() => {
-          setTimeout(() => {
-            throw error;
-          }, 0);
-        });
+
+        setTimeout(() => {
+          throw new Error('This is your first error!');
+        }, 0);
       }}
     >
       Break the world
