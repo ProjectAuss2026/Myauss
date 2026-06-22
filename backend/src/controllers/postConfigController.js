@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 // Fields that must be present, otherwise "400 Bad Request"
 const REQUIRED_FIELDS = {
@@ -121,7 +122,7 @@ const postConfigController = async (req, res) => {
         message: 'Foreign key constraint failed. Ensure related records exist.',
       });
     }
-    console.error('[postConfigController] Error creating config:', error);
+    logger.error({ err: error }, '[postConfigController] Error creating config:');
     return res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to create configuration.',

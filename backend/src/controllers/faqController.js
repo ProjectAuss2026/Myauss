@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
@@ -14,7 +15,7 @@ export async function getFaq(_req, res) {
     });
     return res.status(200).json({ data: faqs });
   } catch (err) {
-    console.error('[getFaq] error:', err);
+    logger.error({ err }, '[getFaq] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch FAQ entries.');
   }
 }
@@ -28,7 +29,7 @@ export async function getAdminFaq(_req, res) {
     });
     return res.status(200).json({ data: faqs });
   } catch (err) {
-    console.error('[getAdminFaq] error:', err);
+    logger.error({ err }, '[getAdminFaq] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch FAQ entries.');
   }
 }
@@ -53,7 +54,7 @@ export async function createFaq(req, res) {
     });
     return res.status(201).json({ data: faq });
   } catch (err) {
-    console.error('[createFaq] error:', err);
+    logger.error({ err }, '[createFaq] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create FAQ entry.');
   }
 }
@@ -97,7 +98,7 @@ export async function updateFaq(req, res) {
     const updated = await prisma.faq.update({ where: { id }, data });
     return res.status(200).json({ data: updated });
   } catch (err) {
-    console.error('[updateFaq] error:', err);
+    logger.error({ err }, '[updateFaq] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update FAQ entry.');
   }
 }
@@ -118,7 +119,7 @@ export async function deleteFaq(req, res) {
     await prisma.faq.delete({ where: { id } });
     return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
-    console.error('[deleteFaq] error:', err);
+    logger.error({ err }, '[deleteFaq] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete FAQ entry.');
   }
 }

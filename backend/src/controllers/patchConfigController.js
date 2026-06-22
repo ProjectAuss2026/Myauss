@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 // Whitelist to strip out fields aren't permitted for that type
 const ALLOWED_FIELDS = {
@@ -165,7 +166,7 @@ const patchConfigController = async (req, res) => {
         message: `A ${type} with that value already exists (unique constraint violated).`,
       });
     }
-    console.error('[patchConfigController] Error updating config:', error);
+    logger.error({ err: error }, '[patchConfigController] Error updating config:');
     return res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to update configuration.',

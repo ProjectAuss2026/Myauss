@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 import fs from 'fs';
 import path from 'path';
 import { UPLOADS_DIR } from './uploadController.js';
@@ -87,7 +88,7 @@ const deleteConfigController = async (req, res) => {
         message: `No ${type} found with id=${id}.`,
       });
     }
-    console.error('[deleteConfigController] Error deleting config:', error);
+    logger.error({ err: error }, '[deleteConfigController] Error deleting config:');
     return res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to delete configuration.',

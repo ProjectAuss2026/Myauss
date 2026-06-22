@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 import { unlink } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -13,7 +14,7 @@ export const getAllActivitiesAdmin = async (_req, res) => {
     });
     return res.json(activities);
   } catch (err) {
-    console.error('getAllActivitiesAdmin error:', err);
+    logger.error({ err }, 'getAllActivitiesAdmin error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -27,7 +28,7 @@ export const getActivities = async (_req, res) => {
     });
     return res.json(activities);
   } catch (err) {
-    console.error('getActivities error:', err);
+    logger.error({ err }, 'getActivities error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -84,7 +85,7 @@ export const createActivity = async (req, res) => {
     });
     return res.status(201).json(activity);
   } catch (err) {
-    console.error('createActivity error:', err);
+    logger.error({ err }, 'createActivity error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -158,7 +159,7 @@ export const updateActivity = async (req, res) => {
     const activity = await prisma.activity.update({ where: { id }, data });
     return res.json(activity);
   } catch (err) {
-    console.error('updateActivity error:', err);
+    logger.error({ err }, 'updateActivity error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -187,7 +188,7 @@ export const deleteActivity = async (req, res) => {
 
     return res.status(200).json({ message: 'Activity deleted' });
   } catch (err) {
-    console.error('deleteActivity error:', err);
+    logger.error({ err }, 'deleteActivity error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
