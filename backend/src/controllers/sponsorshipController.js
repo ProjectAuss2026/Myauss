@@ -1,5 +1,6 @@
 import prisma from '../prismaClient.js';
 import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
+import logger from '../utils/logger.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
 
@@ -71,7 +72,7 @@ export async function getSponsorship(req, res) {
 
     return res.status(200).json({ data: sponsorshipResponse(page) });
   } catch (error) {
-    console.error('[getSponsorship] Error fetching sponsorship data:', error);
+    logger.error({ err: error }, '[getSponsorship] Error fetching sponsorship data:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch sponsorship data.');
   }
 }
@@ -103,7 +104,7 @@ export async function patchSponsorship(req, res) {
 
     return res.status(200).json({ data: sponsorshipResponse(updated) });
   } catch (error) {
-    console.error('[patchSponsorship] Error updating sponsorship page:', error);
+    logger.error({ err: error }, '[patchSponsorship] Error updating sponsorship page:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update sponsorship page.');
   }
 }
@@ -169,7 +170,7 @@ export async function createSponsor(req, res) {
 
     return res.status(201).json({ data: sponsor });
   } catch (error) {
-    console.error('[createSponsor] Error creating sponsor:', error);
+    logger.error({ err: error }, '[createSponsor] Error creating sponsor:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create sponsor.');
   }
 }
@@ -231,7 +232,7 @@ export async function patchSponsor(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'SPONSOR_NOT_FOUND', `Sponsor ${sponsorId} was not found.`);
     }
-    console.error('[patchSponsor] Error updating sponsor:', error);
+    logger.error({ err: error }, '[patchSponsor] Error updating sponsor:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update sponsor.');
   }
 }
@@ -251,7 +252,7 @@ export async function deleteSponsor(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'SPONSOR_NOT_FOUND', `Sponsor ${sponsorId} was not found.`);
     }
-    console.error('[deleteSponsor] Error deleting sponsor:', error);
+    logger.error({ err: error }, '[deleteSponsor] Error deleting sponsor:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete sponsor.');
   }
 }

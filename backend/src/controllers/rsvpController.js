@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 // Simple RFC-5322-ish email validation. Strict enough for form input.
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -76,7 +77,7 @@ export const createRsvp = async (req, res) => {
 
     return res.status(result.status).json(result.body);
   } catch (err) {
-    console.error('createRsvp error:', err);
+    logger.error({ err }, 'createRsvp error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -107,7 +108,7 @@ export const getRsvpCount = async (req, res) => {
 
     return res.json({ count, capacity, isSoldOut });
   } catch (err) {
-    console.error('getRsvpCount error:', err);
+    logger.error({ err }, 'getRsvpCount error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -137,7 +138,7 @@ export const listRsvps = async (req, res) => {
     });
     return res.json(rsvps);
   } catch (err) {
-    console.error('listRsvps error:', err);
+    logger.error({ err }, 'listRsvps error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -165,7 +166,7 @@ export const deleteRsvp = async (req, res) => {
     await prisma.rsvp.delete({ where: { id: rsvpId } });
     return res.status(204).send();
   } catch (err) {
-    console.error('deleteRsvp error:', err);
+    logger.error({ err }, 'deleteRsvp error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -224,7 +225,7 @@ export const exportRsvpsCsv = async (req, res) => {
     );
     return res.status(200).send(csv);
   } catch (err) {
-    console.error('exportRsvpsCsv error:', err);
+    logger.error({ err }, 'exportRsvpsCsv error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };

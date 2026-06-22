@@ -1,5 +1,6 @@
 import prisma from '../prismaClient.js';
 import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
+import logger from '../utils/logger.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
 
@@ -76,7 +77,7 @@ export async function getMediaEntries(req, res) {
 
     return res.status(200).json({ data: entries.map(serializeMediaEntry) });
   } catch (error) {
-    console.error('[getMediaEntries] Error fetching media entries:', error);
+    logger.error({ err: error }, '[getMediaEntries] Error fetching media entries:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch media entries.');
   }
 }
@@ -137,7 +138,7 @@ export async function createMediaEntry(req, res) {
 
     return res.status(201).json({ data: serializeMediaEntry(created) });
   } catch (error) {
-    console.error('[createMediaEntry] Error creating media entry:', error);
+    logger.error({ err: error }, '[createMediaEntry] Error creating media entry:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create media entry.');
   }
 }
@@ -214,7 +215,7 @@ export async function patchMediaEntry(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'NOT_FOUND', `Media entry ${entryId} was not found.`);
     }
-    console.error('[patchMediaEntry] Error updating media entry:', error);
+    logger.error({ err: error }, '[patchMediaEntry] Error updating media entry:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update media entry.');
   }
 }
@@ -232,7 +233,7 @@ export async function deleteMediaEntry(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'NOT_FOUND', `Media entry ${entryId} was not found.`);
     }
-    console.error('[deleteMediaEntry] Error deleting media entry:', error);
+    logger.error({ err: error }, '[deleteMediaEntry] Error deleting media entry:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete media entry.');
   }
 }
@@ -290,7 +291,7 @@ export async function resolveCoverUrl(req, res) {
 
     return sendError(res, 422, 'NOT_FOUND', 'Could not extract an image URL from this Pixieset page.');
   } catch (error) {
-    console.error('[resolveCoverUrl] Fetch error:', error);
+    logger.error({ err: error }, '[resolveCoverUrl] Fetch error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch the Pixieset page.');
   }
 }

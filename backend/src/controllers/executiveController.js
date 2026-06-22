@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
@@ -41,7 +42,7 @@ export async function getExecutives(_req, res) {
 
     return res.status(200).json({ data: Array.from(teamMap.values()) });
   } catch (err) {
-    console.error('[getExecutives] error:', err);
+    logger.error({ err }, '[getExecutives] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch executives.');
   }
 }
@@ -60,7 +61,7 @@ export async function getAdminExecutives(_req, res) {
     });
     return res.status(200).json({ data: executives });
   } catch (err) {
-    console.error('[getAdminExecutives] error:', err);
+    logger.error({ err }, '[getAdminExecutives] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch executives.');
   }
 }
@@ -131,7 +132,7 @@ export async function createExecutive(req, res) {
     });
     return res.status(201).json({ data: exec });
   } catch (err) {
-    console.error('[createExecutive] error:', err);
+    logger.error({ err }, '[createExecutive] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create executive.');
   }
 }
@@ -182,7 +183,7 @@ export async function updateExecutive(req, res) {
     });
     return res.status(200).json({ data: updated });
   } catch (err) {
-    console.error('[updateExecutive] error:', err);
+    logger.error({ err }, '[updateExecutive] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update executive.');
   }
 }
@@ -199,7 +200,7 @@ export async function deleteExecutive(req, res) {
     await prisma.executive.delete({ where: { id } });
     return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
-    console.error('[deleteExecutive] error:', err);
+    logger.error({ err }, '[deleteExecutive] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete executive.');
   }
 }
@@ -211,7 +212,7 @@ export async function getExecRoles(_req, res) {
     const roles = await prisma.execRole.findMany({ orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }] });
     return res.status(200).json({ data: roles });
   } catch (err) {
-    console.error('[getExecRoles] error:', err);
+    logger.error({ err }, '[getExecRoles] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch roles.');
   }
 }
@@ -226,7 +227,7 @@ export async function createExecRole(req, res) {
     return res.status(201).json({ data: role });
   } catch (err) {
     if (err.code === 'P2002') return sendError(res, 409, 'CONFLICT', 'A role with that name already exists.');
-    console.error('[createExecRole] error:', err);
+    logger.error({ err }, '[createExecRole] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create role.');
   }
 }
@@ -246,7 +247,7 @@ export async function deleteExecRole(req, res) {
     ]);
     return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
-    console.error('[deleteExecRole] error:', err);
+    logger.error({ err }, '[deleteExecRole] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete role.');
   }
 }
@@ -266,7 +267,7 @@ export async function updateExecRole(req, res) {
     return res.status(200).json({ data: updated });
   } catch (err) {
     if (err.code === 'P2002') return sendError(res, 409, 'CONFLICT', 'A role with that name already exists.');
-    console.error('[updateExecRole] error:', err);
+    logger.error({ err }, '[updateExecRole] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update role.');
   }
 }
@@ -278,7 +279,7 @@ export async function getExecTeams(_req, res) {
     const teams = await prisma.execTeam.findMany({ orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }] });
     return res.status(200).json({ data: teams });
   } catch (err) {
-    console.error('[getExecTeams] error:', err);
+    logger.error({ err }, '[getExecTeams] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch teams.');
   }
 }
@@ -293,7 +294,7 @@ export async function createExecTeam(req, res) {
     return res.status(201).json({ data: team });
   } catch (err) {
     if (err.code === 'P2002') return sendError(res, 409, 'CONFLICT', 'A team with that name already exists.');
-    console.error('[createExecTeam] error:', err);
+    logger.error({ err }, '[createExecTeam] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create team.');
   }
 }
@@ -313,7 +314,7 @@ export async function deleteExecTeam(req, res) {
     ]);
     return res.status(200).json({ data: { id, deleted: true } });
   } catch (err) {
-    console.error('[deleteExecTeam] error:', err);
+    logger.error({ err }, '[deleteExecTeam] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete team.');
   }
 }
@@ -333,7 +334,7 @@ export async function updateExecTeam(req, res) {
     return res.status(200).json({ data: updated });
   } catch (err) {
     if (err.code === 'P2002') return sendError(res, 409, 'CONFLICT', 'A team with that name already exists.');
-    console.error('[updateExecTeam] error:', err);
+    logger.error({ err }, '[updateExecTeam] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update team.');
   }
 }
@@ -359,7 +360,7 @@ export async function reorderExecRoles(req, res) {
     );
     return res.status(200).json({ data: { updated: items.length } });
   } catch (err) {
-    console.error('[reorderExecRoles] error:', err);
+    logger.error({ err }, '[reorderExecRoles] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to reorder roles.');
   }
 }
@@ -383,7 +384,7 @@ export async function reorderExecTeams(req, res) {
     );
     return res.status(200).json({ data: { updated: items.length } });
   } catch (err) {
-    console.error('[reorderExecTeams] error:', err);
+    logger.error({ err }, '[reorderExecTeams] error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to reorder teams.');
   }
 }
