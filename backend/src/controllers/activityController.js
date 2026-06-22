@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import { unlink } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,6 +71,11 @@ export const createActivity = async (req, res) => {
     }
   }
 
+  const normalizedImageUrl = normalizeOptionalImageUrl(imageUrl, 'imageUrl');
+  if (!normalizedImageUrl.ok) {
+    return res.status(400).json({ error: normalizedImageUrl.message });
+  }
+
   try {
     const activity = await prisma.activity.create({
       data: {
@@ -77,7 +83,7 @@ export const createActivity = async (req, res) => {
         description: description.trim(),
         startTime: parsedStart,
         endTime: parsedEnd,
-        imageUrl: imageUrl || null,
+        imageUrl: normalizedImageUrl.value ?? null,
         externalLink: externalLink || null,
         isPublished: isPublished !== undefined ? Boolean(isPublished) : true,
         capacity: parsedCapacity,
@@ -132,7 +138,13 @@ export const updateActivity = async (req, res) => {
       return res.status(400).json({ error: 'endTime must be after startTime' });
     }
 
-    if (imageUrl !== undefined) data.imageUrl = imageUrl || null;
+    if (imageUrl !== undefined) {
+      const normalizedImageUrl = normalizeOptionalImageUrl(imageUrl, 'imageUrl');
+      if (!normalizedImageUrl.ok) {
+        return res.status(400).json({ error: normalizedImageUrl.message });
+      }
+      data.imageUrl = normalizedImageUrl.value;
+    }
     if (externalLink !== undefined) data.externalLink = externalLink || null;
     if (isPublished !== undefined) data.isPublished = Boolean(isPublished);
     if (capacity !== undefined) {

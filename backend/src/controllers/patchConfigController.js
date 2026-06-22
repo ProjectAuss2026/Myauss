@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
 import logger from '../utils/logger.js';
 
 // Whitelist to strip out fields aren't permitted for that type
@@ -8,6 +9,28 @@ const ALLOWED_FIELDS = {
   sponsorshipPage: ['pageContent'],
   sponsor: ['name', 'logoUrl', 'websiteUrl', 'displayOrder', 'sponsorshipPageId'],
 };
+
+const IMAGE_URL_FIELDS = {
+  communicationLink: ['imgUrl'],
+  sponsor: ['logoUrl'],
+};
+
+function validateConfigImageUrls(type, filteredData) {
+  for (const field of IMAGE_URL_FIELDS[type] ?? []) {
+    if (!(field in filteredData)) {
+      continue;
+    }
+
+    const normalized = normalizeOptionalImageUrl(filteredData[field], field);
+    if (!normalized.ok) {
+      return normalized;
+    }
+
+    filteredData[field] = normalized.value;
+  }
+
+  return { ok: true };
+}
 
 // PATCH /api/config
 const patchConfigController = async (req, res) => {
@@ -62,6 +85,14 @@ const patchConfigController = async (req, res) => {
     return res.status(400).json({
       error: 'Bad request',
       message: 'Description must be 150 characters or fewer.',
+    });
+  }
+
+  const imageUrlValidation = validateConfigImageUrls(type, filteredData);
+  if (!imageUrlValidation.ok) {
+    return res.status(400).json({
+      error: 'Bad request',
+      message: imageUrlValidation.message,
     });
   }
 
