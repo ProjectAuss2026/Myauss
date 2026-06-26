@@ -2,6 +2,14 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
 const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
+const BLOCKED_HOST_SUFFIXES = Object.freeze([
+  '.localhost',
+  '.local',
+  '.localdomain',
+  '.internal',
+  '.home.arpa',
+  '.lan',
+]);
 
 export class UrlValidationError extends Error {
   constructor(message) {
@@ -57,10 +65,13 @@ function isBlockedIPv4(address) {
   return (
     a === 0 ||
     a === 10 ||
+    (a === 100 && b >= 64 && b <= 127) ||
     a === 127 ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
   );
 }
 
@@ -93,13 +104,15 @@ function isBlockedIPv6(address) {
 
   return (
     (firstHextet & 0xfe00) === 0xfc00 ||
-    (firstHextet & 0xffc0) === 0xfe80
+    (firstHextet & 0xffc0) === 0xfe80 ||
+    (firstHextet & 0xffc0) === 0xfec0 ||
+    (firstHextet & 0xff00) === 0xff00
   );
 }
 
 function isBlockedHostname(hostname) {
   const host = normalizeHostname(hostname);
-  return host === 'localhost' || host.endsWith('.localhost');
+  return host === 'localhost' || BLOCKED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
 export function isLocalOrPrivateHost(hostname) {
@@ -272,6 +285,20 @@ export async function validateConfigUrlFields(type, data, options = {}) {
 }
 
 export async function validateSponsorUrlFields(data, options = {}) {
+  if (Object.hasOwn(data, 'logoUrl')) {
+    data.logoUrl = await validateOptionalPublicImageUrl(data.logoUrl, {
+      ...options,
+      fieldName: 'Sponsor logo URL',
+    });
+  }
+
+  if (Object.hasOwn(data, 'heroImageUrl')) {
+    data.heroImageUrl = await validateOptionalPublicImageUrl(data.heroImageUrl, {
+      ...options,
+      fieldName: 'Sponsor hero image URL',
+    });
+  }
+
   if (Object.hasOwn(data, 'websiteUrl')) {
     data.websiteUrl = await validateOptionalPublicHttpUrl(data.websiteUrl, {
       ...options,

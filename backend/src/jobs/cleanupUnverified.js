@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 /**
  * Runs every hour. Deletes all unverified users whose
@@ -15,11 +16,11 @@ cron.schedule('0 * * * *', async () => {
     });
 
     if (result.count > 0) {
-      console.log(`[Cron] Cleaned up ${result.count} expired unverified user(s)`);
+      logger.info({ count: result.count }, 'Cleaned up expired unverified users');
     }
   } catch (err) {
-    console.error('[Cron] Cleanup error:', err);
+    logger.error({ err }, '[Cron] Cleanup error:');
   }
 });
 
-console.log('[Cron] Unverified-user cleanup job scheduled (every hour)');
+logger.info('Unverified-user cleanup job scheduled');

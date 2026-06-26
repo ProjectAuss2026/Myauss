@@ -8,7 +8,10 @@ import { authenticate } from '../middleware/authMiddleware.js';
 import validate from '../middleware/validate.js';
 import { loginSchema, registerSchema, resendCodeSchema, verifySchema } from '../schemas/authSchemas.js';
 import { hashStudentId, isStudentIdHashError } from '../utils/studentIdHash.js';
+import logger from '../utils/logger.js';
 import {
+  forgotPasswordEmailThrottle,
+  forgotPasswordIpLimiter,
   loginEmailThrottle,
   loginIpLimiter,
   registerEmailThrottle,
@@ -42,14 +45,11 @@ const OTP_RE = /^\d{6}$/;
 const DUMMY_PASSWORD_HASH = '$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem';
 const RESET_TOKEN_BYTES = 32;
 const RESET_TOKEN_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
-const FORGOT_PASSWORD_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const FORGOT_PASSWORD_MAX_ATTEMPTS = 5;
 const REGISTER_GENERIC_MESSAGE = 'If your email is eligible, a verification code has been sent.';
 const RESEND_GENERIC_MESSAGE = 'If your email has a pending verification, a new code has been sent.';
 const LOGIN_GENERIC_ERROR = 'Invalid email or password.';
 const FORGOT_PASSWORD_GENERIC_MESSAGE = 'If your email is registered, a password reset link has been sent.';
 const RESET_TOKEN_ERROR = 'Invalid or expired password reset token.';
-const forgotPasswordAttempts = new Map();
 
 function getOtpPepper() {
   return process.env.OTP_PEPPER || process.env.JWT_SECRET || '';
@@ -89,6 +89,10 @@ function timingSafeCodeMatch(expectedHash, code) {
 
 function normaliseEmail(email) {
   return String(email || '').trim().toLowerCase();
+}
+
+function getAuthTestHooks() {
+  return process.env.NODE_ENV === 'test' ? globalThis.__AUSS_AUTH_TEST_HOOKS__ ?? null : null;
 }
 
 function parseInviteHours(value) {
@@ -169,25 +173,14 @@ function buildResetUrl(token) {
   return `${appUrl}/reset?token=${encodeURIComponent(token)}`;
 }
 
-function canSendPasswordReset(req, email) {
-  const key = crypto
-    .createHash('sha256')
-    .update(`${req.ip || 'unknown'}:${email}`)
-    .digest('hex');
-  const now = Date.now();
-  const current = forgotPasswordAttempts.get(key);
-
-  if (!current || now >= current.resetAt) {
-    forgotPasswordAttempts.set(key, { count: 1, resetAt: now + FORGOT_PASSWORD_WINDOW_MS });
-    return true;
-  }
-
-  current.count += 1;
-  return current.count <= FORGOT_PASSWORD_MAX_ATTEMPTS;
-}
-
 async function sendPasswordResetEmail(email, token) {
   const resetUrl = buildResetUrl(token);
+  const testHooks = getAuthTestHooks();
+
+  if (testHooks?.sendPasswordResetEmail) {
+    await testHooks.sendPasswordResetEmail({ email, token, resetUrl });
+    return;
+  }
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.log(`[RESET DEV] Link for ${email}: ${resetUrl}`);
@@ -346,10 +339,10 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, validate(regi
     });
   } catch (err) {
     if (isStudentIdHashError(err)) {
-      console.error('Student ID storage configuration error:', err.message);
+      logger.error({ err }, 'Student ID storage configuration error:');
       return res.status(500).json({ error: 'Student ID storage is not configured' });
     }
-    console.error('Register error:', err);
+    logger.error({ err }, 'Register error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -363,60 +356,61 @@ router.delete('/me/info', authenticate, async (req, res) => {
     if (err?.code === 'P2025') {
       return res.status(204).send();
     }
-    console.error('Delete user info error:', err);
+    logger.error({ err }, 'Delete user info error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // ── POST /auth/forgot-password ─────────────────────────────────────
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordEmailThrottle, async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
     if (!normalisedEmail) {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    const shouldSend = canSendPasswordReset(req, normalisedEmail);
+    const user = await prisma.user.findUnique({ where: { email: normalisedEmail } });
 
-    if (shouldSend) {
-      const user = await prisma.user.findUnique({ where: { email: normalisedEmail } });
+    if (user?.isVerified) {
+      const now = new Date();
+      const activeReset = await prisma.passwordReset.findFirst({
+        where: {
+          userId: user.id,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        select: { id: true },
+      });
 
-      if (user?.isVerified) {
-        const now = new Date();
-        const activeReset = await prisma.passwordReset.findFirst({
-          where: {
+      if (!activeReset) {
+        const token = crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
+        const tokenHash = hashToken(token);
+        const createdReset = await prisma.passwordReset.create({
+          data: {
             userId: user.id,
-            usedAt: null,
-            expiresAt: { gt: now },
+            tokenHash,
+            expiresAt: new Date(now.getTime() + RESET_TOKEN_WINDOW_MS),
           },
           select: { id: true },
         });
 
-        // Keep an active link valid instead of rotating tokens on each request.
-        if (!activeReset) {
-          const token = crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
-          const tokenHash = hashToken(token);
-
-          await prisma.passwordReset.create({
-            data: {
-              userId: user.id,
-              tokenHash,
-              expiresAt: new Date(now.getTime() + RESET_TOKEN_WINDOW_MS),
+        try {
+          await sendPasswordResetEmail(user.email, token);
+        } catch (emailError) {
+          await prisma.passwordReset.deleteMany({
+            where: {
+              id: createdReset.id,
+              usedAt: null,
             },
           });
-
-          try {
-            await sendPasswordResetEmail(user.email, token);
-          } catch (emailError) {
-            console.error('Password reset email error:', emailError);
-          }
+          logger.error({ err: emailError, userId: user.id }, 'Password reset email error:');
         }
       }
     }
 
     return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
   } catch (err) {
-    console.error('Forgot-password error:', err);
+    logger.error({ err }, 'Forgot-password error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -502,12 +496,12 @@ router.post('/reset-password', async (req, res) => {
     try {
       await sendPasswordResetConfirmationEmail(reset.user.email);
     } catch (emailError) {
-      console.error('Password reset confirmation email error:', emailError);
+      logger.error({ err: emailError, userId: reset.userId }, 'Password reset confirmation email error:');
     }
 
     return res.status(200).json({ message: 'Password reset successful.' });
   } catch (err) {
-    console.error('Reset-password error:', err);
+    logger.error({ err }, 'Reset-password error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -537,7 +531,7 @@ router.post('/resend-code', resendIpLimiter, resendEmailThrottle, validate(resen
 
     return res.status(200).json({ message: RESEND_GENERIC_MESSAGE });
   } catch (err) {
-    console.error('Resend-code error:', err);
+    logger.error({ err }, 'Resend-code error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -624,7 +618,7 @@ router.post('/verify', verifyIpLimiter, verifyEmailThrottle, validate(verifySche
       user: formatUser(verifiedUser),
     });
   } catch (err) {
-    console.error('Verify error:', err);
+    logger.error({ err }, 'Verify error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -658,7 +652,7 @@ router.post('/login', loginIpLimiter, loginEmailThrottle, validate(loginSchema),
       user: formatUser(user),
     });
   } catch (err) {
-    console.error('Login error:', err);
+    logger.error({ err }, 'Login error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -753,7 +747,7 @@ router.get('/me', authenticate, async (req, res) => {
       user: formatUser(user),
     });
   } catch (err) {
-    console.error('Me error:', err);
+    logger.error({ err }, 'Me error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -787,7 +781,7 @@ router.get('/admin/users/lookup', authenticate, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Lookup invitee error:', err);
+    logger.error({ err }, 'Lookup invitee error:');
     return res.status(500).json({ error: 'Failed to look up invitee' });
   }
 });
@@ -827,7 +821,7 @@ router.get('/admin/users/search', authenticate, async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error('Search invitees error:', err);
+    logger.error({ err }, 'Search invitees error:');
     return res.status(500).json({ error: 'Failed to search invitees' });
   }
 });
@@ -891,7 +885,7 @@ router.post('/admin/invitations', authenticate, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Create invitation error:', err);
+    logger.error({ err }, 'Create invitation error:');
     return res.status(500).json({ error: 'Failed to create invitation' });
   }
 });
@@ -965,7 +959,7 @@ router.post('/admin/invitations/accept', authenticate, async (req, res) => {
       user: formatUser(updatedUser),
     });
   } catch (err) {
-    console.error('Accept invitation error:', err);
+    logger.error({ err }, 'Accept invitation error:');
     return res.status(500).json({ error: 'Failed to accept invitation' });
   }
 });
@@ -995,7 +989,7 @@ router.get('/admin/users', authenticate, async (req, res) => {
 
     return res.status(200).json({ data });
   } catch (err) {
-    console.error('List users error:', err);
+    logger.error({ err }, 'List users error:');
     return res.status(500).json({ error: 'Failed to load users' });
   }
 });
@@ -1062,7 +1056,7 @@ router.post('/admin/users/:userId/promote', authenticate, async (req, res) => {
 
     return res.status(200).json({ data: formatUser(promoted) });
   } catch (err) {
-    console.error('Promote error:', err);
+    logger.error({ err }, 'Promote error:');
     return res.status(500).json({ error: 'Failed to promote user' });
   }
 });
@@ -1128,7 +1122,7 @@ router.post('/admin/users/:userId/demote', authenticate, async (req, res) => {
 
     return res.status(200).json({ data: formatUser(demoted) });
   } catch (err) {
-    console.error('Demote error:', err);
+    logger.error({ err }, 'Demote error:');
     return res.status(500).json({ error: 'Failed to demote admin' });
   }
 });

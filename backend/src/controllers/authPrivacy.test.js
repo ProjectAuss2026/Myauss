@@ -17,6 +17,8 @@ const STRONG_TEST_PASSWORD = 'CorrectHorseBatteryStaple!2026';
 const calls = [];
 const usersByEmail = new Map();
 const usersById = new Map();
+const passwordResetsById = new Map();
+let passwordResetSequence = 0;
 
 function record(name, args) {
   calls.push({ name, args });
@@ -99,6 +101,49 @@ globalThis.prisma = {
       return { id: 'otp-code-1', userId: args.where.userId, ...args.create, ...args.update };
     },
   },
+  passwordReset: {
+    findFirst: async (args) => {
+      record('passwordReset.findFirst', args);
+      for (const reset of passwordResetsById.values()) {
+        if (args.where.userId !== undefined && reset.userId !== args.where.userId) continue;
+        if (args.where.usedAt === null && reset.usedAt !== null) continue;
+        if (args.where.expiresAt?.gt && reset.expiresAt <= args.where.expiresAt.gt) continue;
+        if (args.select?.id) {
+          return { id: reset.id };
+        }
+        return { ...reset };
+      }
+      return null;
+    },
+    create: async (args) => {
+      record('passwordReset.create', args);
+      const id = `reset-${++passwordResetSequence}`;
+      const reset = {
+        id,
+        userId: args.data.userId,
+        tokenHash: args.data.tokenHash,
+        expiresAt: args.data.expiresAt,
+        usedAt: args.data.usedAt ?? null,
+      };
+      passwordResetsById.set(id, reset);
+      if (args.select?.id) {
+        return { id };
+      }
+      return { ...reset };
+    },
+    deleteMany: async (args) => {
+      record('passwordReset.deleteMany', args);
+      let count = 0;
+      for (const [id, reset] of passwordResetsById.entries()) {
+        if (args.where.id !== undefined && reset.id !== args.where.id) continue;
+        if (args.where.userId !== undefined && reset.userId !== args.where.userId) continue;
+        if (args.where.usedAt === null && reset.usedAt !== null) continue;
+        passwordResetsById.delete(id);
+        count += 1;
+      }
+      return { count };
+    },
+  },
 };
 
 const { default: authController } = await import('./auth.controller.js');
@@ -107,9 +152,12 @@ function resetState() {
   calls.length = 0;
   usersByEmail.clear();
   usersById.clear();
+  passwordResetsById.clear();
+  passwordResetSequence = 0;
   process.env.STUDENT_ID_PEPPER = 'privacy-test-pepper';
   delete process.env.SMTP_USER;
   delete process.env.SMTP_PASS;
+  delete globalThis.__AUSS_AUTH_TEST_HOOKS__;
 }
 
 function createApp() {
@@ -270,4 +318,40 @@ test('authenticated users can delete their stored user info record', async () =>
   assert.deepEqual(calls.find((call) => call.name === 'userInfo.delete').args, {
     where: { userId: 'user-2' },
   });
+});
+
+test('forgot-password deletes a newly created reset row when email delivery fails', async () => {
+  resetState();
+  process.env.SMTP_USER = 'mailer@example.com';
+  process.env.SMTP_PASS = 'not-used-in-test';
+  globalThis.__AUSS_AUTH_TEST_HOOKS__ = {
+    sendPasswordResetEmail: async () => {
+      throw new Error('SMTP unavailable');
+    },
+  };
+
+  const user = storeUser(makeUser({
+    id: 'user-3',
+    email: 'member3@example.com',
+    isVerified: true,
+    info: {
+      id: 'info-user-3',
+      userId: 'user-3',
+      firstName: 'Noah',
+      lastName: 'Member',
+      studentId: hashStudentId('111222333', { pepper: 'privacy-test-pepper' }),
+    },
+  }));
+
+  const response = await requestApp(createApp(), {
+    method: 'POST',
+    path: '/api/auth/forgot-password',
+    body: { email: user.email },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.message, 'If your email is registered, a password reset link has been sent.');
+  assert.ok(calls.find((call) => call.name === 'passwordReset.create'));
+  assert.ok(calls.find((call) => call.name === 'passwordReset.deleteMany'));
+  assert.equal(passwordResetsById.size, 0);
 });

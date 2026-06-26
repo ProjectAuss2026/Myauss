@@ -1,5 +1,6 @@
 import prisma from '../prismaClient.js';
 import { isUrlValidationError, validateSponsorUrlFields } from '../utils/urlValidation.js';
+import logger from '../utils/logger.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
 
@@ -71,7 +72,7 @@ export async function getSponsorship(req, res) {
 
     return res.status(200).json({ data: sponsorshipResponse(page) });
   } catch (error) {
-    console.error('[getSponsorship] Error fetching sponsorship data:', error);
+    logger.error({ err: error }, '[getSponsorship] Error fetching sponsorship data:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch sponsorship data.');
   }
 }
@@ -103,7 +104,7 @@ export async function patchSponsorship(req, res) {
 
     return res.status(200).json({ data: sponsorshipResponse(updated) });
   } catch (error) {
-    console.error('[patchSponsorship] Error updating sponsorship page:', error);
+    logger.error({ err: error }, '[patchSponsorship] Error updating sponsorship page:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update sponsorship page.');
   }
 }
@@ -130,7 +131,7 @@ export async function createSponsor(req, res) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`websiteUrl` must be a string when provided.');
   }
 
-  const urls = { websiteUrl };
+  const urls = { logoUrl, heroImageUrl, websiteUrl };
   try {
     await validateSponsorUrlFields(urls);
   } catch (error) {
@@ -161,8 +162,8 @@ export async function createSponsor(req, res) {
       data: {
         name: name.trim(),
         sponsorshipPageId: parsedPageId,
-        logoUrl: logoUrl || null,
-        heroImageUrl: heroImageUrl || null,
+        logoUrl: urls.logoUrl || null,
+        heroImageUrl: urls.heroImageUrl || null,
         websiteUrl: urls.websiteUrl || null,
         displayOrder: parsedDisplayOrder,
       },
@@ -170,7 +171,7 @@ export async function createSponsor(req, res) {
 
     return res.status(201).json({ data: sponsor });
   } catch (error) {
-    console.error('[createSponsor] Error creating sponsor:', error);
+    logger.error({ err: error }, '[createSponsor] Error creating sponsor:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create sponsor.');
   }
 }
@@ -194,19 +195,19 @@ export async function patchSponsor(req, res) {
     if (logoUrl !== null && typeof logoUrl !== 'string') {
       return sendError(res, 422, 'VALIDATION_ERROR', '`logoUrl` must be a string or null.');
     }
-    data.logoUrl = logoUrl || null;
+    data.logoUrl = logoUrl;
   }
   if (heroImageUrl !== undefined) {
     if (heroImageUrl !== null && typeof heroImageUrl !== 'string') {
       return sendError(res, 422, 'VALIDATION_ERROR', '`heroImageUrl` must be a string or null.');
     }
-    data.heroImageUrl = heroImageUrl || null;
+    data.heroImageUrl = heroImageUrl;
   }
   if (websiteUrl !== undefined) {
     if (websiteUrl !== null && typeof websiteUrl !== 'string') {
       return sendError(res, 422, 'VALIDATION_ERROR', '`websiteUrl` must be a string or null.');
     }
-    data.websiteUrl = websiteUrl || null;
+    data.websiteUrl = websiteUrl;
   }
   if (displayOrder !== undefined) {
     const parsedDisplayOrder = parseNonNegativeInt(displayOrder);
@@ -222,6 +223,15 @@ export async function patchSponsor(req, res) {
 
   try {
     await validateSponsorUrlFields(data);
+    if (Object.hasOwn(data, 'logoUrl')) {
+      data.logoUrl = data.logoUrl || null;
+    }
+    if (Object.hasOwn(data, 'heroImageUrl')) {
+      data.heroImageUrl = data.heroImageUrl || null;
+    }
+    if (Object.hasOwn(data, 'websiteUrl')) {
+      data.websiteUrl = data.websiteUrl || null;
+    }
 
     const updated = await prisma.sponsor.update({
       where: { id: sponsorId },
@@ -235,7 +245,7 @@ export async function patchSponsor(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'SPONSOR_NOT_FOUND', `Sponsor ${sponsorId} was not found.`);
     }
-    console.error('[patchSponsor] Error updating sponsor:', error);
+    logger.error({ err: error }, '[patchSponsor] Error updating sponsor:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update sponsor.');
   }
 }
@@ -255,7 +265,7 @@ export async function deleteSponsor(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'SPONSOR_NOT_FOUND', `Sponsor ${sponsorId} was not found.`);
     }
-    console.error('[deleteSponsor] Error deleting sponsor:', error);
+    logger.error({ err: error }, '[deleteSponsor] Error deleting sponsor:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete sponsor.');
   }
 }

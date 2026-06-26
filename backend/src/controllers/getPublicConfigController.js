@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 
 const DEFAULTS = {
   email: 'auss@auckland.ac.nz',
@@ -64,7 +65,7 @@ const getPublicConfigController = async (_req, res) => {
       },
     });
   } catch (error) {
-    console.error('[getPublicConfigController] Error fetching public config:', error);
+    logger.error({ err: error }, '[getPublicConfigController] Error fetching public config:');
     return res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to fetch public config.',

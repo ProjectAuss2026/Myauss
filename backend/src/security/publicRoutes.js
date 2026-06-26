@@ -7,6 +7,8 @@ export function routeKey({ method, path }) {
 }
 
 export const PUBLIC_ROUTES = Object.freeze([
+  route('GET', '/healthz'),
+  route('GET', '/readyz'),
   route('GET', '/api/health'),
   route('GET', '/api/test'),
   route('GET', '/uploads/*'),

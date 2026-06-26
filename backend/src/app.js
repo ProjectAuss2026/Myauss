@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import prisma from './prismaClient.js';
 import authController from './controllers/auth.controller.js';
 import getPublicConfigController from './controllers/getPublicConfigController.js';
 import { configureSecurity } from './middleware/security.js';
@@ -12,6 +14,11 @@ import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
+import logger from './utils/logger.js';
+import {
+  getConfiguredCspConnectSrcValues,
+  getConfiguredCspImageSrcValues,
+} from '../../shared/securityHeaders.mjs';
 
 function getAllowedCorsOrigins() {
   const rawCorsOrigins = (process.env.CORS_ORIGINS || '')
@@ -22,29 +29,39 @@ function getAllowedCorsOrigins() {
   const allowedCorsOrigins = rawCorsOrigins.filter((origin) => origin !== '*' && origin.toLowerCase() !== 'null');
 
   if (ignoredCorsOrigins.length > 0) {
-    console.warn('Ignoring unsafe CORS origins:', ignoredCorsOrigins.join(', '));
+    logger.warn({ origins: ignoredCorsOrigins }, 'Ignoring unsafe CORS origins');
   }
 
   return new Set(allowedCorsOrigins);
 }
 
-function getAppContentSecurityPolicy() {
-  const uploadsPublicOrigin = process.env.UPLOADS_PUBLIC_ORIGIN?.replace(/\/+$/, '');
-  const imageSources = ["'self'", 'data:', 'blob:'];
-
-  if (uploadsPublicOrigin) {
-    imageSources.push(uploadsPublicOrigin);
-  }
-
-  return [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    `img-src ${imageSources.join(' ')}`,
-  ].join('; ');
+function createHelmetMiddleware() {
+  return helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
+        imgSrc: getConfiguredCspImageSrcValues(process.env),
+        fontSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: getConfiguredCspConnectSrcValues({
+          env: process.env,
+          allowWebSockets: process.env.NODE_ENV !== 'production',
+        }),
+        frameAncestors: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    referrerPolicy: {
+      policy: 'strict-origin-when-cross-origin',
+    },
+    strictTransportSecurity: false,
+    xFrameOptions: {
+      action: 'deny',
+    },
+  });
 }
 
 function createCorsMiddleware() {
@@ -83,18 +100,36 @@ export function createApp() {
   const app = express();
 
   configureSecurity(app);
-  app.use(createCorsMiddleware());
+  app.use(createHelmetMiddleware());
   app.use((_req, res, next) => {
-    res.setHeader('Content-Security-Policy', getAppContentSecurityPolicy());
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     next();
   });
+  app.use(createCorsMiddleware());
   app.use(express.json());
+
+  app.get('/healthz', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
+
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
+
+  app.get('/readyz', async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return res.json({ status: 'ok' });
+    } catch (error) {
+      logger.error({ err: error }, 'Readiness check failed');
+      return res.status(503).json({ status: 'unavailable' });
+    }
+  });
+
   app.use('/api', globalApiLimiter);
 
-  // Auth routes
   app.use('/api/auth', authController);
 
-  // Serve uploaded images as static files
   app.use('/uploads', express.static(UPLOADS_DIR, {
     dotfiles: 'deny',
     index: false,
@@ -103,11 +138,7 @@ export function createApp() {
     setHeaders: setUploadStaticHeaders,
   }));
 
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'Backend is running' });
-  });
-
-  app.get('/api/test', (req, res) => {
+  app.get('/api/test', (_req, res) => {
     res.json({
       message: 'Backend is running!',
       timestamp: new Date().toISOString(),
@@ -116,20 +147,11 @@ export function createApp() {
     });
   });
 
-  // Config routes - GET is public, mutating routes are admin only
   app.use('/api/config', configRoutes);
   app.get('/api/public-config', getPublicConfigController);
-
-  // Upload route (protected - must be logged in)
   app.use('/api/upload', uploadRoutes);
-
-  // Activity routes - GET is public, mutating/admin routes are admin only
   app.use('/api/activities', activityRoutes);
-
-  // Sponsorship + media routes for dynamic rendering
   app.use('/api', sponsorshipRoutes);
-
-  // FAQ + Executive routes
   app.use('/api', faqRoutes);
   app.use('/api', executiveRoutes);
   app.use('/api', mediaRoutes);

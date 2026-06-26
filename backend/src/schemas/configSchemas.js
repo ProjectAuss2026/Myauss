@@ -42,6 +42,7 @@ const sponsorshipPagePatchData = sponsorshipPageCreateData
 const sponsorCreateData = z.object({
   name: requiredTrimmedString('Sponsor name', 120),
   logoUrl: optionalPublicImageUrl('Sponsor logo URL'),
+  heroImageUrl: optionalPublicImageUrl('Sponsor hero image URL'),
   websiteUrl: optionalPublicHttpUrl('Sponsor website URL'),
   displayOrder: nonNegativeInt('Display order').optional(),
   sponsorshipPageId: positiveInt('Sponsorship page id'),

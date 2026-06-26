@@ -1,35 +1,32 @@
 import prisma from '../prismaClient.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import logger from '../utils/logger.js';
 import { UPLOADS_DIR } from './uploadController.js';
 
 const ALLOWED_TYPES = ['communicationLink', 'mediaConfig', 'sponsorshipPage', 'sponsor'];
 
-// If the imgUrl is a local upload, delete the matching file under backend/uploads/.
-const deleteLocalUpload = (imgUrl) => {
+function deleteLocalUpload(imgUrl) {
   if (!imgUrl) return;
+
   try {
     const url = new URL(imgUrl, 'http://localhost');
     const pathname = url.pathname;
-
-    // Only delete files served from our own /uploads/ path
     if (!pathname.startsWith('/uploads/')) return;
 
     const relativePath = pathname.slice('/uploads/'.length);
     const filePath = path.resolve(UPLOADS_DIR, relativePath);
-
     if (!filePath.startsWith(`${UPLOADS_DIR}${path.sep}`)) return;
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log(`[deleteConfigController] Deleted file: ${filePath}`);
+      logger.info({ filePath }, '[deleteConfigController] Deleted local upload');
     }
   } catch {
-    // Not a valid URL or not a local file — skip silently
+    // Not a valid URL or not a local file — skip silently.
   }
-};
+}
 
-// DELETE /api/config
 const deleteConfigController = async (req, res) => {
   const { type, id } = req.body;
 
@@ -43,7 +40,6 @@ const deleteConfigController = async (req, res) => {
   try {
     switch (type) {
       case 'communicationLink': {
-        // Fetch first so we have the imgUrl before deleting
         const link = await prisma.communicationLink.findUnique({ where: { id } });
         if (!link) {
           return res.status(404).json({ error: 'Not found', message: `No communicationLink found with id=${id}.` });
@@ -73,7 +69,7 @@ const deleteConfigController = async (req, res) => {
         message: `No ${type} found with id=${id}.`,
       });
     }
-    console.error('[deleteConfigController] Error deleting config:', error);
+    logger.error({ err: error }, '[deleteConfigController] Error deleting config:');
     return res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to delete configuration.',

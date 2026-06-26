@@ -43,11 +43,13 @@ export function createHelmetMiddleware({ env = process.env.NODE_ENV } = {}) {
     return (_req, _res, next) => next();
   }
 
+  const preload = process.env.HSTS_PRELOAD === 'true';
+
   return helmet({
     hsts: {
       maxAge: HSTS_MAX_AGE_SECONDS,
       includeSubDomains: true,
-      preload: false,
+      preload,
     },
   });
 }

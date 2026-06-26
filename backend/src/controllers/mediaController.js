@@ -1,10 +1,12 @@
 import prisma from '../prismaClient.js';
 import http from 'node:http';
 import https from 'node:https';
+import logger from '../utils/logger.js';
 import {
   isUrlValidationError,
   resolvePublicHttpUrl,
   validateMediaEntryUrlFields,
+  validatePublicImageUrl,
 } from '../utils/urlValidation.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
@@ -193,7 +195,7 @@ export async function getMediaEntries(req, res) {
 
     return res.status(200).json({ data: entries.map(serializeMediaEntry) });
   } catch (error) {
-    console.error('[getMediaEntries] Error fetching media entries:', error);
+    logger.error({ err: error }, '[getMediaEntries] Error fetching media entries:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch media entries.');
   }
 }
@@ -257,7 +259,7 @@ export async function createMediaEntry(req, res) {
 
     return res.status(201).json({ data: serializeMediaEntry(created) });
   } catch (error) {
-    console.error('[createMediaEntry] Error creating media entry:', error);
+    logger.error({ err: error }, '[createMediaEntry] Error creating media entry:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to create media entry.');
   }
 }
@@ -338,7 +340,7 @@ export async function patchMediaEntry(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'NOT_FOUND', `Media entry ${entryId} was not found.`);
     }
-    console.error('[patchMediaEntry] Error updating media entry:', error);
+    logger.error({ err: error }, '[patchMediaEntry] Error updating media entry:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update media entry.');
   }
 }
@@ -356,12 +358,11 @@ export async function deleteMediaEntry(req, res) {
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'NOT_FOUND', `Media entry ${entryId} was not found.`);
     }
-    console.error('[deleteMediaEntry] Error deleting media entry:', error);
+    logger.error({ err: error }, '[deleteMediaEntry] Error deleting media entry:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to delete media entry.');
   }
 }
 
-// Regex patterns for extracting direct image URLs from Pixieset HTML
 const OG_IMAGE_RE = [
   /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
   /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
@@ -372,6 +373,20 @@ function toAbsolute(url) {
   return url.startsWith('//') ? `https:${url}` : url;
 }
 
+async function sendAllowedCoverUrl(res, directUrl) {
+  try {
+    const validatedUrl = await validatePublicImageUrl(directUrl, {
+      fieldName: 'Cover image URL',
+    });
+    return res.json({ directUrl: validatedUrl });
+  } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
+    throw error;
+  }
+}
+
 export async function resolveCoverUrl(req, res) {
   const { url } = req.body ?? {};
   if (!url || typeof url !== 'string' || !url.trim()) {
@@ -380,17 +395,8 @@ export async function resolveCoverUrl(req, res) {
 
   const trimmed = url.trim();
 
-  // Not a Pixieset gallery page — return as-is
   if (!trimmed.includes('pixieset.com') || !trimmed.includes('pid=')) {
-    try {
-      await resolvePublicHttpUrl(trimmed, { fieldName: 'Gallery URL' });
-    } catch (error) {
-      if (isUrlValidationError(error)) {
-        return sendError(res, 400, 'VALIDATION_ERROR', error.message);
-      }
-      throw error;
-    }
-    return res.json({ directUrl: trimmed });
+    return sendAllowedCoverUrl(res, trimmed);
   }
 
   try {
@@ -404,16 +410,20 @@ export async function resolveCoverUrl(req, res) {
     const html = await pageRes.text();
 
     for (const re of OG_IMAGE_RE) {
-      const m = html.match(re);
-      if (m?.[1]) return res.json({ directUrl: toAbsolute(m[1]) });
+      const match = html.match(re);
+      if (match?.[1]) {
+        return sendAllowedCoverUrl(res, toAbsolute(match[1]));
+      }
     }
 
     const imgMatch = html.match(PIXIESET_IMG_RE);
-    if (imgMatch) return res.json({ directUrl: toAbsolute(imgMatch[0]) });
+    if (imgMatch) {
+      return sendAllowedCoverUrl(res, toAbsolute(imgMatch[0]));
+    }
 
     return sendError(res, 422, 'NOT_FOUND', 'Could not extract an image URL from this Pixieset page.');
   } catch (error) {
-    console.error('[resolveCoverUrl] Fetch error:', error);
+    logger.error({ err: error }, '[resolveCoverUrl] Fetch error:');
     return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Failed to fetch the Pixieset page.');
   }
 }

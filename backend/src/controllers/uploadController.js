@@ -87,6 +87,7 @@ export function setUploadStaticHeaders(res, filePath) {
 
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox");
 
   if (!ALLOWED_STATIC_EXTENSIONS.has(extension)) {
