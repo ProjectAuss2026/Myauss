@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { getSafeImageSrc, getSafeLinkHref } from '../lib/safeUrl'
 
 const API = ''
 
@@ -210,10 +211,12 @@ function LinktreeTest({ onBack }) {
                 <div><strong>id:</strong> {link.id} &nbsp; <strong>platform:</strong> {link.platform}</div>
                 <div style={{ fontSize: 12, color: '#aaa', wordBreak: 'break-all' }}>
                   <strong>url:</strong>{' '}
-                  <a href={link.url} target="_blank" rel="noopener noreferrer" style={{ color: '#569cd6' }}>{link.url}</a>
+                  {getSafeLinkHref(link.url) && (
+                    <a href={getSafeLinkHref(link.url)} target="_blank" rel="noopener noreferrer" style={{ color: '#569cd6' }}>{link.url}</a>
+                  )}
                 </div>
-                {link.imgUrl && (
-                  <img src={link.imgUrl} alt={link.platform}
+                {getSafeImageSrc(link.imgUrl) && (
+                  <img src={getSafeImageSrc(link.imgUrl)} alt={link.platform}
                     style={{ maxWidth: 100, maxHeight: 100, borderRadius: 6, border: '1px solid #444', marginTop: 6 }} />
                 )}
                 <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, wordBreak: 'break-all' }}>
@@ -265,7 +268,9 @@ function LinktreeTest({ onBack }) {
                 <div><strong>id:</strong> {m.id}</div>
                 <div style={{ fontSize: 12, color: '#aaa', wordBreak: 'break-all' }}>
                   <strong>mediaDriveUrl:</strong>{' '}
-                  <a href={m.mediaDriveUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#569cd6' }}>{m.mediaDriveUrl}</a>
+                  {getSafeLinkHref(m.mediaDriveUrl) && (
+                    <a href={getSafeLinkHref(m.mediaDriveUrl)} target="_blank" rel="noopener noreferrer" style={{ color: '#569cd6' }}>{m.mediaDriveUrl}</a>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <button onClick={() => { setEditMediaId(m.id); setEditMediaData({ mediaDriveUrl: m.mediaDriveUrl }) }}>Edit</button>
@@ -366,11 +371,13 @@ function LinktreeTest({ onBack }) {
                       {s.websiteUrl && (
                         <div style={{ fontSize: 12, color: '#aaa' }}>
                           <strong>website:</strong>{' '}
-                          <a href={s.websiteUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#569cd6' }}>{s.websiteUrl}</a>
+                          {getSafeLinkHref(s.websiteUrl) && (
+                            <a href={getSafeLinkHref(s.websiteUrl)} target="_blank" rel="noopener noreferrer" style={{ color: '#569cd6' }}>{s.websiteUrl}</a>
+                          )}
                         </div>
                       )}
-                      {s.logoUrl && (
-                        <img src={s.logoUrl} alt={s.name}
+                      {getSafeImageSrc(s.logoUrl) && (
+                        <img src={getSafeImageSrc(s.logoUrl)} alt={s.name}
                           style={{ maxWidth: 80, maxHeight: 60, borderRadius: 4, border: '1px solid #444', marginTop: 4 }} />
                       )}
                       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

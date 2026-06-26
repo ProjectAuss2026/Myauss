@@ -10,6 +10,7 @@ import {
   Link as LinkIcon, CheckCircle2,
 } from 'lucide-react';
 import { AttendeesModal } from '../components/AttendeesModal';
+import { getSafeImageSrc, getSafeLinkHref, isSafeImageSrc, isSafeLinkHref } from '../../lib/safeUrl';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -228,16 +229,7 @@ function CustomSelect({ value, onChange, options, required }: {
 
 // ── Shared validation helpers ──
 function isHttpUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-function isLocalUploadPath(value: string): boolean {
-  return value.startsWith('/uploads/');
+  return isSafeLinkHref(value);
 }
 
 function wordCount(value: string): number {
@@ -1707,13 +1699,14 @@ function SponsorManager({
 
 function SponsorCard({ sponsor, onEdit, onDelete }: { sponsor: Sponsor; onEdit: () => void; onDelete: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const safeLogoUrl = getSafeImageSrc(sponsor.logoUrl);
 
   return (
     <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-6 group hover:border-white/10 transition-all duration-300">
       <div className="flex items-center justify-between mb-3">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(235,117,36,0.15)' }}>
-          {sponsor.logoUrl ? (
-            <img src={sponsor.logoUrl} alt={sponsor.name} className="w-7 h-7 object-contain" />
+          {safeLogoUrl ? (
+            <img src={safeLogoUrl} alt={sponsor.name} className="w-7 h-7 object-contain" />
           ) : (
             <span style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif', color: '#eb7524' }}>{sponsor.name.charAt(0)}</span>
           )}
@@ -1882,6 +1875,7 @@ function PhotoDriveLinkPanel() {
   }, []);
 
   const dirty = url !== savedUrl;
+  const safeSavedUrl = getSafeLinkHref(savedUrl);
 
   // Step 1: validate, then open the confirmation dialog.
   const handleSaveClick = () => {
@@ -1995,11 +1989,11 @@ function PhotoDriveLinkPanel() {
             </button>
           </div>
 
-          {savedUrl && (
+          {safeSavedUrl && (
             <div className="mt-3 flex items-center gap-2 text-white/40" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
               <ExternalLink className="w-3.5 h-3.5" />
               <a
-                href={savedUrl}
+                href={safeSavedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-[#eb7524] transition-colors break-all"
@@ -2144,34 +2138,40 @@ function MediaManager({
 
       {!mediaLoading && media.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {media.map((item) => (
-            <div key={item.id} className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="h-[170px] bg-black/40">
-                {item.resolvedCover ? (
-                  <img src={item.resolvedCover} alt={item.resolvedName} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <ImageIcon className="w-8 h-8 text-white/10" />
-                  </div>
-                )}
+          {media.map((item) => {
+            const safeCover = getSafeImageSrc(item.resolvedCover);
+            const safeMediaHref = getSafeLinkHref(item.mediaDriveUrl);
+            return (
+              <div key={item.id} className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden">
+                <div className="h-[170px] bg-black/40">
+                  {safeCover ? (
+                    <img src={safeCover} alt={item.resolvedName} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <ImageIcon className="w-8 h-8 text-white/10" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <h4 className="text-white mb-2 truncate" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                    {item.resolvedName}
+                  </h4>
+                  {safeMediaHref && (
+                    <a
+                      href={safeMediaHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#eb7524] text-sm break-all hover:text-[#ff9f5e]"
+                      style={{ fontFamily: 'Inter, sans-serif' }}
+                    >
+                      {item.mediaDriveUrl}
+                    </a>
+                  )}
+                  <MediaCardActions item={item} onEdit={() => { setEditing(item); setShowForm(false); }} onDelete={() => onDelete(item.id)} />
+                </div>
               </div>
-              <div className="p-4">
-                <h4 className="text-white mb-2 truncate" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-                  {item.resolvedName}
-                </h4>
-                <a
-                  href={item.mediaDriveUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#eb7524] text-sm break-all hover:text-[#ff9f5e]"
-                  style={{ fontFamily: 'Inter, sans-serif' }}
-                >
-                  {item.mediaDriveUrl}
-                </a>
-                <MediaCardActions item={item} onEdit={() => { setEditing(item); setShowForm(false); }} onDelete={() => onDelete(item.id)} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="text-center py-16">
@@ -2457,6 +2457,7 @@ function ActivityCard({ activity, onEdit, onDelete, onViewAttendees }: { activit
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const safeImageSrc = getSafeImageSrc(activity.imageUrl);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -2481,13 +2482,13 @@ function ActivityCard({ activity, onEdit, onDelete, onViewAttendees }: { activit
     <div className="bg-[#111] border border-white/[0.06] rounded-2xl overflow-hidden group hover:border-white/10 transition-all duration-300">
       {/* Image */}
       <div className="relative h-[180px] overflow-hidden">
-        {imgError ? (
+        {imgError || !safeImageSrc ? (
           <div className="w-full h-full flex items-center justify-center bg-white/[0.02]">
             <Calendar className="w-8 h-8 text-white/10" />
           </div>
         ) : (
           <img
-            src={activity.imageUrl}
+            src={safeImageSrc}
             alt={activity.title}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={() => setImgError(true)}
@@ -2596,6 +2597,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const safePreview = getSafeImageSrc(preview);
 
   const validate = (): Errors => {
     const e: Errors = {};
@@ -2613,7 +2615,7 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         e.endTime = 'End must be after start';
       }
     }
-    if (imageUrl.trim() && !isHttpUrl(imageUrl.trim()) && !isLocalUploadPath(imageUrl.trim())) {
+    if (imageUrl.trim() && !isSafeImageSrc(imageUrl.trim())) {
       e.imageUrl = 'Image URL must be a valid http, https, or uploaded image path';
     }
     if (externalLink.trim() && !isHttpUrl(externalLink.trim())) {
@@ -2837,9 +2839,9 @@ function ActivityForm({ initial, onSave, onCancel }: { initial: Activity | null;
         </div>
 
         {/* Preview */}
-        {preview && (
+        {safePreview && (
           <div className="rounded-xl overflow-hidden h-[160px] border border-white/[0.06]">
-            <img src={preview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            <img src={safePreview} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
           </div>
         )}
 

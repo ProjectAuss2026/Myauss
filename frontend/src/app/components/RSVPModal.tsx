@@ -232,6 +232,9 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
                   style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
                   disabled={submitting}
                 />
+                <p className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                  Used to confirm Auckland Uni eligibility and manage event attendance. It is protected, not shown publicly, and may be visible to authorised organisers; contact auss@auckland.ac.nz for correction or removal. Final privacy wording should be confirmed by AUSS.
+                </p>
                 {fieldErrors.studentId && (
                   <p className="mt-1.5 text-red-400" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
                     {fieldErrors.studentId}

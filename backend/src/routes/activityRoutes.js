@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authenticate, authorise } from '../middleware/authMiddleware.js';
+import validate from '../middleware/validate.js';
 import { getActivities, getAllActivitiesAdmin, createActivity, updateActivity, deleteActivity } from '../controllers/activityController.js';
+import { createActivitySchema, deleteActivitySchema, updateActivitySchema } from '../schemas/activitySchemas.js';
 import {
   createRsvp,
   getRsvpCount,
@@ -18,13 +20,13 @@ router.get('/all', authenticate, authorise('ADMIN'), getAllActivitiesAdmin);
 router.get('/', getActivities);
 
 // POST /api/activities — admin only
-router.post('/', authenticate, authorise('ADMIN'), createActivity);
+router.post('/', authenticate, authorise('ADMIN'), validate(createActivitySchema), createActivity);
 
 // PATCH /api/activities/:id — admin only
-router.patch('/:id', authenticate, authorise('ADMIN'), updateActivity);
+router.patch('/:id', authenticate, authorise('ADMIN'), validate(updateActivitySchema), updateActivity);
 
 // DELETE /api/activities/:id — admin only
-router.delete('/:id', authenticate, authorise('ADMIN'), deleteActivity);
+router.delete('/:id', authenticate, authorise('ADMIN'), validate(deleteActivitySchema), deleteActivity);
 
 // --- RSVP routes ---
 // POST /api/activities/:id/rsvp — public (submit RSVP)

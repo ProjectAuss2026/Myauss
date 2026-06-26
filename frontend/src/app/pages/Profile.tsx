@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut, Hash, User, Settings, Loader2 } from 'lucide-react';
+import { Mail, Shield, Users, Calendar, ChevronLeft, LogOut, User, Settings, Loader2 } from 'lucide-react';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -27,6 +27,18 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   return { ref, inView };
 }
 
+function getRoleLabel(role: string) {
+  if (role === 'OWNER') return 'Owner';
+  if (role === 'ADMIN') return 'Executive';
+  return 'Member';
+}
+
+function getRoleBadgeLabel(role: string, hasAdminAccess: boolean) {
+  if (role === 'OWNER') return 'OWNER';
+  if (hasAdminAccess) return 'EXEC';
+  return 'MEMBER';
+}
+
 export function Profile() {
   const { user, isAuthenticated, isLoading, logout, setUserFromToken } = useAuth();
   const { showToast } = useToast();
@@ -47,7 +59,7 @@ export function Profile() {
   }, []);
 
   const handleLogout = async () => {
-    await logout();
+    logout();
     showToast('You have signed out', 'info');
     navigate('/');
   };
@@ -61,7 +73,8 @@ export function Profile() {
   }
 
   const hasAdminAccess = user.role === 'ADMIN' || user.role === 'OWNER';
-  const roleLabel = user.role === 'OWNER' ? 'Owner' : user.role === 'ADMIN' ? 'Executive' : 'Member';
+  const roleLabel = getRoleLabel(user.role);
+  const roleBadgeLabel = getRoleBadgeLabel(user.role, hasAdminAccess);
   const fullName = user.firstName && user.lastName
     ? `${user.firstName} ${user.lastName}`
     : user.email;
@@ -110,11 +123,11 @@ export function Profile() {
     <div className="bg-black min-h-screen relative overflow-hidden">
       {/* Background effects */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#eb7524]/8 rounded-full blur-[150px]" />
-        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-[#eb7524]/5 rounded-full blur-[120px]" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-200 h-100 bg-[#eb7524]/8 rounded-full blur-[150px]" />
+        <div className="absolute bottom-0 right-0 w-100 h-100 bg-[#eb7524]/5 rounded-full blur-[120px]" />
       </div>
 
-      <div className="max-w-[1200px] mx-auto px-6 py-12 md:py-20 relative" ref={containerRef}>
+      <div className="max-w-300 mx-auto px-6 py-12 md:py-20 relative" ref={containerRef}>
         {/* Back link */}
         <div
           style={{
@@ -136,16 +149,16 @@ export function Profile() {
         <div className="flex flex-col items-center">
           {/* Profile Card */}
           <div
-            className="w-full max-w-[520px]"
+            className="w-full max-w-130"
             style={{
               opacity: mounted ? 1 : 0,
               transform: mounted ? 'translateY(0)' : 'translateY(20px)',
               transition: 'opacity 0.5s ease, transform 0.5s ease',
             }}
           >
-            <div className="bg-[#111] border border-white/[0.06] rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.5)] overflow-hidden">
+            <div className="bg-[#111] border border-white/6 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.5)] overflow-hidden">
               {/* Header banner */}
-              <div className="h-24 bg-gradient-to-r from-[#eb7524]/20 via-[#eb7524]/10 to-transparent relative">
+              <div className="h-24 bg-linear-to-r from-[#eb7524]/20 via-[#eb7524]/10 to-transparent relative">
                 <div className="absolute -bottom-8 left-8">
                   <div className="w-16 h-16 rounded-2xl bg-[#1a1a1a] border-2 border-[#eb7524]/30 flex items-center justify-center shadow-lg">
                     {hasAdminAccess ? (
@@ -174,7 +187,7 @@ export function Profile() {
                     }`}
                     style={{ fontFamily: 'Inter, sans-serif' }}
                   >
-                    {user.role === 'OWNER' ? 'OWNER' : hasAdminAccess ? 'EXEC' : 'MEMBER'}
+                    {roleBadgeLabel}
                   </span>
                 </div>
                 <p className="text-white/40 mb-8" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
@@ -183,8 +196,8 @@ export function Profile() {
 
                 {/* Info cards */}
                 <div className="space-y-3">
-                  <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
-                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
+                  <div className="flex items-center gap-4 bg-white/3 border border-white/6 rounded-xl px-5 py-4">
+                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center shrink-0">
                       <User className="w-5 h-5 text-[#eb7524]" />
                     </div>
                     <div className="min-w-0">
@@ -195,8 +208,8 @@ export function Profile() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
-                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
+                  <div className="flex items-center gap-4 bg-white/3 border border-white/6 rounded-xl px-5 py-4">
+                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center shrink-0">
                       <Mail className="w-5 h-5 text-[#eb7524]" />
                     </div>
                     <div className="min-w-0">
@@ -207,22 +220,8 @@ export function Profile() {
                     </div>
                   </div>
 
-                  {user.studentId && (
-                    <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
-                      <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
-                        <Hash className="w-5 h-5 text-[#eb7524]" />
-                      </div>
-                      <div>
-                        <p className="text-white/40 text-xs mb-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>Student ID</p>
-                        <p className="text-white" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
-                          {user.studentId}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
-                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
+                  <div className="flex items-center gap-4 bg-white/3 border border-white/6 rounded-xl px-5 py-4">
+                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center shrink-0">
                       {hasAdminAccess ? (
                         <Shield className="w-5 h-5 text-[#eb7524]" />
                       ) : (
@@ -237,8 +236,8 @@ export function Profile() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl px-5 py-4">
-                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
+                  <div className="flex items-center gap-4 bg-white/3 border border-white/6 rounded-xl px-5 py-4">
+                    <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center shrink-0">
                       <Calendar className="w-5 h-5 text-[#eb7524]" />
                     </div>
                     <div>
@@ -263,7 +262,7 @@ export function Profile() {
                         value={inviteToken}
                         onChange={(e) => setInviteToken(e.target.value)}
                         placeholder="Paste invitation token"
-                        className="flex-1 bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder:text-white/25 focus:outline-none focus:border-[#eb7524]/40"
+                        className="flex-1 bg-white/4 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder:text-white/25 focus:outline-none focus:border-[#eb7524]/40"
                         style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
                       />
                       <button

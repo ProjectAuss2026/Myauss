@@ -1,64 +1,45 @@
 import prisma from '../prismaClient.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import logger from '../utils/logger.js';
-import fs from 'fs';
-import path from 'path';
 import { UPLOADS_DIR } from './uploadController.js';
 
 const ALLOWED_TYPES = ['communicationLink', 'mediaConfig', 'sponsorshipPage', 'sponsor'];
 
-// If the imgUrl is a local upload, delete the matching file under backend/uploads/.
-const deleteLocalUpload = (imgUrl) => {
+function deleteLocalUpload(imgUrl) {
   if (!imgUrl) return;
+
   try {
     const url = new URL(imgUrl, 'http://localhost');
     const pathname = url.pathname;
-
-    // Only delete files served from our own /uploads/ path
     if (!pathname.startsWith('/uploads/')) return;
 
     const relativePath = pathname.slice('/uploads/'.length);
     const filePath = path.resolve(UPLOADS_DIR, relativePath);
-
     if (!filePath.startsWith(`${UPLOADS_DIR}${path.sep}`)) return;
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log(`[deleteConfigController] Deleted file: ${filePath}`);
+      logger.info({ filePath }, '[deleteConfigController] Deleted local upload');
     }
   } catch {
-    // Not a valid URL or not a local file — skip silently
+    // Not a valid URL or not a local file — skip silently.
   }
-};
+}
 
-// DELETE /api/config
 const deleteConfigController = async (req, res) => {
   const { type, id } = req.body;
-
-  if (!type || !id) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: '`type` and `id` fields are required.',
-    });
-  }
 
   if (!ALLOWED_TYPES.includes(type)) {
     return res.status(400).json({
       error: 'Bad request',
-      message: `Invalid type "${type}". Must be one of: ${ALLOWED_TYPES.join(', ')}.`,
-    });
-  }
-
-  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: '`id` must be a positive integer.',
+      message: `Unsupported config type: ${type}`,
     });
   }
 
   try {
     switch (type) {
       case 'communicationLink': {
-        // Fetch first so we have the imgUrl before deleting
         const link = await prisma.communicationLink.findUnique({ where: { id } });
         if (!link) {
           return res.status(404).json({ error: 'Not found', message: `No communicationLink found with id=${id}.` });

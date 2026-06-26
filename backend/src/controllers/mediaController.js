@@ -1,8 +1,17 @@
 import prisma from '../prismaClient.js';
-import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
+import http from 'node:http';
+import https from 'node:https';
 import logger from '../utils/logger.js';
+import {
+  isUrlValidationError,
+  resolvePublicHttpUrl,
+  validateMediaEntryUrlFields,
+  validatePublicImageUrl,
+} from '../utils/urlValidation.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
+const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
+const RESPONSE_TOO_LARGE_MESSAGE = 'Response body too large.';
 
 function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
@@ -14,13 +23,122 @@ function parsePositiveInt(value) {
   return number;
 }
 
-function parseUrl(value) {
-  try {
-    new URL(value);
-    return true;
-  } catch (_error) {
-    return false;
+function getMaxResponseBytes(value) {
+  const maxBytes = Number(value);
+  return Number.isFinite(maxBytes) && maxBytes > 0 ? Math.floor(maxBytes) : DEFAULT_MAX_RESPONSE_BYTES;
+}
+
+function getContentLength(headers) {
+  const value = headers?.['content-length'];
+  const contentLength = Array.isArray(value) ? value[0] : value;
+  if (contentLength === undefined) return null;
+
+  const parsed = Number(contentLength);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function bufferResponseWithLimit(response, req, maxBytes, resolvePromise, rejectPromise) {
+  const chunks = [];
+  let totalBytes = 0;
+  let settled = false;
+
+  const rejectWithError = (error) => {
+    if (settled) return;
+    settled = true;
+    chunks.length = 0;
+    rejectPromise(error);
+  };
+
+  const rejectTooLarge = () => {
+    const error = new Error(RESPONSE_TOO_LARGE_MESSAGE);
+    response.destroy(error);
+    req.destroy(error);
+    rejectWithError(error);
+  };
+
+  response.on('error', rejectWithError);
+
+  const contentLength = getContentLength(response.headers);
+  if (contentLength !== null && contentLength > maxBytes) {
+    rejectTooLarge();
+    return;
   }
+
+  response.on('data', (chunk) => {
+    if (settled) return;
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.byteLength;
+    if (totalBytes > maxBytes) {
+      rejectTooLarge();
+      return;
+    }
+    chunks.push(buffer);
+  });
+
+  response.on('end', () => {
+    if (settled) return;
+    settled = true;
+    const body = Buffer.concat(chunks, totalBytes).toString('utf8');
+    resolvePromise({
+      ok: response.statusCode >= 200 && response.statusCode < 300,
+      status: response.statusCode,
+      text: async () => body,
+    });
+  });
+}
+
+export async function fetchPinnedPublicHttpUrl(url, options = {}) {
+  const { parsed, resolvedAddresses } = await resolvePublicHttpUrl(url, {
+    fieldName: options.fieldName || 'URL',
+  });
+  const pinnedAddress = resolvedAddresses[0];
+  const isHttps = parsed.protocol === 'https:';
+  const transport = isHttps ? https : http;
+  const port = parsed.port || (isHttps ? 443 : 80);
+  const maxBytes = getMaxResponseBytes(options.maxBytes);
+  const headers = {
+    ...options.headers,
+    Host: parsed.host,
+  };
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
+    const req = transport.request(
+      {
+        protocol: parsed.protocol,
+        hostname: pinnedAddress,
+        port,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: 'GET',
+        headers,
+        servername: parsed.hostname,
+        timeout: 10000,
+      },
+      (response) => {
+        bufferResponseWithLimit(
+          response,
+          req,
+          maxBytes,
+          (value) => {
+            settled = true;
+            resolvePromise(value);
+          },
+          (error) => {
+            settled = true;
+            rejectPromise(error);
+          }
+        );
+      }
+    );
+
+    req.on('timeout', () => req.destroy(new Error('Request timed out.')));
+    req.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      rejectPromise(error);
+    });
+    req.end();
+  });
 }
 
 function serializeMediaEntry(entry) {
@@ -92,18 +210,21 @@ export async function createMediaEntry(req, res) {
   if (typeof mediaDriveUrl !== 'string' || !mediaDriveUrl.trim()) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` is required.');
   }
-  if (!parseUrl(mediaDriveUrl)) {
-    return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` must be a valid absolute URL.');
-  }
   if (overrideName !== undefined && overrideName !== null && typeof overrideName !== 'string') {
     return sendError(res, 422, 'VALIDATION_ERROR', '`overrideName` must be a string when provided.');
   }
   if (overrideCover !== undefined && overrideCover !== null && typeof overrideCover !== 'string') {
     return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a string when provided.');
   }
-  const normalizedOverrideCover = normalizeOptionalImageUrl(overrideCover, 'overrideCover');
-  if (!normalizedOverrideCover.ok) {
-    return sendError(res, 422, 'VALIDATION_ERROR', normalizedOverrideCover.message);
+
+  const urls = { mediaDriveUrl, overrideCover };
+  try {
+    await validateMediaEntryUrlFields(urls);
+  } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
+    throw error;
   }
 
   try {
@@ -118,9 +239,9 @@ export async function createMediaEntry(req, res) {
     const created = await prisma.mediaEntry.create({
       data: {
         activityId: parsedActivityId,
-        mediaDriveUrl: mediaDriveUrl.trim(),
+        mediaDriveUrl: urls.mediaDriveUrl,
         overrideName: typeof overrideName === 'string' && overrideName.trim() ? overrideName.trim() : null,
-        overrideCover: normalizedOverrideCover.value ?? null,
+        overrideCover: urls.overrideCover || null,
       },
       include: {
         activity: {
@@ -168,10 +289,7 @@ export async function patchMediaEntry(req, res) {
     if (typeof mediaDriveUrl !== 'string' || !mediaDriveUrl.trim()) {
       return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` must be a non-empty string.');
     }
-    if (!parseUrl(mediaDriveUrl)) {
-      return sendError(res, 422, 'VALIDATION_ERROR', '`mediaDriveUrl` must be a valid absolute URL.');
-    }
-    data.mediaDriveUrl = mediaDriveUrl.trim();
+    data.mediaDriveUrl = mediaDriveUrl;
   }
 
   if (overrideName !== undefined) {
@@ -182,11 +300,10 @@ export async function patchMediaEntry(req, res) {
   }
 
   if (overrideCover !== undefined) {
-    const normalizedOverrideCover = normalizeOptionalImageUrl(overrideCover, 'overrideCover');
-    if (!normalizedOverrideCover.ok) {
-      return sendError(res, 422, 'VALIDATION_ERROR', normalizedOverrideCover.message);
+    if (overrideCover !== null && typeof overrideCover !== 'string') {
+      return sendError(res, 422, 'VALIDATION_ERROR', '`overrideCover` must be a string or null.');
     }
-    data.overrideCover = normalizedOverrideCover.value;
+    data.overrideCover = overrideCover;
   }
 
   if (Object.keys(data).length === 0) {
@@ -194,6 +311,11 @@ export async function patchMediaEntry(req, res) {
   }
 
   try {
+    await validateMediaEntryUrlFields(data);
+    if (Object.hasOwn(data, 'overrideCover')) {
+      data.overrideCover = data.overrideCover || null;
+    }
+
     const updated = await prisma.mediaEntry.update({
       where: { id: entryId },
       data,
@@ -212,6 +334,9 @@ export async function patchMediaEntry(req, res) {
     });
     return res.status(200).json({ data: serializeMediaEntry(updated) });
   } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'NOT_FOUND', `Media entry ${entryId} was not found.`);
     }
@@ -238,7 +363,6 @@ export async function deleteMediaEntry(req, res) {
   }
 }
 
-// Regex patterns for extracting direct image URLs from Pixieset HTML
 const OG_IMAGE_RE = [
   /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
   /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
@@ -249,14 +373,18 @@ function toAbsolute(url) {
   return url.startsWith('//') ? `https:${url}` : url;
 }
 
-function sendAllowedCoverUrl(res, directUrl) {
-  const normalized = normalizeOptionalImageUrl(directUrl, 'directUrl');
-
-  if (!normalized.ok) {
-    return sendError(res, 422, 'VALIDATION_ERROR', normalized.message);
+async function sendAllowedCoverUrl(res, directUrl) {
+  try {
+    const validatedUrl = await validatePublicImageUrl(directUrl, {
+      fieldName: 'Cover image URL',
+    });
+    return res.json({ directUrl: validatedUrl });
+  } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
+    throw error;
   }
-
-  return res.json({ directUrl: normalized.value });
 }
 
 export async function resolveCoverUrl(req, res) {
@@ -267,13 +395,13 @@ export async function resolveCoverUrl(req, res) {
 
   const trimmed = url.trim();
 
-  // Not a Pixieset gallery page — return as-is
   if (!trimmed.includes('pixieset.com') || !trimmed.includes('pid=')) {
     return sendAllowedCoverUrl(res, trimmed);
   }
 
   try {
-    const pageRes = await fetch(trimmed, {
+    const pageRes = await fetchPinnedPublicHttpUrl(trimmed, {
+      fieldName: 'Gallery URL',
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AussBot/1.0)' },
     });
     if (!pageRes.ok) {
@@ -282,12 +410,16 @@ export async function resolveCoverUrl(req, res) {
     const html = await pageRes.text();
 
     for (const re of OG_IMAGE_RE) {
-      const m = html.match(re);
-      if (m?.[1]) return sendAllowedCoverUrl(res, toAbsolute(m[1]));
+      const match = html.match(re);
+      if (match?.[1]) {
+        return sendAllowedCoverUrl(res, toAbsolute(match[1]));
+      }
     }
 
     const imgMatch = html.match(PIXIESET_IMG_RE);
-    if (imgMatch) return sendAllowedCoverUrl(res, toAbsolute(imgMatch[0]));
+    if (imgMatch) {
+      return sendAllowedCoverUrl(res, toAbsolute(imgMatch[0]));
+    }
 
     return sendError(res, 422, 'NOT_FOUND', 'Could not extract an image URL from this Pixieset page.');
   } catch (error) {

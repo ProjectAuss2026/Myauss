@@ -21,6 +21,7 @@ import { Link } from 'react-router-dom';
 import { ArrowUp } from 'lucide-react';
 import { usePublicConfig } from '../../lib/usePublicConfig';
 import { buildSocialCards } from '../../lib/socialCards';
+import { getSafeLinkHref } from '../../lib/safeUrl';
 
 const navLinks = [
   { to: '/', label: 'Home' },
@@ -93,11 +94,13 @@ export function Footer() {
                 />
               ))
             : socialCards.map((card) => {
+                const safeHref = getSafeLinkHref(card.href);
+                if (!safeHref) return null;
                 const Icon = card.icon;
                 return (
                   <a
                     key={card.key}
-                    href={card.href}
+                    href={safeHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-[40px] h-[40px] flex items-center justify-center rounded-xl bg-white/[0.03] hover:bg-[#eb7524]/10 transition-all hover:scale-110 hover:-translate-y-0.5 active:scale-95"

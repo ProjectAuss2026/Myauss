@@ -22,6 +22,7 @@ import { ExternalLink, Camera, Globe, Image as ImageIcon, ArrowRight } from 'luc
 import { Link } from 'react-router-dom';
 import { findPlatform } from '../pages/ManageLinks';
 import type { IconType } from 'react-icons';
+import { getSafeImageSrc, getSafeLinkHref } from '../../lib/safeUrl';
 
 // ─── Intersection-observer scroll hook ──────────────────────────────────────
 // `once: true` (default) disconnects after the first intersection.
@@ -196,6 +197,9 @@ export function Social() {
           ) : (
             <div className="grid grid-cols-12 gap-3" style={{ gridAutoRows: '240px' }}>
               {mediaEntries.slice(0, 6).map((entry, i) => {
+                const safeHref = getSafeLinkHref(entry.mediaDriveUrl);
+                if (!safeHref) return null;
+                const safeCover = getSafeImageSrc(entry.resolvedCover);
                 const colClass = [
                   'col-span-12 md:col-span-7 md:row-span-2',
                   'col-span-12 md:col-span-5',
@@ -207,14 +211,14 @@ export function Social() {
                 return (
                   <div key={entry.id} className={`${colClass} h-[220px] md:h-full`}>
                     <a
-                      href={entry.mediaDriveUrl}
+                      href={safeHref}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="relative overflow-hidden rounded-2xl group cursor-pointer block h-full"
                     >
-                      {entry.resolvedCover ? (
+                      {safeCover ? (
                         <img
-                          src={entry.resolvedCover}
+                          src={safeCover}
                           alt={entry.resolvedName}
                           className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                         />
@@ -257,9 +261,9 @@ export function Social() {
                 </p>
               </div>
               {/* Drive URL is loaded from /api/config (mediaConfig.mediaDriveUrl). */}
-              {mediaDriveUrl ? (
+              {getSafeLinkHref(mediaDriveUrl) ? (
                 <a
-                  href={mediaDriveUrl}
+                  href={getSafeLinkHref(mediaDriveUrl)!}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 bg-[#eb7524] text-white px-8 py-3.5 rounded-xl hover:bg-[#d4691f] transition-all flex-shrink-0"
@@ -333,6 +337,9 @@ export function Social() {
                 </div>
               )
               : dbLinks.map((link, i) => {
+                const safeHref = getSafeLinkHref(link.url);
+                if (!safeHref) return null;
+                const safeImgSrc = link.imgUrl === '__builtin__' ? null : getSafeImageSrc(link.imgUrl);
                 const platform = findPlatform(link.platform);
                 const brandColor = platform?.color ?? '#eb7524';
                 const IconComp: IconType | null = platform?.icon ?? null;
@@ -340,7 +347,7 @@ export function Social() {
                 return (
                   <FadeIn key={link.id} delay={i * 0.08}>
                     <a
-                      href={link.url}
+                      href={safeHref}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="block group h-full"
@@ -358,9 +365,9 @@ export function Social() {
                             >
                               {link.imgUrl === '__builtin__' && IconComp ? (
                                 <IconComp className="w-7 h-7" style={{ color: brandColor }} />
-                              ) : link.imgUrl && link.imgUrl !== '__builtin__' ? (
+                              ) : safeImgSrc ? (
                                 <img
-                                  src={link.imgUrl}
+                                  src={safeImgSrc}
                                   alt={link.platform}
                                   className="w-8 h-8 object-contain"
                                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

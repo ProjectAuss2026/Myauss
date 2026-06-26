@@ -437,6 +437,9 @@ export function Login() {
                         style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
                         required
                       />
+                      <p className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                        Used to confirm Auckland Uni membership eligibility. It is protected, not displayed publicly, and removal or correction requests can be sent to auss@auckland.ac.nz. Final privacy wording should be confirmed by AUSS.
+                      </p>
                     </div>
 
                     <div>

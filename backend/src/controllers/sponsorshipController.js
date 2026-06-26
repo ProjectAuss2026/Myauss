@@ -1,5 +1,5 @@
 import prisma from '../prismaClient.js';
-import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
+import { isUrlValidationError, validateSponsorUrlFields } from '../utils/urlValidation.js';
 import logger from '../utils/logger.js';
 
 const PUBLIC_CACHE_HEADER = 'public, max-age=60, stale-while-revalidate=30';
@@ -131,13 +131,14 @@ export async function createSponsor(req, res) {
     return sendError(res, 422, 'VALIDATION_ERROR', '`websiteUrl` must be a string when provided.');
   }
 
-  const normalizedLogoUrl = normalizeOptionalImageUrl(logoUrl, 'logoUrl');
-  if (!normalizedLogoUrl.ok) {
-    return sendError(res, 422, 'VALIDATION_ERROR', normalizedLogoUrl.message);
-  }
-  const normalizedHeroImageUrl = normalizeOptionalImageUrl(heroImageUrl, 'heroImageUrl');
-  if (!normalizedHeroImageUrl.ok) {
-    return sendError(res, 422, 'VALIDATION_ERROR', normalizedHeroImageUrl.message);
+  const urls = { logoUrl, heroImageUrl, websiteUrl };
+  try {
+    await validateSponsorUrlFields(urls);
+  } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
+    throw error;
   }
 
   let parsedDisplayOrder = 0;
@@ -161,9 +162,9 @@ export async function createSponsor(req, res) {
       data: {
         name: name.trim(),
         sponsorshipPageId: parsedPageId,
-        logoUrl: normalizedLogoUrl.value ?? null,
-        heroImageUrl: normalizedHeroImageUrl.value ?? null,
-        websiteUrl: websiteUrl || null,
+        logoUrl: urls.logoUrl || null,
+        heroImageUrl: urls.heroImageUrl || null,
+        websiteUrl: urls.websiteUrl || null,
         displayOrder: parsedDisplayOrder,
       },
     });
@@ -191,24 +192,22 @@ export async function patchSponsor(req, res) {
     data.name = name.trim();
   }
   if (logoUrl !== undefined) {
-    const normalizedLogoUrl = normalizeOptionalImageUrl(logoUrl, 'logoUrl');
-    if (!normalizedLogoUrl.ok) {
-      return sendError(res, 422, 'VALIDATION_ERROR', normalizedLogoUrl.message);
+    if (logoUrl !== null && typeof logoUrl !== 'string') {
+      return sendError(res, 422, 'VALIDATION_ERROR', '`logoUrl` must be a string or null.');
     }
-    data.logoUrl = normalizedLogoUrl.value;
+    data.logoUrl = logoUrl;
   }
   if (heroImageUrl !== undefined) {
-    const normalizedHeroImageUrl = normalizeOptionalImageUrl(heroImageUrl, 'heroImageUrl');
-    if (!normalizedHeroImageUrl.ok) {
-      return sendError(res, 422, 'VALIDATION_ERROR', normalizedHeroImageUrl.message);
+    if (heroImageUrl !== null && typeof heroImageUrl !== 'string') {
+      return sendError(res, 422, 'VALIDATION_ERROR', '`heroImageUrl` must be a string or null.');
     }
-    data.heroImageUrl = normalizedHeroImageUrl.value;
+    data.heroImageUrl = heroImageUrl;
   }
   if (websiteUrl !== undefined) {
     if (websiteUrl !== null && typeof websiteUrl !== 'string') {
       return sendError(res, 422, 'VALIDATION_ERROR', '`websiteUrl` must be a string or null.');
     }
-    data.websiteUrl = websiteUrl || null;
+    data.websiteUrl = websiteUrl;
   }
   if (displayOrder !== undefined) {
     const parsedDisplayOrder = parseNonNegativeInt(displayOrder);
@@ -223,12 +222,26 @@ export async function patchSponsor(req, res) {
   }
 
   try {
+    await validateSponsorUrlFields(data);
+    if (Object.hasOwn(data, 'logoUrl')) {
+      data.logoUrl = data.logoUrl || null;
+    }
+    if (Object.hasOwn(data, 'heroImageUrl')) {
+      data.heroImageUrl = data.heroImageUrl || null;
+    }
+    if (Object.hasOwn(data, 'websiteUrl')) {
+      data.websiteUrl = data.websiteUrl || null;
+    }
+
     const updated = await prisma.sponsor.update({
       where: { id: sponsorId },
       data,
     });
     return res.status(200).json({ data: updated });
   } catch (error) {
+    if (isUrlValidationError(error)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error.message);
+    }
     if (error?.code === 'P2025') {
       return sendError(res, 404, 'SPONSOR_NOT_FOUND', `Sponsor ${sponsorId} was not found.`);
     }

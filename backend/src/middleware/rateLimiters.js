@@ -181,6 +181,20 @@ export const resendEmailThrottle = createEmailSoftThrottle({
   keyGenerator: (req) => `resend-email:${normaliseEmail(req.body?.email) || 'unknown'}`,
 });
 
+export const forgotPasswordIpLimiter = createLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  scope: 'password reset',
+});
+
+export const forgotPasswordEmailThrottle = createEmailSoftThrottle({
+  windowMs: 15 * 60 * 1000,
+  threshold: 3,
+  baseDelayMs: 400,
+  maxDelayMs: 2500,
+  keyGenerator: (req) => `forgot-password-email:${normaliseEmail(req.body?.email) || 'unknown'}`,
+});
+
 export const verifyIpLimiter = createLimiter({
   windowMs: 60 * 1000,
   max: 10,

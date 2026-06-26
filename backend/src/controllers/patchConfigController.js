@@ -1,42 +1,28 @@
 import prisma from '../prismaClient.js';
-import { normalizeOptionalImageUrl } from '../utils/imageUrlPolicy.js';
 import logger from '../utils/logger.js';
+import { isUrlValidationError, validateConfigUrlFields } from '../utils/urlValidation.js';
 
-// Whitelist to strip out fields aren't permitted for that type
 const ALLOWED_FIELDS = {
   communicationLink: ['platform', 'url', 'imgUrl', 'description', 'isActive'],
   mediaConfig: ['mediaDriveUrl'],
   sponsorshipPage: ['pageContent'],
-  sponsor: ['name', 'logoUrl', 'websiteUrl', 'displayOrder', 'sponsorshipPageId'],
+  sponsor: ['name', 'logoUrl', 'heroImageUrl', 'websiteUrl', 'displayOrder', 'sponsorshipPageId'],
 };
 
-const IMAGE_URL_FIELDS = {
-  communicationLink: ['imgUrl'],
-  sponsor: ['logoUrl'],
-};
+function filterAllowedFields(type, data) {
+  const filteredData = {};
 
-function validateConfigImageUrls(type, filteredData) {
-  for (const field of IMAGE_URL_FIELDS[type] ?? []) {
-    if (!(field in filteredData)) {
-      continue;
-    }
-
-    const normalized = normalizeOptionalImageUrl(filteredData[field], field);
-    if (!normalized.ok) {
-      return normalized;
-    }
-
-    filteredData[field] = normalized.value;
+  for (const field of ALLOWED_FIELDS[type]) {
+    if (field in data) filteredData[field] = data[field];
   }
 
-  return { ok: true };
+  return filteredData;
 }
 
-// PATCH /api/config
 const patchConfigController = async (req, res) => {
-  const { type, id, data } = req.body;
+  const { type, id, data } = req.body ?? {};
 
-  if (!type || !data || typeof data !== 'object') {
+  if (!type || !data || typeof data !== 'object' || Array.isArray(data)) {
     return res.status(400).json({
       error: 'Bad request',
       message: '`type` and `data` fields are required.',
@@ -51,7 +37,6 @@ const patchConfigController = async (req, res) => {
     });
   }
 
-  // `mediaConfig` is a singleton: id is optional. For all other types id is required.
   if (type !== 'mediaConfig') {
     if (id === undefined || id === null) {
       return res.status(400).json({
@@ -65,34 +50,19 @@ const patchConfigController = async (req, res) => {
         message: '`id` must be a positive integer.',
       });
     }
-  } else if (id !== undefined && id !== null) {
-    if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
-      return res.status(400).json({
-        error: 'Bad request',
-        message: '`id` must be a positive integer.',
-      });
-    }
+  } else if (id !== undefined && id !== null && (typeof id !== 'number' || !Number.isInteger(id) || id < 1)) {
+    return res.status(400).json({
+      error: 'Bad request',
+      message: '`id` must be a positive integer.',
+    });
   }
 
-  // Strip any keys not in the whitelist
-  const filteredData = {};
-  for (const field of ALLOWED_FIELDS[type]) {
-    if (field in data) filteredData[field] = data[field];
-  }
+  const filteredData = filterAllowedFields(type, data);
 
-  // Validate description length for communicationLink
   if (type === 'communicationLink' && filteredData.description && filteredData.description.length > 150) {
     return res.status(400).json({
       error: 'Bad request',
       message: 'Description must be 150 characters or fewer.',
-    });
-  }
-
-  const imageUrlValidation = validateConfigImageUrls(type, filteredData);
-  if (!imageUrlValidation.ok) {
-    return res.status(400).json({
-      error: 'Bad request',
-      message: imageUrlValidation.message,
     });
   }
 
@@ -104,6 +74,8 @@ const patchConfigController = async (req, res) => {
   }
 
   try {
+    await validateConfigUrlFields(type, filteredData);
+
     let updated;
 
     switch (type) {
@@ -115,30 +87,7 @@ const patchConfigController = async (req, res) => {
         break;
 
       case 'mediaConfig': {
-        const newUrl = typeof filteredData.mediaDriveUrl === 'string'
-          ? filteredData.mediaDriveUrl.trim()
-          : '';
-        if (!newUrl) {
-          return res.status(400).json({
-            error: 'Bad request',
-            message: 'Photo Drive URL is required.',
-          });
-        }
-        try {
-          const parsed = new URL(newUrl);
-          if (!['http:', 'https:'].includes(parsed.protocol)) {
-            return res.status(400).json({
-              error: 'Bad request',
-              message: 'Photo Drive URL must use http or https.',
-            });
-          }
-        } catch {
-          return res.status(400).json({
-            error: 'Bad request',
-            message: 'Invalid Photo Drive URL.',
-          });
-        }
-
+        const newUrl = filteredData.mediaDriveUrl;
         if (id) {
           updated = await prisma.mediaConfig.update({
             where: { id },
@@ -168,12 +117,25 @@ const patchConfigController = async (req, res) => {
         });
         break;
 
-      case 'sponsor':
+      case 'sponsor': {
+        if (Object.hasOwn(filteredData, 'sponsorshipPageId')) {
+          const pageExists = await prisma.sponsorshipPage.findUnique({
+            where: { id: filteredData.sponsorshipPageId },
+          });
+          if (!pageExists) {
+            return res.status(404).json({
+              error: 'Not found',
+              message: `SponsorshipPage with id=${filteredData.sponsorshipPageId} does not exist.`,
+            });
+          }
+        }
+
         updated = await prisma.sponsor.update({
           where: { id },
           data: filteredData,
         });
         break;
+      }
     }
 
     return res.status(200).json({
@@ -183,18 +145,28 @@ const patchConfigController = async (req, res) => {
       updated,
     });
   } catch (error) {
-    // P2025 means record with that ID doesn't exist
+    if (isUrlValidationError(error)) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: error.message,
+      });
+    }
     if (error.code === 'P2025') {
       return res.status(404).json({
         error: 'Not found',
         message: `No ${type} found with id=${id}.`,
       });
     }
-    // P2002 means unique constraint violated to set a platform that already exists
     if (error.code === 'P2002') {
       return res.status(409).json({
         error: 'Conflict',
         message: `A ${type} with that value already exists (unique constraint violated).`,
+      });
+    }
+    if (error.code === 'P2003') {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'Foreign key constraint failed. Ensure related records exist.',
       });
     }
     logger.error({ err: error }, '[patchConfigController] Error updating config:');

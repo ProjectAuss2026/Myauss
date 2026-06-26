@@ -1,12 +1,17 @@
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import nodemailer from 'nodemailer';
 import '../env.js';
 import prisma from '../prismaClient.js';
 import { authenticate } from '../middleware/authMiddleware.js';
+import validate from '../middleware/validate.js';
+import { loginSchema, registerSchema, resendCodeSchema, verifySchema } from '../schemas/authSchemas.js';
+import { hashStudentId, isStudentIdHashError } from '../utils/studentIdHash.js';
 import logger from '../utils/logger.js';
 import {
+  forgotPasswordEmailThrottle,
+  forgotPasswordIpLimiter,
   loginEmailThrottle,
   loginIpLimiter,
   registerEmailThrottle,
@@ -40,14 +45,11 @@ const OTP_RE = /^\d{6}$/;
 const DUMMY_PASSWORD_HASH = '$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem';
 const RESET_TOKEN_BYTES = 32;
 const RESET_TOKEN_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
-const FORGOT_PASSWORD_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const FORGOT_PASSWORD_MAX_ATTEMPTS = 5;
 const REGISTER_GENERIC_MESSAGE = 'If your email is eligible, a verification code has been sent.';
 const RESEND_GENERIC_MESSAGE = 'If your email has a pending verification, a new code has been sent.';
 const LOGIN_GENERIC_ERROR = 'Invalid email or password.';
 const FORGOT_PASSWORD_GENERIC_MESSAGE = 'If your email is registered, a password reset link has been sent.';
 const RESET_TOKEN_ERROR = 'Invalid or expired password reset token.';
-const forgotPasswordAttempts = new Map();
 
 function getOtpPepper() {
   return process.env.OTP_PEPPER || process.env.JWT_SECRET || '';
@@ -87,6 +89,10 @@ function timingSafeCodeMatch(expectedHash, code) {
 
 function normaliseEmail(email) {
   return String(email || '').trim().toLowerCase();
+}
+
+function getAuthTestHooks() {
+  return process.env.NODE_ENV === 'test' ? globalThis.__AUSS_AUTH_TEST_HOOKS__ ?? null : null;
 }
 
 function parseInviteHours(value) {
@@ -167,25 +173,14 @@ function buildResetUrl(token) {
   return `${appUrl}/reset?token=${encodeURIComponent(token)}`;
 }
 
-function canSendPasswordReset(req, email) {
-  const key = crypto
-    .createHash('sha256')
-    .update(`${req.ip || 'unknown'}:${email}`)
-    .digest('hex');
-  const now = Date.now();
-  const current = forgotPasswordAttempts.get(key);
-
-  if (!current || now >= current.resetAt) {
-    forgotPasswordAttempts.set(key, { count: 1, resetAt: now + FORGOT_PASSWORD_WINDOW_MS });
-    return true;
-  }
-
-  current.count += 1;
-  return current.count <= FORGOT_PASSWORD_MAX_ATTEMPTS;
-}
-
 async function sendPasswordResetEmail(email, token) {
   const resetUrl = buildResetUrl(token);
+  const testHooks = getAuthTestHooks();
+
+  if (testHooks?.sendPasswordResetEmail) {
+    await testHooks.sendPasswordResetEmail({ email, token, resetUrl });
+    return;
+  }
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.log(`[RESET DEV] Link for ${email}: ${resetUrl}`);
@@ -236,7 +231,7 @@ function formatUser(user) {
     role: user.role,
     firstName: user.info?.firstName || null,
     lastName: user.info?.lastName || null,
-    studentId: user.info?.studentId || null,
+    studentId: null,
   };
 }
 
@@ -277,32 +272,21 @@ function getRefreshTokenFromRequest(req) {
 }
 
 // ── POST /auth/register ─────────────────────────────────────────────
-router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, res) => {
+router.post('/register', registerIpLimiter, registerEmailThrottle, validate(registerSchema), async (req, res) => {
   try {
     const { email, password, firstName, lastName, studentId } = req.body;
     const normalisedEmail = normaliseEmail(email);
 
-    if (!normalisedEmail || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-    if (!EMAIL_RE.test(normalisedEmail)) {
-      return res.status(400).json({ error: 'Please provide a valid email address' });
-    }
-    if (!firstName || !lastName) {
-      return res.status(400).json({ error: 'First name and last name are required' });
-    }
-    if (!studentId) {
-      return res.status(400).json({ error: 'Student ID is required' });
-    }
     const passwordPolicy = validatePasswordPolicy(password, [normalisedEmail, firstName, lastName, studentId]);
     if (!passwordPolicy.ok) {
       return res.status(400).json({ error: passwordPolicy.error });
     }
+    const studentIdHash = hashStudentId(studentId);
 
     const existing = await prisma.user.findUnique({ where: { email: normalisedEmail } });
 
     // Already verified — keep the response generic to avoid email enumeration.
-    if (existing && existing.isVerified) {
+    if (existing?.isVerified) {
       return res.status(200).json({ message: REGISTER_GENERIC_MESSAGE });
     }
 
@@ -318,8 +302,8 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, r
           verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
           info: {
             upsert: {
-              create: { firstName, lastName, studentId },
-              update: { firstName, lastName, studentId },
+              create: { firstName, lastName, studentId: studentIdHash },
+              update: { firstName, lastName, studentId: studentIdHash },
             },
           },
         },
@@ -342,7 +326,7 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, r
         lastCodeSentAt: new Date(),
         verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
         info: {
-          create: { firstName, lastName, studentId },
+          create: { firstName, lastName, studentId: studentIdHash },
         },
       },
       select: { id: true, email: true },
@@ -354,60 +338,79 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, async (req, r
       message: REGISTER_GENERIC_MESSAGE,
     });
   } catch (err) {
+    if (isStudentIdHashError(err)) {
+      logger.error({ err }, 'Student ID storage configuration error:');
+      return res.status(500).json({ error: 'Student ID storage is not configured' });
+    }
     logger.error({ err }, 'Register error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
+// ── DELETE /auth/me/info ───────────────────────────────────────────
+router.delete('/me/info', authenticate, async (req, res) => {
+  try {
+    await prisma.userInfo.delete({ where: { userId: req.user.id } });
+    return res.status(204).send();
+  } catch (err) {
+    if (err?.code === 'P2025') {
+      return res.status(204).send();
+    }
+    logger.error({ err }, 'Delete user info error:');
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── POST /auth/forgot-password ─────────────────────────────────────
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordEmailThrottle, async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
     if (!normalisedEmail) {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    const shouldSend = canSendPasswordReset(req, normalisedEmail);
+    const user = await prisma.user.findUnique({ where: { email: normalisedEmail } });
 
-    if (shouldSend) {
-      const user = await prisma.user.findUnique({ where: { email: normalisedEmail } });
+    if (user?.isVerified) {
+      const now = new Date();
+      const activeReset = await prisma.passwordReset.findFirst({
+        where: {
+          userId: user.id,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        select: { id: true },
+      });
 
-      if (user?.isVerified) {
-        const now = new Date();
-        const activeReset = await prisma.passwordReset.findFirst({
-          where: {
+      if (!activeReset) {
+        const token = crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
+        const tokenHash = hashToken(token);
+        const createdReset = await prisma.passwordReset.create({
+          data: {
             userId: user.id,
-            usedAt: null,
-            expiresAt: { gt: now },
+            tokenHash,
+            expiresAt: new Date(now.getTime() + RESET_TOKEN_WINDOW_MS),
           },
           select: { id: true },
         });
 
-        // Keep an active link valid instead of rotating tokens on each request.
-        if (!activeReset) {
-          const token = crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
-          const tokenHash = hashToken(token);
-
-          await prisma.passwordReset.create({
-            data: {
-              userId: user.id,
-              tokenHash,
-              expiresAt: new Date(now.getTime() + RESET_TOKEN_WINDOW_MS),
+        try {
+          await sendPasswordResetEmail(user.email, token);
+        } catch (emailError) {
+          await prisma.passwordReset.deleteMany({
+            where: {
+              id: createdReset.id,
+              usedAt: null,
             },
           });
-
-          try {
-            await sendPasswordResetEmail(user.email, token);
-          } catch (emailError) {
-            console.error('Password reset email error:', emailError);
-          }
+          logger.error({ err: emailError, userId: user.id }, 'Password reset email error:');
         }
       }
     }
 
     return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
   } catch (err) {
-    console.error('Forgot-password error:', err);
+    logger.error({ err }, 'Forgot-password error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -493,23 +496,20 @@ router.post('/reset-password', async (req, res) => {
     try {
       await sendPasswordResetConfirmationEmail(reset.user.email);
     } catch (emailError) {
-      console.error('Password reset confirmation email error:', emailError);
+      logger.error({ err: emailError, userId: reset.userId }, 'Password reset confirmation email error:');
     }
 
     return res.status(200).json({ message: 'Password reset successful.' });
   } catch (err) {
-    console.error('Reset-password error:', err);
+    logger.error({ err }, 'Reset-password error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // ── POST /auth/resend-code ──────────────────────────────────────────
-router.post('/resend-code', resendIpLimiter, resendEmailThrottle, async (req, res) => {
+router.post('/resend-code', resendIpLimiter, resendEmailThrottle, validate(resendCodeSchema), async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
-    if (!normalisedEmail) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
 
     const user = await prisma.user.findUnique({ where: { email: normalisedEmail } });
 
@@ -537,13 +537,10 @@ router.post('/resend-code', resendIpLimiter, resendEmailThrottle, async (req, re
 });
 
 // ── POST /auth/verify ───────────────────────────────────────────────
-router.post('/verify', verifyIpLimiter, verifyEmailThrottle, async (req, res) => {
+router.post('/verify', verifyIpLimiter, verifyEmailThrottle, validate(verifySchema), async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
     const code = String(req.body?.code || '').trim();
-    if (!normalisedEmail || !code) {
-      return res.status(400).json({ error: 'Email and verification code are required' });
-    }
     if (!OTP_RE.test(code)) {
       return res.status(401).json({ error: 'Invalid or expired code' });
     }
@@ -627,7 +624,7 @@ router.post('/verify', verifyIpLimiter, verifyEmailThrottle, async (req, res) =>
 });
 
 // ── POST /auth/login ────────────────────────────────────────────────
-router.post('/login', loginIpLimiter, loginEmailThrottle, async (req, res) => {
+router.post('/login', loginIpLimiter, loginEmailThrottle, validate(loginSchema), async (req, res) => {
   try {
     const normalisedEmail = normaliseEmail(req.body?.email);
     const rawPasswordInput = req.body?.password;
@@ -709,6 +706,9 @@ router.post('/refresh', async (req, res) => {
       user: formatUser(user),
     });
   } catch (err) {
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('Refresh token verification failed:', err instanceof Error ? err.message : err);
+    }
     clearRefreshCookie(res);
     return res.status(401).json({ error: 'Invalid refresh token' });
   }
