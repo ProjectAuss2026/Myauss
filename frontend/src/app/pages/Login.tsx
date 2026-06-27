@@ -29,6 +29,27 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   return { ref, inView };
 }
 
+function PasswordRule({ met, label, sublabel }: { met: boolean; label: string; sublabel?: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className={`mt-0.5 text-xs ${met ? 'text-green-400' : 'text-white/25'}`}>
+        {met ? '✓' : '○'}
+      </span>
+      <div>
+        <span className={`${met ? 'text-green-400' : 'text-white/40'}`} style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+          <span className="sr-only">{met ? 'Met: ' : 'Not met: '}</span>
+          {label}
+        </span>
+        {sublabel && (
+          <span className="block text-white/25" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
+            {sublabel}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Login() {
   const [view, setView] = useState<AuthView>('login');
   const [showPassword, setShowPassword] = useState(false);
@@ -48,6 +69,8 @@ export function Login() {
   const [submitted, setSubmitted] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const { login } = useAuth();
   const { showToast } = useToast();
@@ -57,9 +80,57 @@ export function Login() {
     requestAnimationFrame(() => setMounted(true));
   }, []);
 
+  function validateField(name: string, value: string, confirmValue?: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return 'This field is required';
+    if (name === 'loginEmail' || name === 'regEmail') {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) return 'Please enter a valid email address';
+    }
+    if (name === 'regPassword') {
+      if (value.length < 12) return 'Password must be at least 12 characters';
+    }
+    if (name === 'regConfirm') {
+      const target = confirmValue ?? regPassword;
+      if (value !== target) return 'Passwords do not match';
+    }
+    return '';
+  }
+
+  function handleBlur(field: string, value: string, confirmValue?: string) {
+    setTouched(prev => ({ ...prev, [field]: true }));
+    const error = validateField(field, value, confirmValue);
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      if (error) { next[field] = error; }
+      else { delete next[field]; }
+      return next;
+    });
+  }
+
+  function clearFieldErrors() {
+    setFieldErrors({});
+    setTouched({});
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    clearFieldErrors();
+
+    // Validate fields before submit
+    const errors: Record<string, string> = {};
+    const newTouched: Record<string, boolean> = {};
+    for (const [name, value] of [['loginEmail', loginEmail], ['loginPassword', loginPassword]] as [string, string][]) {
+      newTouched[name] = true;
+      const err = validateField(name, value);
+      if (err) { errors[name] = err; }
+    }
+    if (Object.keys(errors).length > 0) {
+      setTouched(newTouched);
+      setFieldErrors(errors);
+      return;
+    }
+
     setSubmitted(true);
     try {
       const u = await login({ email: loginEmail, password: loginPassword });
@@ -79,13 +150,28 @@ export function Login() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegisterError(null);
+    clearFieldErrors();
 
-    if (regPassword !== regConfirm) {
-      setRegisterError('Passwords do not match.');
-      return;
+    // Validate all fields inline before submit
+    const fields: [string, string, string?][] = [
+      ['regFirstName', regFirstName],
+      ['regLastName', regLastName],
+      ['regEmail', regEmail],
+      ['regStudentId', regStudentId],
+      ['regPassword', regPassword],
+      ['regConfirm', regConfirm, regPassword],
+    ];
+    const errors: Record<string, string> = {};
+    let hasErrors = false;
+    const newTouched: Record<string, boolean> = {};
+    for (const [name, value] of fields) {
+      newTouched[name] = true;
+      const err = validateField(name, value);
+      if (err) { errors[name] = err; hasErrors = true; }
     }
-    if (regPassword.length < 12) {
-      setRegisterError('Password must be at least 12 characters.');
+    if (hasErrors) {
+      setTouched(newTouched);
+      setFieldErrors(errors);
       return;
     }
 
@@ -253,46 +339,61 @@ export function Login() {
 
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div>
-                      <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        Email Address
+                      <label htmlFor="loginEmail" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                        Email Address<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                       </label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                         <input
+                          id="loginEmail"
                           type="email"
                           value={loginEmail}
-                          onChange={(e) => setLoginEmail(e.target.value)}
+                          onChange={(e) => { setLoginEmail(e.target.value); if (fieldErrors.loginEmail) handleBlur('loginEmail', e.target.value); }}
+                          onBlur={(e) => handleBlur('loginEmail', e.target.value)}
                           placeholder="you@auckland.ac.nz"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                          aria-required="true"
+                          aria-describedby={fieldErrors.loginEmail && touched.loginEmail ? 'loginEmail-error' : undefined}
+                          aria-invalid={!!fieldErrors.loginEmail && !!touched.loginEmail}
+                          className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.loginEmail && touched.loginEmail ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                           style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                          required
                         />
                       </div>
+                      {fieldErrors.loginEmail && touched.loginEmail && (
+                        <p id="loginEmail-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.loginEmail}</p>
+                      )}
                     </div>
 
                     <div>
-                      <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        Password
+                      <label htmlFor="loginPassword" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                        Password<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                       </label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                         <input
+                          id="loginPassword"
                           type={showPassword ? 'text' : 'password'}
                           value={loginPassword}
-                          onChange={(e) => setLoginPassword(e.target.value)}
+                          onChange={(e) => { setLoginPassword(e.target.value); if (fieldErrors.loginPassword) handleBlur('loginPassword', e.target.value); }}
+                          onBlur={(e) => handleBlur('loginPassword', e.target.value)}
                           placeholder="••••••••"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 pr-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                          aria-required="true"
+                          aria-describedby={fieldErrors.loginPassword && touched.loginPassword ? 'loginPassword-error' : undefined}
+                          aria-invalid={!!fieldErrors.loginPassword && !!touched.loginPassword}
+                          className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 pr-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.loginPassword && touched.loginPassword ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                           style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                          required
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
                         >
                           {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
+                      {fieldErrors.loginPassword && touched.loginPassword && (
+                        <p id="loginPassword-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.loginPassword}</p>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between pt-1">
@@ -371,135 +472,187 @@ export function Login() {
                   <form onSubmit={handleRegister} className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                          First Name
+                        <label htmlFor="regFirstName" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                          First Name<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                         </label>
                         <div className="relative">
                           <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                           <input
+                            id="regFirstName"
                             type="text"
                             value={regFirstName}
-                            onChange={(e) => setRegFirstName(e.target.value)}
+                            onChange={(e) => { setRegFirstName(e.target.value); if (fieldErrors.regFirstName) handleBlur('regFirstName', e.target.value); }}
+                            onBlur={(e) => handleBlur('regFirstName', e.target.value)}
                             placeholder="First name"
-                            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                            aria-required="true"
+                            aria-describedby={fieldErrors.regFirstName && touched.regFirstName ? 'regFirstName-error' : undefined}
+                            aria-invalid={!!fieldErrors.regFirstName && !!touched.regFirstName}
+                            className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regFirstName && touched.regFirstName ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                            required
                           />
                         </div>
+                        {fieldErrors.regFirstName && touched.regFirstName && (
+                          <p id="regFirstName-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regFirstName}</p>
+                        )}
                       </div>
                       <div>
-                        <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                          Last Name
+                        <label htmlFor="regLastName" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                          Last Name<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                         </label>
                         <div className="relative">
                           <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                           <input
+                            id="regLastName"
                             type="text"
                             value={regLastName}
-                            onChange={(e) => setRegLastName(e.target.value)}
+                            onChange={(e) => { setRegLastName(e.target.value); if (fieldErrors.regLastName) handleBlur('regLastName', e.target.value); }}
+                            onBlur={(e) => handleBlur('regLastName', e.target.value)}
                             placeholder="Last name"
-                            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                            aria-required="true"
+                            aria-describedby={fieldErrors.regLastName && touched.regLastName ? 'regLastName-error' : undefined}
+                            aria-invalid={!!fieldErrors.regLastName && !!touched.regLastName}
+                            className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regLastName && touched.regLastName ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                             style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                            required
                           />
                         </div>
+                        {fieldErrors.regLastName && touched.regLastName && (
+                          <p id="regLastName-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regLastName}</p>
+                        )}
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        University Email
+                      <label htmlFor="regEmail" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                        University Email<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                       </label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                         <input
+                          id="regEmail"
                           type="email"
                           value={regEmail}
-                          onChange={(e) => setRegEmail(e.target.value)}
+                          onChange={(e) => { setRegEmail(e.target.value); if (fieldErrors.regEmail) handleBlur('regEmail', e.target.value); }}
+                          onBlur={(e) => handleBlur('regEmail', e.target.value)}
                           placeholder="you@auckland.ac.nz"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                          aria-required="true"
+                          aria-describedby={fieldErrors.regEmail && touched.regEmail ? 'regEmail-error' : undefined}
+                          aria-invalid={!!fieldErrors.regEmail && !!touched.regEmail}
+                          className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regEmail && touched.regEmail ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                           style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                          required
                         />
                       </div>
+                      {fieldErrors.regEmail && touched.regEmail && (
+                        <p id="regEmail-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regEmail}</p>
+                      )}
                     </div>
 
                     <div>
-                      <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        Student ID
+                      <label htmlFor="regStudentId" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                        Student ID<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                       </label>
                       <input
+                        id="regStudentId"
                         type="text"
                         value={regStudentId}
-                        onChange={(e) => setRegStudentId(e.target.value)}
+                        onChange={(e) => { setRegStudentId(e.target.value); if (fieldErrors.regStudentId) handleBlur('regStudentId', e.target.value); }}
+                        onBlur={(e) => handleBlur('regStudentId', e.target.value)}
                         placeholder="e.g. 123456789"
-                        className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                        aria-required="true"
+                        aria-describedby={fieldErrors.regStudentId && touched.regStudentId ? 'regStudentId-error' : undefined}
+                        aria-invalid={!!fieldErrors.regStudentId && !!touched.regStudentId}
+                        className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regStudentId && touched.regStudentId ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                         style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                        required
                       />
+                      {fieldErrors.regStudentId && touched.regStudentId && (
+                        <p id="regStudentId-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regStudentId}</p>
+                      )}
                       <p className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
                         Used to confirm Auckland Uni membership eligibility. It is protected, not displayed publicly, and removal or correction requests can be sent to auss@auckland.ac.nz. Final privacy wording should be confirmed by AUSS.
                       </p>
                     </div>
 
                     <div>
-                      <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        Password
+                      <label htmlFor="regPassword" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                        Password<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                       </label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                         <input
+                          id="regPassword"
                           type={showPassword ? 'text' : 'password'}
                           value={regPassword}
-                          onChange={(e) => setRegPassword(e.target.value)}
+                          onChange={(e) => { setRegPassword(e.target.value); handleBlur('regPassword', e.target.value); if (regConfirm) handleBlur('regConfirm', regConfirm, e.target.value); }}
+                          onBlur={(e) => handleBlur('regPassword', e.target.value)}
                           placeholder="Create a password"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 pr-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                          aria-required="true"
+                          aria-describedby={fieldErrors.regPassword && touched.regPassword ? 'regPassword-error' : 'regPassword-rules'}
+                          aria-invalid={!!fieldErrors.regPassword && !!touched.regPassword}
+                          className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 pr-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regPassword && touched.regPassword ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                           style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                          required
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
                         >
                           {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
+                      {fieldErrors.regPassword && touched.regPassword && (
+                        <p id="regPassword-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regPassword}</p>
+                      )}
+                        <div id="regPassword-rules" className="mt-2 space-y-1" aria-live="polite">
+                          <PasswordRule met={regPassword.length >= 12} label="At least 12 characters" />
+                          <PasswordRule met={false} label="Not a commonly used or breached password" sublabel="Verified on submission" />
+                        </div>
                     </div>
 
                     <div>
-                      <label className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        Confirm Password
+                      <label htmlFor="regConfirm" className="block text-white/60 mb-1.5" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                        Confirm Password<span className="text-red-400 ml-0.5" aria-hidden="true">*</span>
                       </label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                         <input
+                          id="regConfirm"
                           type={showConfirmPassword ? 'text' : 'password'}
                           value={regConfirm}
-                          onChange={(e) => setRegConfirm(e.target.value)}
+                          onChange={(e) => { setRegConfirm(e.target.value); handleBlur('regConfirm', e.target.value, regPassword); }}
+                          onBlur={(e) => handleBlur('regConfirm', e.target.value, regPassword)}
                           placeholder="Confirm your password"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 pl-10 pr-10 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all"
+                          aria-required="true"
+                          aria-describedby={fieldErrors.regConfirm && touched.regConfirm ? 'regConfirm-error' : undefined}
+                          aria-invalid={!!fieldErrors.regConfirm && !!touched.regConfirm}
+                          className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 pr-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regConfirm && touched.regConfirm ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                           style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                          required
                         />
                         <button
                           type="button"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+                          aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                         >
                           {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
+                      {fieldErrors.regConfirm && touched.regConfirm && (
+                        <p id="regConfirm-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regConfirm}</p>
+                      )}
+                      {!fieldErrors.regConfirm && regConfirm && regPassword && regConfirm === regPassword && (
+                        <p className="text-green-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>Passwords match ✓</p>
+                      )}
                     </div>
 
                     <div className="flex items-start gap-2 pt-1">
-                      <input type="checkbox" className="w-4 h-4 rounded bg-white/5 border-white/10 accent-[#eb7524] mt-0.5" required />
-                      <span className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                      <input id="regTos" type="checkbox" className="w-4 h-4 rounded bg-white/5 border-white/10 accent-[#eb7524] mt-0.5" aria-required="true" required />
+                      <label htmlFor="regTos" className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                        <span className="text-red-400 mr-0.5" aria-hidden="true">*</span>
                         I agree to the AUSS{' '}
                         <span className="text-[#eb7524]/70 hover:text-[#eb7524] cursor-pointer transition-colors">Terms of Service</span>
                         {' '}and{' '}
                         <span className="text-[#eb7524]/70 hover:text-[#eb7524] cursor-pointer transition-colors">Privacy Policy</span>
-                      </span>
+                      </label>
                     </div>
 
                     <button
