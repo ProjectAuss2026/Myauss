@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,6 +8,7 @@ import {
   Bell,
   Link2,
   Calendar,
+  Clock,
   User,
   Shield,
   ArrowRight,
@@ -16,8 +17,11 @@ import {
   Sparkles,
   QrCode,
   LogOut,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { RSVPModal } from '../components/RSVPModal';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -77,11 +81,14 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }
 }
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
+  // Callback ref: re-attaches the observer whenever the node mounts. This
+  // matters because the page renders a loading spinner first (during auth
+  // rehydration), so the observed element only mounts on a later render.
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const ref = useCallback((el: HTMLDivElement | null) => setNode(el), []);
   const [inView, setInView] = useState(false);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    if (!node) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -93,10 +100,22 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
       },
       { rootMargin: options?.margin || '0px' }
     );
-    observer.observe(el);
+    observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [node]);
   return { ref, inView };
+}
+
+interface Activity {
+  id: number;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  imageUrl: string | null;
+  externalLink: string | null;
+  isPublished: boolean;
+  capacity: number | null;
 }
 
 function getRoleLabel(role: string) {
@@ -105,12 +124,49 @@ function getRoleLabel(role: string) {
   return 'Member';
 }
 
+function formatEventDate(dateStr: string) {
+  return new Date(dateStr).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatEventTime(dateStr: string) {
+  return new Date(dateStr).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+/** Whole-day countdown from now until the event's start. */
+function getEventCountdown(startTime: string): { text: string; isSoon: boolean } {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfEvent = new Date(startTime);
+  startOfEvent.setHours(0, 0, 0, 0);
+
+  const daysUntil = Math.round((startOfEvent.getTime() - startOfToday.getTime()) / 86_400_000);
+
+  if (daysUntil <= 0) return { text: 'Today', isSoon: true };
+  if (daysUntil === 1) return { text: 'Tomorrow', isSoon: true };
+  if (daysUntil === 2) return { text: 'In 2 days', isSoon: true };
+  return { text: `In ${daysUntil} days`, isSoon: false };
+}
+
 export function MemberDashboard() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
   const [mounted, setMounted] = useState(false);
+
+  // Upcoming events (from the Activities API)
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [rsvpActivity, setRsvpActivity] = useState<Activity | null>(null);
 
   // Protected route — redirect unauthenticated users to login
   useEffect(() => {
@@ -121,6 +177,28 @@ export function MemberDashboard() {
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadActivities = async () => {
+      try {
+        setEventsLoading(true);
+        setEventsError(null);
+        const res = await fetch('/api/activities');
+        if (!res.ok) throw new Error('Failed to load events');
+        const data = await res.json();
+        if (!cancelled) setActivities(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!cancelled) setEventsError(err instanceof Error ? err.message : 'Failed to load events');
+      } finally {
+        if (!cancelled) setEventsLoading(false);
+      }
+    };
+    loadActivities();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -143,6 +221,12 @@ export function MemberDashboard() {
     ? `${user.firstName} ${user.lastName}`
     : user.firstName || user.email;
   const memberId = user.email.split('@')[0].toUpperCase();
+
+  // Only events that haven't finished yet, soonest first
+  const now = Date.now();
+  const upcomingEvents = activities
+    .filter((a) => new Date(a.endTime).getTime() > now)
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
   return (
     <div className="bg-black min-h-screen relative overflow-hidden">
@@ -298,7 +382,7 @@ export function MemberDashboard() {
                   <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 sm:p-4">
                     <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#eb7524] mb-2" />
                     <p className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
-                      5
+                      {eventsLoading ? '—' : upcomingEvents.length}
                     </p>
                     <p className="text-white/40" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
                       Upcoming Events
@@ -330,73 +414,35 @@ export function MemberDashboard() {
         >
           {/* Upcoming Events - Moved to top */}
           <CollapsibleSection title="Upcoming Events" icon={Calendar} defaultOpen={true}>
-            <div className="space-y-3">
-              {(() => {
-                const today = new Date('2026-05-13');
-                const events = [
-                  {
-                    title: 'Weekly Training Session',
-                    date: 'May 15, 2026',
-                    time: '6:00 PM - 8:00 PM',
-                    location: 'Recreation Centre',
-                    type: 'Training',
-                    eventDate: new Date('2026-05-15'),
-                  },
-                  {
-                    title: 'Social Night: Pizza & Powerlifting',
-                    date: 'May 18, 2026',
-                    time: '7:00 PM - 10:00 PM',
-                    location: 'Club Room',
-                    type: 'Social',
-                    eventDate: new Date('2026-05-18'),
-                  },
-                  {
-                    title: 'Strength Workshop with Coach Mike',
-                    date: 'May 22, 2026',
-                    time: '2:00 PM - 4:00 PM',
-                    location: 'Recreation Centre',
-                    type: 'Workshop',
-                    eventDate: new Date('2026-05-22'),
-                  },
-                  {
-                    title: 'Auckland University Championship',
-                    date: 'June 5, 2026',
-                    time: '10:00 AM - 4:00 PM',
-                    location: 'University Gym',
-                    type: 'Competition',
-                    eventDate: new Date('2026-06-05'),
-                  },
-                ];
-
-                return events.map((item) => {
-                  const daysUntil = Math.ceil((item.eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                  const isUpcoming = daysUntil <= 2;
-                  const borderColor = isUpcoming ? 'border-green-500/40' : 'border-white/[0.06]';
-                  const bgColor = isUpcoming ? 'bg-green-500/[0.05]' : 'bg-white/[0.03]';
-                  const glowClass = isUpcoming ? 'shadow-[0_0_20px_rgba(34,197,94,0.15)]' : '';
-
-                  let countdownText = '';
-                  let countdownColor = '';
-                  if (daysUntil === 0) {
-                    countdownText = 'Today';
-                    countdownColor = 'text-green-400';
-                  } else if (daysUntil === 1) {
-                    countdownText = 'Tomorrow';
-                    countdownColor = 'text-green-400';
-                  } else if (daysUntil <= 2) {
-                    countdownText = `In ${daysUntil} days`;
-                    countdownColor = 'text-green-400';
-                  } else if (daysUntil <= 7) {
-                    countdownText = `In ${daysUntil} days`;
-                    countdownColor = 'text-white/60';
-                  } else {
-                    countdownText = `In ${daysUntil} days`;
-                    countdownColor = 'text-white/40';
-                  }
+            {eventsLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-6 h-6 text-[#eb7524] animate-spin" />
+              </div>
+            ) : eventsError ? (
+              <div className="flex flex-col items-center text-center py-8 gap-2">
+                <AlertCircle className="w-8 h-8 text-red-400/70" />
+                <p className="text-white/50" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                  {eventsError}
+                </p>
+              </div>
+            ) : upcomingEvents.length === 0 ? (
+              <div className="flex flex-col items-center text-center py-8 gap-2">
+                <Calendar className="w-8 h-8 text-white/15" />
+                <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                  No upcoming events right now. Check back soon!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {upcomingEvents.map((event) => {
+                  const { text: countdownText, isSoon } = getEventCountdown(event.startTime);
+                  const borderColor = isSoon ? 'border-green-500/40' : 'border-white/[0.06]';
+                  const bgColor = isSoon ? 'bg-green-500/[0.05]' : 'bg-white/[0.03]';
+                  const glowClass = isSoon ? 'shadow-[0_0_20px_rgba(34,197,94,0.15)]' : '';
 
                   return (
                     <div
-                      key={item.title}
+                      key={event.id}
                       className={`${bgColor} border ${borderColor} rounded-xl p-4 sm:p-5 hover:bg-white/[0.05] hover:border-white/10 transition-all ${glowClass}`}
                     >
                       <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
@@ -406,34 +452,20 @@ export function MemberDashboard() {
                               className="text-white"
                               style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
                             >
-                              {item.title}
+                              {event.title}
                             </h4>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[11px] ${
-                                item.type === 'Competition'
-                                  ? 'bg-[#eb7524]/20 text-[#eb7524]'
-                                  : item.type === 'Social'
-                                  ? 'bg-blue-500/20 text-blue-300'
-                                  : item.type === 'Workshop'
-                                  ? 'bg-purple-500/20 text-purple-300'
-                                  : 'bg-white/10 text-white/60'
-                              }`}
-                              style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-                            >
-                              {item.type}
-                            </span>
                           </div>
 
                           {/* Countdown */}
                           <div className="mb-3">
                             <div
                               className={`inline-flex items-center gap-2 px-3 py-1.5 ${
-                                isUpcoming ? 'bg-green-500/20 border-green-500/30' : 'bg-white/[0.05] border-white/10'
+                                isSoon ? 'bg-green-500/20 border-green-500/30' : 'bg-white/[0.05] border-white/10'
                               } border rounded-lg`}
                             >
-                              <Calendar className={`w-4 h-4 ${isUpcoming ? 'text-green-400' : 'text-white/40'}`} />
+                              <Calendar className={`w-4 h-4 ${isSoon ? 'text-green-400' : 'text-white/40'}`} />
                               <span
-                                className={countdownColor}
+                                className={isSoon ? 'text-green-400' : 'text-white/60'}
                                 style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                               >
                                 {countdownText}
@@ -446,32 +478,42 @@ export function MemberDashboard() {
                               className="text-white/50 flex items-center gap-2"
                               style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
                             >
-                              <Calendar className="w-3.5 h-3.5" />
-                              {item.date} · {item.time}
+                              <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
+                              {formatEventDate(event.startTime)}
                             </p>
                             <p
                               className="text-white/40 flex items-center gap-2"
                               style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
                             >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              {item.location}
+                              <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                              {formatEventTime(event.startTime)} – {formatEventTime(event.endTime)}
                             </p>
                           </div>
                         </div>
-                        <button
-                          className={`w-full sm:w-auto px-4 py-2 ${
-                            isUpcoming ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-[#eb7524]/10 border-[#eb7524]/20 text-[#eb7524]'
-                          } border rounded-lg hover:bg-opacity-30 transition-all cursor-pointer`}
-                          style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-                        >
-                          RSVP
-                        </button>
+                        <div className="flex flex-col gap-2 w-full sm:w-auto">
+                          <button
+                            onClick={() => setRsvpActivity(event)}
+                            className={`w-full sm:w-auto px-4 py-2 ${
+                              isSoon ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-[#eb7524]/10 border-[#eb7524]/20 text-[#eb7524]'
+                            } border rounded-lg hover:bg-opacity-30 transition-all cursor-pointer`}
+                            style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+                          >
+                            RSVP
+                          </button>
+                          <button
+                            onClick={() => navigate(`/activities/${event.id}`)}
+                            className="w-full sm:w-auto px-4 py-2 text-white/40 hover:text-white/70 transition-colors cursor-pointer"
+                            style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+                          >
+                            Details
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
-                });
-              })()}
-            </div>
+                })}
+              </div>
+            )}
           </CollapsibleSection>
 
           {/* Exclusive Content */}
@@ -726,6 +768,14 @@ export function MemberDashboard() {
 
         </div>
       </div>
+
+      {/* RSVP modal for the selected event */}
+      <RSVPModal
+        open={rsvpActivity !== null}
+        activityId={rsvpActivity?.id ?? 0}
+        activityTitle={rsvpActivity?.title}
+        onClose={() => setRsvpActivity(null)}
+      />
     </div>
   );
 }
