@@ -264,7 +264,7 @@ export function MemberDashboard() {
                   letterSpacing: '-0.02em',
                 }}
               >
-                Welcome back, <span className="text-[#eb7524]">{fullName}</span>
+                Welcome back, <br></br><span className="text-[#eb7524]">{fullName}</span>
               </h1>
               <p
                 className="text-white/50 flex items-center gap-2 flex-wrap"
