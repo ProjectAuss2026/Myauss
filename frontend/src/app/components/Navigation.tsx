@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ChevronDown, Settings, Shield } from 'lucide-react';
+import { Menu, X, User, LogOut, ChevronDown, Settings, Shield, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 
@@ -111,6 +111,14 @@ export function Navigation() {
                       </div>
                       <div className="py-1">
                         <button
+                          onClick={() => { setProfileDropdown(false); navigate('/dashboard'); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+                        >
+                          <LayoutDashboard className="w-4 h-4" />
+                          Member Dashboard
+                        </button>
+                        <button
                           onClick={() => { setProfileDropdown(false); navigate('/profile'); }}
                           className="w-full flex items-center gap-3 px-4 py-2.5 text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
                           style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
@@ -198,6 +206,15 @@ export function Navigation() {
             <div className="pt-3 mt-2 border-t border-white/10 px-3">
               {isAuthenticated ? (
                 <>
+                  <Link
+                    to="/dashboard"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-3 w-full py-3 text-white/80 hover:text-white transition-colors"
+                    style={{ fontFamily: 'Outfit, sans-serif' }}
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    Member Dashboard
+                  </Link>
                   <Link
                     to="/profile"
                     onClick={() => setMobileMenuOpen(false)}

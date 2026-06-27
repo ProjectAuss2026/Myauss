@@ -10,6 +10,7 @@ import { Verify } from './pages/Verify';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
 import { Profile } from './pages/Profile';
+import { MemberDashboard } from './pages/MemberDashboard';
 import { ManageLinks } from './pages/ManageLinks';
 import { Admin } from './pages/Admin';
 import { Sponsorship } from './pages/Sponsorship';
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
       { path: 'forgot-password', Component: ForgotPassword },
       { path: 'reset', Component: ResetPassword },
       { path: 'profile', Component: Profile },
+      { path: 'dashboard', Component: MemberDashboard },
       { path: 'activities', Component: Activities },
       { path: 'activities/:id', Component: ActivityDetails },
       { path: 'media', Component: MediaGallery },
