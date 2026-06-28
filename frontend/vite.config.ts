@@ -45,6 +45,9 @@ export default defineConfig(({ mode }) => {
 
   console.log(`[Vite] Proxying /api → http://localhost:${backendPort}`)
   return {
+    // The shared .env lives in the repo root, so load VITE_* vars from there
+    // (otherwise import.meta.env only sees frontend/.env).
+    envDir: path.resolve(__dirname, '..'),
     plugins: [
       react(),
       tailwindcss(),
