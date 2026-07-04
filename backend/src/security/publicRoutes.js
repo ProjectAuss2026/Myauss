@@ -41,6 +41,8 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   route('GET', '/api/auth/admin/users'),
   route('POST', '/api/auth/admin/users/:userId/promote'),
   route('POST', '/api/auth/admin/users/:userId/demote'),
+  route('GET', '/api/auth/admin/members'),
+  route('POST', '/api/auth/admin/members/:userId/status'),
   route('POST', '/api/upload'),
 ]);
 
