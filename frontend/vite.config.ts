@@ -71,6 +71,10 @@ export default defineConfig(({ mode }) => {
     preview: {
       headers: previewSecurityHeaders,
     },
+    test: {
+      environment: 'jsdom',
+      include: ['src/app/**/*.test.ts', 'src/app/**/*.test.tsx'],
+    },
     assetsInclude: ['**/*.svg', '**/*.csv'],
   }
 })

@@ -4,6 +4,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { fetchWithAuth } from '../lib/authFetch';
 import {
+  filterAdminMembers,
+  formatMemberDate,
+  formatMemberRole,
+  formatMembershipStatus,
+  getAdminMembers,
+  type AdminMember,
+  type MemberStatusFilter,
+} from '../lib/adminMembers';
+import {
   Plus, Trash2, Edit3, Save, X, Star, Users,
   Camera, ExternalLink, LogOut, Shield, Image as ImageIcon,
   Loader2, Calendar, Clock, AlertCircle, HelpCircle, ChevronDown, GripVertical,
@@ -109,8 +118,8 @@ const defaultActivities: Activity[] = [];
 
 const statusColors: Record<string, string> = { upcoming: '#3b82f6', ongoing: '#10b981', archived: '#6b7280' };
 
-type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'faq' | 'access';
-const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'faq', 'access'];
+type Tab = 'sponsors' | 'media' | 'activities' | 'execs' | 'members' | 'faq' | 'access';
+const VALID_TABS: Tab[] = ['sponsors', 'media', 'activities', 'execs', 'members', 'faq', 'access'];
 
 // Synthetic team for members whose role or team was deleted
 const UNASSIGNED_TEAM: ExecTeamItem = { id: -1, name: '⚠ Unassigned — reassign or remove', displayOrder: Infinity };
@@ -470,6 +479,12 @@ export function Admin() {
   const [inviteSearchMessage, setInviteSearchMessage] = useState<string | null>(null);
   const [demotingUserId, setDemotingUserId] = useState<string | null>(null);
 
+  const [members, setMembers] = useState<AdminMember[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberStatusFilter, setMemberStatusFilter] = useState<MemberStatusFilter>('ALL');
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
+
   const { showToast } = useToast();
   const isOwner = user?.role === 'OWNER';
 
@@ -712,6 +727,52 @@ export function Admin() {
     if (!isOwner || !user) return;
     loadAccessUsers();
   }, [isOwner, user]);
+
+  const loadMembers = async () => {
+    if (!isAdmin || !user) return;
+
+    try {
+      setMembersLoading(true);
+      setMembersError(null);
+      const data = await getAdminMembers({ status: memberStatusFilter, search: memberSearch });
+      setMembers(data);
+    } catch (err) {
+      setMembers([]);
+      setMembersError(err instanceof Error ? err.message : 'Failed to load members');
+    } finally {
+      setMembersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (!isAdmin || !user) return;
+
+      try {
+        setMembersLoading(true);
+        setMembersError(null);
+        const data = await getAdminMembers({ status: memberStatusFilter, search: memberSearch });
+        if (cancelled) return;
+        setMembers(data);
+      } catch (err) {
+        if (cancelled) return;
+        setMembers([]);
+        setMembersError(err instanceof Error ? err.message : 'Failed to load members');
+      } finally {
+        if (!cancelled) {
+          setMembersLoading(false);
+        }
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, user, memberStatusFilter]);
 
   useEffect(() => {
     if (!isOwner) return;
@@ -1250,6 +1311,7 @@ export function Admin() {
               { key: 'activities' as Tab, label: 'Activities', icon: Calendar },
               { key: 'media' as Tab, label: 'Photo Drive', icon: Camera },
               { key: 'execs' as Tab, label: 'Execs', icon: Users },
+              { key: 'members' as Tab, label: 'Members', icon: CheckCircle2 },
               { key: 'faq' as Tab, label: 'FAQ', icon: HelpCircle },
               ...(isOwner ? [{ key: 'access' as Tab, label: 'Access', icon: Shield }] : []),
             ]).map((t) => {
@@ -1335,6 +1397,18 @@ export function Admin() {
               onRolesReorder={resortExecGroupsByRoles}
             />
           )}
+          {tab === 'members' && (
+            <MembersManager
+              members={members}
+              loading={membersLoading}
+              error={membersError}
+              search={memberSearch}
+              setSearch={setMemberSearch}
+              statusFilter={memberStatusFilter}
+              setStatusFilter={setMemberStatusFilter}
+              onRefreshMembers={loadMembers}
+            />
+          )}
           {tab === 'faq' && (
             <FaqManager
               faqs={faqs}
@@ -1379,6 +1453,218 @@ export function Admin() {
         </div>
       </section>
 
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Members Manager
+// ═══════════════════════════════════════════════
+
+const MEMBER_FILTER_OPTIONS: { value: MemberStatusFilter; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'INACTIVE', label: 'Inactive' },
+  { value: 'NEED_REVIEW', label: 'Need Review' },
+  { value: 'VERIFIED', label: 'Verified' },
+];
+
+function getMembershipBadgeClasses(status: string): string {
+  switch ((status || '').toUpperCase()) {
+    case 'VERIFIED':
+      return 'bg-green-500/15 text-green-200 border border-green-500/30';
+    case 'NEED_REVIEW':
+      return 'bg-[#eb7524]/15 text-[#ffcfad] border border-[#eb7524]/35';
+    case 'INACTIVE':
+    default:
+      return 'bg-white/[0.06] text-white/60 border border-white/10';
+  }
+}
+
+function MembersManager({
+  members,
+  loading,
+  error,
+  search,
+  setSearch,
+  statusFilter,
+  setStatusFilter,
+  onRefreshMembers,
+}: {
+  members: AdminMember[];
+  loading: boolean;
+  error: string | null;
+  search: string;
+  setSearch: (value: string) => void;
+  statusFilter: MemberStatusFilter;
+  setStatusFilter: (value: MemberStatusFilter) => void;
+  onRefreshMembers: () => Promise<void> | void;
+}) {
+  const visibleMembers = filterAdminMembers(members, search);
+  const hasSearch = search.trim().length > 0;
+  const hasStatusFilter = statusFilter !== 'ALL';
+  const showEmptyState = !loading && !error && members.length === 0 && !hasStatusFilter;
+  const showNoResultsState = !loading && !error && (
+    (members.length === 0 && hasStatusFilter)
+    || (members.length > 0 && visibleMembers.length === 0)
+  );
+
+  return (
+    <div className="space-y-8">
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <h2 className="text-white mb-1" style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+          Membership Roster
+        </h2>
+        <p className="text-white/40" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+          Review registered members, track membership status, and find students quickly.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-6">
+        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+          <div>
+            <h3 className="text-white" style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+              Registered Members
+            </h3>
+            <p className="text-white/40 mt-1" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+              {loading
+                ? 'Updating member roster...'
+                : `${visibleMembers.length} shown${hasSearch && visibleMembers.length !== members.length ? ` of ${members.length}` : ''}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRefreshMembers}
+            className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/80 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+            style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] mb-5">
+          <div>
+            <label className="block text-white/60 mb-1.5" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              Search
+            </label>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by name, email, or student ID"
+              className={inputCls}
+              style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-white/60 mb-1.5" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+              Status
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {MEMBER_FILTER_OPTIONS.map((option) => {
+                const active = statusFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setStatusFilter(option.value)}
+                    aria-pressed={active}
+                    className={`px-3.5 py-2 rounded-xl border transition-all cursor-pointer ${
+                      active
+                        ? 'bg-[#eb7524] border-[#eb7524] text-white shadow-[0_4px_18px_rgba(235,117,36,0.24)]'
+                        : 'bg-white/[0.04] border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08]'
+                    }`}
+                    style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: active ? 600 : 500 }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 flex-wrap" role="alert">
+            <div className="flex items-start gap-2 min-w-0">
+              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+              <p className="text-red-200" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>{error}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onRefreshMembers}
+              className="text-red-100 underline hover:text-white cursor-pointer"
+              style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="py-12 text-center" role="status">
+            <Loader2 className="w-6 h-6 animate-spin text-[#eb7524] mx-auto mb-3" />
+            <p className="text-white/50" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+              Loading member roster...
+            </p>
+          </div>
+        ) : showEmptyState ? (
+          <div className="text-center py-14">
+            <Users className="w-12 h-12 text-white/10 mx-auto mb-4" />
+            <p className="text-white" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+              No registered members yet
+            </p>
+            <p className="text-white/40 mt-2" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+              Member accounts will appear here once registrations are created.
+            </p>
+          </div>
+        ) : showNoResultsState ? (
+          <div className="text-center py-14">
+            <Users className="w-12 h-12 text-white/10 mx-auto mb-4" />
+            <p className="text-white" style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+              No members match your current search and filter
+            </p>
+            <p className="text-white/40 mt-2" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+              Try another search term or switch to a different membership status.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-white/10">
+            <table className="w-full text-left" style={{ fontFamily: 'Inter, sans-serif' }}>
+              <thead className="bg-white/5 text-white/50" style={{ fontSize: '12px' }}>
+                <tr>
+                  <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="px-4 py-3 font-medium">Email</th>
+                  <th className="px-4 py-3 font-medium">Student ID</th>
+                  <th className="px-4 py-3 font-medium">Join Date</th>
+                  <th className="px-4 py-3 font-medium">Membership Status</th>
+                  <th className="px-4 py-3 font-medium">Role</th>
+                </tr>
+              </thead>
+              <tbody className="text-white/80" style={{ fontSize: '13.5px' }}>
+                {visibleMembers.map((member) => (
+                  <tr key={member.id} className="border-t border-white/5 hover:bg-white/[0.02]">
+                    <td className="px-4 py-3 align-top">
+                      <div>
+                        <p className="text-white" style={{ fontSize: '13.5px', fontWeight: 600 }}>{member.name || '—'}</p>
+                        <p className="text-white/35 mt-1" style={{ fontSize: '11.5px' }}>User ID: {member.id}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 align-top text-white/70 break-all">{member.email || '—'}</td>
+                    <td className="px-4 py-3 align-top text-white/70">{member.studentId || '—'}</td>
+                    <td className="px-4 py-3 align-top text-white/60 whitespace-nowrap">{formatMemberDate(member.joinedAt)}</td>
+                    <td className="px-4 py-3 align-top">
+                      <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] ${getMembershipBadgeClasses(member.membershipStatus)}`}>
+                        {formatMembershipStatus(member.membershipStatus)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 align-top text-white/70">{formatMemberRole(member.role)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
