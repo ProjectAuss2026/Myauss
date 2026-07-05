@@ -38,9 +38,25 @@ export interface AdminMember {
   isVerified: boolean;
 }
 
+export interface AdminMembersPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+}
+
+export interface AdminMembersResult {
+  members: AdminMember[];
+  pagination: AdminMembersPagination;
+}
+
 interface GetAdminMembersOptions {
   status?: MemberStatusFilter | MembershipStatus | null;
   search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 function readString(value: unknown): string | null {
@@ -84,6 +100,81 @@ async function getApiErrorMessage(response: Response): Promise<string> {
   }
 }
 
+function readPositiveInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function readNonNegativeInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : fallback;
+}
+
+function createFallbackPagination(
+  recordsLength: number,
+  page = 1,
+  pageSize = recordsLength,
+): AdminMembersPagination {
+  const fallbackPage = readPositiveInteger(page, 1);
+  const fallbackPageSize = Math.max(readPositiveInteger(pageSize, 1), 1);
+
+  return {
+    page: fallbackPage,
+    pageSize: fallbackPageSize,
+    total: recordsLength,
+    totalPages: 1,
+    hasPreviousPage: false,
+    hasNextPage: false,
+  };
+}
+
+function readPagination(
+  value: unknown,
+  recordsLength: number,
+  requestedPage: number,
+  requestedPageSize: number,
+): AdminMembersPagination {
+  if (!value || typeof value !== "object") {
+    return createFallbackPagination(
+      recordsLength,
+      requestedPage,
+      requestedPageSize,
+    );
+  }
+
+  const pagination = value as Record<string, unknown>;
+  const page = readPositiveInteger(pagination.page, requestedPage);
+  const pageSize = Math.max(
+    readPositiveInteger(pagination.pageSize, requestedPageSize),
+    1,
+  );
+  const total = readNonNegativeInteger(pagination.total, recordsLength);
+  const totalPages = Math.max(
+    1,
+    readPositiveInteger(
+      pagination.totalPages,
+      Math.ceil(total / pageSize) || 1,
+    ),
+  );
+
+  return {
+    page,
+    pageSize,
+    total,
+    totalPages,
+    hasPreviousPage:
+      typeof pagination.hasPreviousPage === "boolean"
+        ? pagination.hasPreviousPage
+        : page > 1,
+    hasNextPage:
+      typeof pagination.hasNextPage === "boolean"
+        ? pagination.hasNextPage
+        : page < totalPages,
+  };
+}
+
 export function mapAdminMember(record: AdminMemberApiRecord): AdminMember {
   return {
     id: record.id,
@@ -101,14 +192,21 @@ export function mapAdminMember(record: AdminMemberApiRecord): AdminMember {
 export async function getAdminMembers({
   status,
   search,
-}: GetAdminMembersOptions = {}): Promise<AdminMember[]> {
+  page,
+  pageSize,
+}: GetAdminMembersOptions = {}): Promise<AdminMembersResult> {
   const params = new URLSearchParams();
+  const requestedPage = readPositiveInteger(page, 1);
+  const requestedPageSize = readPositiveInteger(pageSize, 20);
+
   if (status && status !== "ALL") {
     params.set("status", status);
   }
   if (search?.trim()) {
     params.set("search", search.trim());
   }
+  params.set("page", String(requestedPage));
+  params.set("pageSize", String(requestedPageSize));
 
   const query = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetchWithAuth(`/api/auth/admin/members${query}`);
@@ -118,7 +216,17 @@ export async function getAdminMembers({
 
   const payload = await response.json().catch(() => null);
   const records = Array.isArray(payload?.data) ? payload.data : [];
-  return records.map((record: AdminMemberApiRecord) => mapAdminMember(record));
+  return {
+    members: records.map((record: AdminMemberApiRecord) =>
+      mapAdminMember(record),
+    ),
+    pagination: readPagination(
+      payload?.pagination,
+      records.length,
+      requestedPage,
+      requestedPageSize,
+    ),
+  };
 }
 
 function normalizeSearchValue(value: string | null | undefined): string {

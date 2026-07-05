@@ -4,7 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { fetchWithAuth } from "../lib/authFetch";
 import {
-  filterAdminMembers,
+  type AdminMembersPagination,
   formatMemberDate,
   formatMemberRole,
   formatMembershipStatus,
@@ -177,6 +177,16 @@ const VALID_TABS: Tab[] = [
   "faq",
   "access",
 ];
+const DEFAULT_MEMBER_PAGE_SIZE = 20;
+const MEMBER_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const DEFAULT_MEMBER_PAGINATION: AdminMembersPagination = {
+  page: 1,
+  pageSize: DEFAULT_MEMBER_PAGE_SIZE,
+  total: 0,
+  totalPages: 1,
+  hasPreviousPage: false,
+  hasNextPage: false,
+};
 
 // Synthetic team for members whose role or team was deleted
 const UNASSIGNED_TEAM: ExecTeamItem = {
@@ -608,8 +618,15 @@ export function Admin() {
 
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
+  const [debouncedMemberSearch, setDebouncedMemberSearch] = useState("");
   const [memberStatusFilter, setMemberStatusFilter] =
     useState<MemberStatusFilter>("ALL");
+  const [memberPage, setMemberPage] = useState(1);
+  const [memberPageSize, setMemberPageSize] = useState(
+    DEFAULT_MEMBER_PAGE_SIZE,
+  );
+  const [memberPagination, setMemberPagination] =
+    useState<AdminMembersPagination>(DEFAULT_MEMBER_PAGINATION);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
 
@@ -881,17 +898,36 @@ export function Admin() {
     loadAccessUsers();
   }, [isOwner, user]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const trimmedSearch = memberSearch.trim();
+      setDebouncedMemberSearch((previousSearch) => {
+        if (previousSearch !== trimmedSearch) {
+          setMemberPage(1);
+        }
+        return trimmedSearch;
+      });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [memberSearch]);
+
   const loadMembers = async () => {
     if (!isAdmin || !user) return;
 
     try {
       setMembersLoading(true);
       setMembersError(null);
-      const data = await getAdminMembers({
+      const result = await getAdminMembers({
         status: memberStatusFilter,
-        search: memberSearch,
+        search: memberSearch.trim(),
+        page: memberPage,
+        pageSize: memberPageSize,
       });
-      setMembers(data);
+      setMembers(result.members);
+      setMemberPagination(result.pagination);
     } catch (err) {
       setMembers([]);
       setMembersError(
@@ -900,6 +936,17 @@ export function Admin() {
     } finally {
       setMembersLoading(false);
     }
+  };
+
+  const refreshMembers = async () => {
+    const trimmedSearch = memberSearch.trim();
+    if (trimmedSearch !== debouncedMemberSearch) {
+      setMemberPage(1);
+      setDebouncedMemberSearch(trimmedSearch);
+      return;
+    }
+
+    await loadMembers();
   };
 
   useEffect(() => {
@@ -911,12 +958,15 @@ export function Admin() {
       try {
         setMembersLoading(true);
         setMembersError(null);
-        const data = await getAdminMembers({
+        const result = await getAdminMembers({
           status: memberStatusFilter,
-          search: memberSearch,
+          search: debouncedMemberSearch,
+          page: memberPage,
+          pageSize: memberPageSize,
         });
         if (cancelled) return;
-        setMembers(data);
+        setMembers(result.members);
+        setMemberPagination(result.pagination);
       } catch (err) {
         if (cancelled) return;
         setMembers([]);
@@ -935,7 +985,26 @@ export function Admin() {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, user, memberStatusFilter]);
+  }, [
+    isAdmin,
+    user,
+    memberStatusFilter,
+    debouncedMemberSearch,
+    memberPage,
+    memberPageSize,
+  ]);
+
+  const handleMemberStatusFilterChange = (nextStatus: MemberStatusFilter) => {
+    if (nextStatus === memberStatusFilter) return;
+    setMemberStatusFilter(nextStatus);
+    setMemberPage(1);
+  };
+
+  const handleMemberPageSizeChange = (nextPageSize: number) => {
+    if (nextPageSize === memberPageSize) return;
+    setMemberPageSize(nextPageSize);
+    setMemberPage(1);
+  };
 
   useEffect(() => {
     if (!isOwner) return;
@@ -1681,13 +1750,18 @@ export function Admin() {
           {tab === "members" && (
             <MembersManager
               members={members}
+              pagination={memberPagination}
               loading={membersLoading}
               error={membersError}
               search={memberSearch}
               setSearch={setMemberSearch}
+              page={memberPage}
+              pageSize={memberPageSize}
+              setPage={setMemberPage}
+              setPageSize={handleMemberPageSizeChange}
               statusFilter={memberStatusFilter}
-              setStatusFilter={setMemberStatusFilter}
-              onRefreshMembers={loadMembers}
+              setStatusFilter={handleMemberStatusFilterChange}
+              onRefreshMembers={refreshMembers}
             />
           )}
           {tab === "faq" && (
@@ -1762,33 +1836,49 @@ function getMembershipBadgeClasses(status: string): string {
 
 function MembersManager({
   members,
+  pagination,
   loading,
   error,
   search,
   setSearch,
+  page,
+  pageSize,
+  setPage,
+  setPageSize,
   statusFilter,
   setStatusFilter,
   onRefreshMembers,
 }: {
   members: AdminMember[];
+  pagination: AdminMembersPagination;
   loading: boolean;
   error: string | null;
   search: string;
   setSearch: (value: string) => void;
+  page: number;
+  pageSize: number;
+  setPage: (value: number) => void;
+  setPageSize: (value: number) => void;
   statusFilter: MemberStatusFilter;
   setStatusFilter: (value: MemberStatusFilter) => void;
   onRefreshMembers: () => Promise<void> | void;
 }) {
-  const visibleMembers = filterAdminMembers(members, search);
   const hasSearch = search.trim().length > 0;
   const hasStatusFilter = statusFilter !== "ALL";
+  const rangeStart = pagination.total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd =
+    pagination.total === 0 ? 0 : rangeStart + Math.max(members.length - 1, 0);
   const showEmptyState =
-    !loading && !error && members.length === 0 && !hasStatusFilter;
+    !loading &&
+    !error &&
+    pagination.total === 0 &&
+    !hasSearch &&
+    !hasStatusFilter;
   const showNoResultsState =
     !loading &&
     !error &&
-    ((members.length === 0 && hasStatusFilter) ||
-      (members.length > 0 && visibleMembers.length === 0));
+    pagination.total === 0 &&
+    (hasSearch || hasStatusFilter);
 
   return (
     <div className="space-y-8">
@@ -1831,7 +1921,7 @@ function MembersManager({
             >
               {loading
                 ? "Updating member roster..."
-                : `${visibleMembers.length} shown${hasSearch && visibleMembers.length !== members.length ? ` of ${members.length}` : ""}`}
+                : `Showing ${rangeStart === 0 ? "0" : `${rangeStart}–${rangeEnd}`} of ${pagination.total}`}
             </p>
           </div>
           <button
@@ -1973,69 +2063,131 @@ function MembersManager({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10">
-            <table
-              className="w-full text-left"
-              style={{ fontFamily: "Inter, sans-serif" }}
-            >
-              <thead
-                className="bg-white/5 text-white/50"
-                style={{ fontSize: "12px" }}
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table
+                className="w-full text-left"
+                style={{ fontFamily: "Inter, sans-serif" }}
               >
-                <tr>
-                  <th className="px-4 py-3 font-medium">Name</th>
-                  <th className="px-4 py-3 font-medium">Email</th>
-                  <th className="px-4 py-3 font-medium">Student ID</th>
-                  <th className="px-4 py-3 font-medium">Join Date</th>
-                  <th className="px-4 py-3 font-medium">Membership Status</th>
-                  <th className="px-4 py-3 font-medium">Role</th>
-                </tr>
-              </thead>
-              <tbody className="text-white/80" style={{ fontSize: "13.5px" }}>
-                {visibleMembers.map((member) => (
-                  <tr
-                    key={member.id}
-                    className="border-t border-white/5 hover:bg-white/[0.02]"
-                  >
-                    <td className="px-4 py-3 align-top">
-                      <div>
-                        <p
-                          className="text-white"
-                          style={{ fontSize: "13.5px", fontWeight: 600 }}
-                        >
-                          {member.name || "—"}
-                        </p>
-                        <p
-                          className="text-white/35 mt-1"
-                          style={{ fontSize: "11.5px" }}
-                        >
-                          User ID: {member.id}
-                        </p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top text-white/70 break-all">
-                      {member.email || "—"}
-                    </td>
-                    <td className="px-4 py-3 align-top text-white/70">
-                      {member.studentId || "—"}
-                    </td>
-                    <td className="px-4 py-3 align-top text-white/60 whitespace-nowrap">
-                      {formatMemberDate(member.joinedAt)}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <span
-                        className={`inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] ${getMembershipBadgeClasses(member.membershipStatus)}`}
-                      >
-                        {formatMembershipStatus(member.membershipStatus)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 align-top text-white/70">
-                      {formatMemberRole(member.role)}
-                    </td>
+                <thead
+                  className="bg-white/5 text-white/50"
+                  style={{ fontSize: "12px" }}
+                >
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Name</th>
+                    <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Student ID</th>
+                    <th className="px-4 py-3 font-medium">Join Date</th>
+                    <th className="px-4 py-3 font-medium">Membership Status</th>
+                    <th className="px-4 py-3 font-medium">Role</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="text-white/80" style={{ fontSize: "13.5px" }}>
+                  {members.map((member) => (
+                    <tr
+                      key={member.id}
+                      className="border-t border-white/5 hover:bg-white/[0.02]"
+                    >
+                      <td className="px-4 py-3 align-top">
+                        <div>
+                          <p
+                            className="text-white"
+                            style={{ fontSize: "13.5px", fontWeight: 600 }}
+                          >
+                            {member.name || "—"}
+                          </p>
+                          <p
+                            className="text-white/35 mt-1"
+                            style={{ fontSize: "11.5px" }}
+                          >
+                            User ID: {member.id}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top text-white/70 break-all">
+                        {member.email || "—"}
+                      </td>
+                      <td className="px-4 py-3 align-top text-white/70">
+                        {member.studentId || "—"}
+                      </td>
+                      <td className="px-4 py-3 align-top text-white/60 whitespace-nowrap">
+                        {formatMemberDate(member.joinedAt)}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <span
+                          className={`inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] ${getMembershipBadgeClasses(member.membershipStatus)}`}
+                        >
+                          {formatMembershipStatus(member.membershipStatus)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 align-top text-white/70">
+                        {formatMemberRole(member.role)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className="text-white/40"
+                  style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
+                >
+                  Rows per page
+                </span>
+                {MEMBER_PAGE_SIZE_OPTIONS.map((option) => {
+                  const active = option === pageSize;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setPageSize(option)}
+                      disabled={loading}
+                      className={`px-3 py-1.5 rounded-lg border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                        active
+                          ? "bg-[#eb7524] border-[#eb7524] text-white"
+                          : "bg-white/[0.04] border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08]"
+                      }`}
+                      style={{
+                        fontSize: "12px",
+                        fontFamily: "Outfit, sans-serif",
+                      }}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setPage(page - 1)}
+                  disabled={loading || !pagination.hasPreviousPage}
+                  className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/80 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                >
+                  Previous
+                </button>
+                <span
+                  className="text-white/50"
+                  style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                >
+                  Page {page} of {pagination.totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(page + 1)}
+                  disabled={loading || !pagination.hasNextPage}
+                  className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white/80 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
