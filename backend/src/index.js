@@ -1,6 +1,7 @@
 import './env.js';
 import * as Sentry from '@sentry/node';
 import './jobs/cleanupUnverified.js';
+import './jobs/cleanupInactiveMembers.js';
 import { createApp } from './app.js';
 import logger from './utils/logger.js';
 

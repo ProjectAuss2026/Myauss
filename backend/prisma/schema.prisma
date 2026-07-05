@@ -15,24 +15,40 @@ enum Role {
   OWNER
 }
 
+// Membership account status — distinct from `User.isVerified` (email OTP).
+// INACTIVE   = registered but membership not yet paid/confirmed
+// NEED_REVIEW = cash/bank-transfer proof submitted, awaiting admin verification
+// VERIFIED    = active member (payment confirmed); unlocks gated content
+enum MembershipStatus {
+  INACTIVE
+  NEED_REVIEW
+  VERIFIED
+}
+
 model User {
   id                    String            @id @default(uuid())
   email                 String            @unique
   passwordHash          String
-  role                  Role              @default(USER)
-  tokenVersion          Int               @default(0)
-  isVerified            Boolean           @default(false)
-  lastCodeSentAt        DateTime          @default(now())
-  verificationExpiresAt DateTime
-  createdAt             DateTime          @default(now())
-  info                  UserInfo?
-  sessions              AuthSession[]
-  otpCode               OtpCode?
-  invitationsSent       AdminInvitation[] @relation("InvitationSender")
-  invitationsAccepted   AdminInvitation[] @relation("InvitationAccepter")
-  roleChangesMade       RoleChangeAudit[] @relation("RoleChangeActor")
-  roleChangesReceived   RoleChangeAudit[] @relation("RoleChangeTarget")
-  passwordResets        PasswordReset[]
+  role                      Role                    @default(USER)
+  tokenVersion              Int                     @default(0)
+  isVerified                Boolean                 @default(false)
+  membershipStatus          MembershipStatus        @default(INACTIVE)
+  membershipStatusUpdatedAt DateTime                @default(now())
+  lastCodeSentAt            DateTime                @default(now())
+  verificationExpiresAt     DateTime
+  createdAt                 DateTime                @default(now())
+  info                      UserInfo?
+  sessions                  AuthSession[]
+  otpCode                   OtpCode?
+  invitationsSent           AdminInvitation[]       @relation("InvitationSender")
+  invitationsAccepted       AdminInvitation[]       @relation("InvitationAccepter")
+  roleChangesMade           RoleChangeAudit[]       @relation("RoleChangeActor")
+  roleChangesReceived       RoleChangeAudit[]       @relation("RoleChangeTarget")
+  membershipChangesMade     MembershipStatusAudit[] @relation("MembershipChangeActor")
+  membershipChangesReceived MembershipStatusAudit[] @relation("MembershipChangeTarget")
+  passwordResets            PasswordReset[]
+
+  @@index([membershipStatus, membershipStatusUpdatedAt])
 }
 
 model PasswordReset {
@@ -114,6 +130,23 @@ model RoleChangeAudit {
   createdAt    DateTime @default(now())
   actor        User     @relation("RoleChangeActor", fields: [actorUserId], references: [id], onDelete: Cascade)
   target       User     @relation("RoleChangeTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+// Timestamped, auditable record of every membership status transition.
+// actorUserId is null for system-driven changes (e.g. automated jobs).
+model MembershipStatusAudit {
+  id           Int              @id @default(autoincrement())
+  actorUserId  String?
+  targetUserId String
+  fromStatus   MembershipStatus
+  toStatus     MembershipStatus
+  reason       String?          @db.VarChar(200)
+  createdAt    DateTime         @default(now())
+  actor        User?            @relation("MembershipChangeActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  target       User             @relation("MembershipChangeTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
 
   @@index([targetUserId, createdAt])
   @@index([actorUserId, createdAt])

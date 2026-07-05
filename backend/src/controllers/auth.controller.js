@@ -33,6 +33,11 @@ import {
   verifyRefreshToken,
 } from '../utils/authTokens.js';
 import { normalizePassword, validatePasswordPolicy } from '../utils/passwordPolicy.js';
+import {
+  MEMBERSHIP_STATUS_VALUES,
+  MembershipTransitionError,
+  changeMembershipStatus,
+} from '../services/membershipStatus.js';
 
 const router = Router();
 const SALT_ROUNDS = 10;
@@ -106,6 +111,12 @@ function parseInviteHours(value) {
 
 function isOwner(req) {
   return req.user?.role === 'OWNER';
+}
+
+// Membership review is an admin task, so ADMIN and OWNER are both allowed —
+// unlike access-management (invites/promotion), which is OWNER-only.
+function isAdminOrOwner(req) {
+  return req.user?.role === 'ADMIN' || req.user?.role === 'OWNER';
 }
 
 async function getInviteeEligibility(invitedEmail) {
@@ -229,6 +240,7 @@ function formatUser(user) {
     id: user.id,
     email: user.email,
     role: user.role,
+    membershipStatus: user.membershipStatus,
     firstName: user.info?.firstName || null,
     lastName: user.info?.lastName || null,
     studentId: null,
@@ -1124,6 +1136,84 @@ router.post('/admin/users/:userId/demote', authenticate, async (req, res) => {
   } catch (err) {
     logger.error({ err }, 'Demote error:');
     return res.status(500).json({ error: 'Failed to demote admin' });
+  }
+});
+
+// ── GET /auth/admin/members ─────────────────────────────────────────
+// Full member roster with membership status. Admin- and owner-accessible.
+// Optional ?status= filter (INACTIVE | NEED_REVIEW | VERIFIED).
+router.get('/admin/members', authenticate, async (req, res) => {
+  if (!isAdminOrOwner(req)) {
+    return res.status(403).json({ error: 'Only ADMIN or OWNER can view the member roster' });
+  }
+
+  const statusFilter = req.query?.status ? String(req.query.status).trim().toUpperCase() : null;
+  if (statusFilter && !MEMBERSHIP_STATUS_VALUES.includes(statusFilter)) {
+    return res.status(400).json({ error: 'Invalid membership status filter' });
+  }
+
+  try {
+    const members = await prisma.user.findMany({
+      where: statusFilter ? { membershipStatus: statusFilter } : undefined,
+      include: { info: true },
+      orderBy: [{ membershipStatusUpdatedAt: 'desc' }],
+    });
+
+    const data = members.map((member) => ({
+      id: member.id,
+      email: member.email,
+      role: member.role,
+      membershipStatus: member.membershipStatus,
+      membershipStatusUpdatedAt: member.membershipStatusUpdatedAt,
+      isVerified: member.isVerified,
+      firstName: member.info?.firstName || null,
+      lastName: member.info?.lastName || null,
+      createdAt: member.createdAt,
+    }));
+
+    return res.status(200).json({ data });
+  } catch (err) {
+    logger.error({ err }, 'List members error:');
+    return res.status(500).json({ error: 'Failed to load member roster' });
+  }
+});
+
+// ── POST /auth/admin/members/:userId/status ─────────────────────────
+// Admin-driven membership transition (e.g. approve/reject proof). Legal
+// transitions are enforced by the membership service's frozen map.
+router.post('/admin/members/:userId/status', authenticate, async (req, res) => {
+  if (!isAdminOrOwner(req)) {
+    return res.status(403).json({ error: 'Only ADMIN or OWNER can change membership status' });
+  }
+
+  const targetUserId = String(req.params.userId || '').trim();
+  const toStatus = req.body?.status ? String(req.body.status).trim().toUpperCase() : '';
+  const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+
+  if (!targetUserId) {
+    return res.status(400).json({ error: 'Target user id is required' });
+  }
+  if (!MEMBERSHIP_STATUS_VALUES.includes(toStatus)) {
+    return res.status(400).json({ error: 'A valid target status is required' });
+  }
+
+  try {
+    const updated = await changeMembershipStatus({
+      targetUserId,
+      toStatus,
+      actorUserId: req.user.id,
+      reason,
+    });
+    return res.status(200).json({ data: formatUser(updated) });
+  } catch (err) {
+    if (err instanceof MembershipTransitionError) {
+      return res.status(409).json({ error: `Illegal transition: ${err.from} → ${err.to}` });
+    }
+    if (err?.code === 'USER_NOT_FOUND') {
+      return res.status(404).json({ error: 'Target user not found' });
+    }
+    logger.error({ err }, 'Change membership status error:');
+    return res.status(500).json({ error: 'Failed to change membership status' });
   }
 });
 
