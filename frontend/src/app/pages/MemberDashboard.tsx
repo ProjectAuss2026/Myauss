@@ -162,6 +162,45 @@ export function MemberDashboard() {
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
   const [mounted, setMounted] = useState(false);
 
+  // QR reveal state: click-to-reveal with auto-hide (security measure)
+  const [qrRevealed, setQrRevealed] = useState(false);
+  const revealTimerRef = useRef<number | null>(null);
+  const [revealSecondsLeft, setRevealSecondsLeft] = useState(0);
+  const handleToggleReveal = () => {
+    if (qrRevealed) {
+      setQrRevealed(false);
+      if (revealTimerRef.current) {
+        clearInterval(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+      setRevealSecondsLeft(0);
+      return;
+    }
+    setQrRevealed(true);
+    let seconds = 10;
+    setRevealSecondsLeft(seconds);
+    revealTimerRef.current = window.setInterval(() => {
+      seconds -= 1;
+      setRevealSecondsLeft(seconds);
+      if (seconds <= 0) {
+        setQrRevealed(false);
+        if (revealTimerRef.current) {
+          clearInterval(revealTimerRef.current);
+          revealTimerRef.current = null;
+        }
+        setRevealSecondsLeft(0);
+      }
+    }, 1000);
+  };
+  useEffect(() => {
+    return () => {
+      if (revealTimerRef.current) {
+        clearInterval(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // Upcoming events (from the Activities API)
   const [activities, setActivities] = useState<Activity[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
@@ -313,23 +352,7 @@ export function MemberDashboard() {
             </div>
 
             <div className="relative flex flex-col items-center gap-8">
-              {/* QR Code - Top on mobile, prominent */}
-              <div className="flex items-center justify-center w-full">
-                <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-2xl">
-                  <div className="w-[200px] h-[200px] sm:w-[240px] sm:h-[240px]">
-                    <QRCodeSVG
-                      value={`AUSS-MEMBER-${user.email}`}
-                      size={240}
-                      level="H"
-                      includeMargin={false}
-                      fgColor="#000000"
-                      style={{ width: '100%', height: '100%' }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Pass info - Below QR on mobile */}
+              {/* Pass info - Above QR on mobile */}
               <div className="w-full">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="w-12 h-12 sm:w-14 sm:h-14 bg-[#eb7524] rounded-2xl flex items-center justify-center">
@@ -350,6 +373,42 @@ export function MemberDashboard() {
                     </p>
                   </div>
                 </div>
+
+                {/* QR Code - Top on mobile, prominent (blur by default, click to reveal) */}
+              <div className="flex flex-col items-center justify-center w-full">
+                <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-2xl">
+                  <div className="w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] relative">
+                    <div
+                      className="w-full h-full rounded-xl transition-all"
+                      style={{
+                        filter: qrRevealed ? 'none' : 'blur(8px)',
+                        WebkitFilter: qrRevealed ? 'none' : 'blur(8px)',
+                      }}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onDragStart={(e) => e.preventDefault()}
+                    >
+                      <QRCodeSVG
+                        value={`AUSS-MEMBER-${user.email}`}
+                        size={240}
+                        level="H"
+                        includeMargin={false}
+                        fgColor="#000000"
+                        style={{ width: '100%', height: '100%' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleToggleReveal(); }}
+                    className="px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-full"
+                    style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}
+                  >
+                    {qrRevealed ? 'Hide QR' : 'Reveal QR'}
+                  </button>
+                </div>
+              </div>
 
                 <div className="space-y-3 mb-6">
                   <div className="flex items-center justify-between py-2 border-b border-white/10">
