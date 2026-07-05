@@ -21,7 +21,7 @@ import { stripePromise, isStripeConfigured } from '../lib/stripe';
 
 const MEMBERSHIP_PRICE = '$20.00';
 const MEMBERSHIP_CURRENCY = 'NZD';
-const MEMBERSHIP_PERIOD = '1 year';
+const MEMBERSHIP_PERIOD = '1 Semester';
 
 const INCLUDED = [
   'Full access to all AUSS sessions & events',
