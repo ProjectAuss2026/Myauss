@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
@@ -19,6 +19,7 @@ import {
   LogOut,
   Loader2,
   AlertCircle,
+  Settings,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { RSVPModal } from '../components/RSVPModal';
@@ -156,7 +157,7 @@ function getEventCountdown(startTime: string): { text: string; isSoon: boolean }
 }
 
 export function MemberDashboard() {
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, setUserFromToken } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
@@ -207,6 +208,10 @@ export function MemberDashboard() {
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [rsvpActivity, setRsvpActivity] = useState<Activity | null>(null);
 
+  // Executive invitation state
+  const [inviteToken, setInviteToken] = useState('');
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
+
   // Protected route — redirect unauthenticated users to login
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -246,6 +251,46 @@ export function MemberDashboard() {
     navigate('/');
   };
 
+  const handleAcceptInvite = async () => {
+    if (!inviteToken.trim()) {
+      showToast('Please enter an invitation token', 'error');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      showToast('Please sign in again and retry', 'error');
+      return;
+    }
+
+    setAcceptingInvite(true);
+    try {
+      const res = await fetch('/api/auth/admin/invitations/accept', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify({ token: inviteToken.trim() }),
+      });
+
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload?.error || 'Failed to accept invitation');
+      }
+
+      setUserFromToken(payload.token, payload.user);
+      setInviteToken('');
+      showToast('Executive access granted', 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to accept invitation';
+      showToast(message, 'error');
+    } finally {
+      setAcceptingInvite(false);
+    }
+  };
+
   // Wait for session rehydration before deciding what to render
   if (isLoading || !user) {
     return (
@@ -256,6 +301,7 @@ export function MemberDashboard() {
   }
 
   const roleLabel = getRoleLabel(user.role);
+  const hasAdminAccess = user.role === 'ADMIN' || user.role === 'OWNER';
   const fullName = user.firstName && user.lastName
     ? `${user.firstName} ${user.lastName}`
     : user.firstName || user.email;
@@ -423,8 +469,8 @@ export function MemberDashboard() {
                     <span className="text-white/50" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
                       Status
                     </span>
-                    <span className="text-[#eb7524]" style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}>
-                      {user.role === 'MEMBER' ? 'Active Member' : roleLabel}
+                    <span className="text-green-400" style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}>
+                      Verified ✓
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-2">
@@ -438,28 +484,28 @@ export function MemberDashboard() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 sm:p-4">
-                    <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#eb7524] mb-2" />
-                    <p className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
-                      {eventsLoading ? '—' : upcomingEvents.length}
-                    </p>
-                    <p className="text-white/40" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
-                      Upcoming Events
-                    </p>
-                  </div>
-                  <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 sm:p-4">
-                    <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-[#eb7524] mb-2" />
-                    <p className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
-                      3
-                    </p>
-                    <p className="text-white/40" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
-                      New Updates
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+                 <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 sm:p-4">
+                   <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#eb7524] mb-2" />
+                   <p className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
+                     {eventsLoading ? '—' : upcomingEvents.length}
+                   </p>
+                   <p className="text-white/40" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
+                     Upcoming Events
+                   </p>
+                 </div>
+                 <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 sm:p-4">
+                   <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-[#eb7524] mb-2" />
+                   <p className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
+                     3
+                   </p>
+                   <p className="text-white/40" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
+                     New Updates
+                   </p>
+                 </div>
+               </div>
+             </div>
+           </div>
+         </div>
         </div>
 
         {/* Collapsible Sections */}
@@ -824,6 +870,35 @@ export function MemberDashboard() {
               ))}
             </div>
           </CollapsibleSection>
+
+          {!hasAdminAccess && (
+           <div className="mt-6 p-4 rounded-xl bg-[#eb7524]/8 border border-[#eb7524]/20">
+             <p className="text-white mb-2" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}>
+               Executive invitation
+             </p>
+             <p className="text-white/50 mb-3" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+               If an owner invited you to become executive, paste your invitation token below.
+             </p>
+             <div className="flex gap-2">
+               <input
+                 value={inviteToken}
+                 onChange={(e) => setInviteToken(e.target.value)}
+                 placeholder="Paste invitation token"
+                 className="flex-1 bg-white/4 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder:text-white/25 focus:outline-none focus:border-[#eb7524]/40"
+                 style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
+               />
+               <button
+                 type="button"
+                 onClick={handleAcceptInvite}
+                 disabled={acceptingInvite}
+                 className="px-4 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-60"
+                 style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}
+               >
+                 {acceptingInvite ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Accept'}
+               </button>
+             </div>
+           </div>
+          )}
 
         </div>
       </div>
