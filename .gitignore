@@ -33,3 +33,4 @@ prisma/.env
 
 # Uploaded files (user-generated content, not source code)
 backend/uploads/
+backend/private-uploads/

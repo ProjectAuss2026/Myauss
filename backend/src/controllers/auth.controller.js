@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import path from "node:path";
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import nodemailer from "nodemailer";
@@ -19,6 +20,7 @@ import {
   forgotPasswordIpLimiter,
   loginEmailThrottle,
   loginIpLimiter,
+  paymentProofUploadIpLimiter,
   registerEmailThrottle,
   registerIpLimiter,
   resendEmailThrottle,
@@ -46,6 +48,19 @@ import {
   MembershipTransitionError,
   changeMembershipStatus,
 } from "../services/membershipStatus.js";
+import {
+  createPendingPaymentProofUpload,
+  deletePendingPaymentProofUpload,
+  formatPaymentProofUpload,
+  PAYMENT_PROOF_UPLOAD_FILE_SELECT,
+  PAYMENT_PROOF_UPLOAD_METADATA_SELECT,
+  PAYMENT_PROOF_UPLOAD_STATUS,
+  PAYMENT_PROOF_UPLOAD_VALIDATION_SELECT,
+} from "../services/paymentProofUploads.js";
+import {
+  createImageUploadMiddleware,
+  handleImageUploadError,
+} from "../utils/imageUploadPipeline.js";
 
 const router = Router();
 const SALT_ROUNDS = 10;
@@ -68,6 +83,11 @@ const FORGOT_PASSWORD_GENERIC_MESSAGE =
   "If your email is registered, a password reset link has been sent.";
 const RESET_TOKEN_ERROR = "Invalid or expired password reset token.";
 const ALLOWED_MEMBER_PAGE_SIZES = new Set([10, 20, 50]);
+const CASH_BANK_TRANSFER_PAYMENT_METHOD = "CASH_BANK_TRANSFER";
+const MAX_PAYMENT_PROOF_UPLOAD_BYTES = 10 * 1024 * 1024;
+const pendingPaymentProofUpload = createImageUploadMiddleware({
+  fileSize: MAX_PAYMENT_PROOF_UPLOAD_BYTES,
+});
 
 function getOtpPepper() {
   return process.env.OTP_PEPPER || process.env.JWT_SECRET || "";
@@ -78,6 +98,132 @@ function parsePositiveIntegerQueryParam(value) {
   if (!raw) return null;
   if (!/^[1-9]\d*$/.test(raw)) return null;
   return Number(raw);
+}
+
+function wantsCashBankTransfer(paymentMethod) {
+  return (
+    String(paymentMethod || "")
+      .trim()
+      .toUpperCase() === CASH_BANK_TRANSFER_PAYMENT_METHOD
+  );
+}
+
+function sanitizeProofUploadIds(proofUploadIds) {
+  if (!Array.isArray(proofUploadIds)) {
+    return [];
+  }
+
+  return proofUploadIds
+    .map((proofUploadId) => String(proofUploadId || "").trim())
+    .filter(Boolean);
+}
+
+function buildRegisterResponse(paymentMethod) {
+  return {
+    message: REGISTER_GENERIC_MESSAGE,
+    pendingMembershipReview: wantsCashBankTransfer(paymentMethod),
+  };
+}
+
+async function validatePendingPaymentProofUploads(client, proofUploadIds, now) {
+  const uniqueProofUploadIds = [...new Set(proofUploadIds)];
+
+  if (uniqueProofUploadIds.length !== proofUploadIds.length) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Duplicate payment proof uploads are not allowed",
+    };
+  }
+
+  const uploads = await client.paymentProofUpload.findMany({
+    where: {
+      id: { in: uniqueProofUploadIds },
+    },
+    select: PAYMENT_PROOF_UPLOAD_VALIDATION_SELECT,
+  });
+
+  if (uploads.length !== uniqueProofUploadIds.length) {
+    return {
+      ok: false,
+      status: 400,
+      error: "One or more payment proof uploads are invalid",
+    };
+  }
+
+  if (
+    uploads.some(
+      (upload) =>
+        upload.userId ||
+        upload.linkedAt ||
+        upload.status !== PAYMENT_PROOF_UPLOAD_STATUS.PENDING,
+    )
+  ) {
+    return {
+      ok: false,
+      status: 409,
+      error: "One or more payment proof uploads are already linked",
+    };
+  }
+
+  if (uploads.some((upload) => upload.expiresAt <= now)) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        "One or more payment proof uploads have expired. Please upload them again.",
+    };
+  }
+
+  return {
+    ok: true,
+    proofUploadIds: uniqueProofUploadIds,
+  };
+}
+
+async function linkPendingPaymentProofUploads(tx, proofUploadIds, userId, now) {
+  if (proofUploadIds.length === 0) {
+    return;
+  }
+
+  const result = await tx.paymentProofUpload.updateMany({
+    where: {
+      id: { in: proofUploadIds },
+      userId: null,
+      linkedAt: null,
+      status: PAYMENT_PROOF_UPLOAD_STATUS.PENDING,
+      expiresAt: { gt: now },
+    },
+    data: {
+      userId,
+      status: PAYMENT_PROOF_UPLOAD_STATUS.LINKED,
+      linkedAt: now,
+    },
+  });
+
+  if (result.count !== proofUploadIds.length) {
+    const error = new Error("Failed to claim payment proof uploads");
+    error.code = "PAYMENT_PROOF_CLAIM_FAILED";
+    throw error;
+  }
+}
+
+function setPrivateFileHeaders(res, mimeType, originalFilename) {
+  const safeFilename = path.basename(
+    String(originalFilename || "payment-proof"),
+  );
+
+  res.setHeader("Content-Type", mimeType || "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${safeFilename.replace(/"/g, "")}"`,
+  );
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox",
+  );
 }
 
 // ── Email transporter (Nodemailer + Gmail SMTP) ─────────────────────
@@ -320,6 +466,69 @@ function getRefreshTokenFromRequest(req) {
   return readCookie(req, REFRESH_COOKIE_NAME);
 }
 
+// ── POST /auth/payment-proofs/pending ──────────────────────────────
+router.post(
+  "/payment-proofs/pending",
+  paymentProofUploadIpLimiter,
+  pendingPaymentProofUpload.single("proof"),
+  async (req, res, next) => {
+    try {
+      const createdUpload = await createPendingPaymentProofUpload({
+        file: req.file,
+      });
+
+      return res.status(201).json({
+        data: formatPaymentProofUpload(createdUpload),
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── DELETE /auth/payment-proofs/pending/:proofUploadId ─────────────
+router.delete(
+  "/payment-proofs/pending/:proofUploadId",
+  paymentProofUploadIpLimiter,
+  async (req, res) => {
+    const proofUploadId = String(req.params.proofUploadId || "").trim();
+
+    if (!proofUploadId) {
+      return res
+        .status(400)
+        .json({ error: "Payment proof upload ID is required" });
+    }
+
+    try {
+      const result = await deletePendingPaymentProofUpload({ proofUploadId });
+
+      if (result.status === "not_found") {
+        return res
+          .status(404)
+          .json({ error: "Payment proof upload not found" });
+      }
+
+      if (result.status === "linked") {
+        return res.status(409).json({
+          error: "Linked payment proof uploads cannot be deleted",
+        });
+      }
+
+      return res
+        .status(200)
+        .json({ data: { id: proofUploadId, removed: true } });
+    } catch (err) {
+      logger.error(
+        { err, proofUploadId },
+        "Delete pending payment proof error:",
+      );
+      return res
+        .status(500)
+        .json({ error: "Failed to delete payment proof upload" });
+    }
+  },
+);
+
 // ── POST /auth/register ─────────────────────────────────────────────
 router.post(
   "/register",
@@ -328,8 +537,12 @@ router.post(
   validate(registerSchema),
   async (req, res) => {
     try {
-      const { email, password, firstName, lastName, studentId } = req.body;
+      const { email, password, firstName, lastName, studentId, paymentMethod } =
+        req.body;
+      const now = new Date();
       const normalisedEmail = normaliseEmail(email);
+      const cashBankTransferSelected = wantsCashBankTransfer(paymentMethod);
+      const proofUploadIds = sanitizeProofUploadIds(req.body?.proofUploadIds);
 
       const passwordPolicy = validatePasswordPolicy(password, [
         normalisedEmail,
@@ -342,13 +555,32 @@ router.post(
       }
       const studentIdHash = hashStudentId(studentId);
 
+      if (cashBankTransferSelected) {
+        const proofValidation = await validatePendingPaymentProofUploads(
+          prisma,
+          proofUploadIds,
+          now,
+        );
+        if (!proofValidation.ok) {
+          return res
+            .status(proofValidation.status)
+            .json({ error: proofValidation.error });
+        }
+      }
+
       const existing = await prisma.user.findUnique({
         where: { email: normalisedEmail },
+        select: {
+          id: true,
+          email: true,
+          isVerified: true,
+          membershipStatus: true,
+        },
       });
 
       // Already verified — keep the response generic to avoid email enumeration.
       if (existing?.isVerified) {
-        return res.status(200).json({ message: REGISTER_GENERIC_MESSAGE });
+        return res.status(200).json(buildRegisterResponse(paymentMethod));
       }
 
       // Exists but unverified — update password, always force USER role
@@ -357,27 +589,70 @@ router.post(
           passwordPolicy.normalizedPassword,
           SALT_ROUNDS,
         );
-        const updatedUser = await prisma.user.update({
-          where: { email: normalisedEmail },
-          data: {
-            passwordHash,
-            role: "USER",
-            lastCodeSentAt: new Date(),
-            verificationExpiresAt: new Date(
-              Date.now() + VERIFICATION_WINDOW_MS,
-            ),
-            info: {
-              upsert: {
-                create: { firstName, lastName, studentId: studentIdHash },
-                update: { firstName, lastName, studentId: studentIdHash },
+        const updatedUser = await prisma.$transaction(async (tx) => {
+          const validatedProofUploads = cashBankTransferSelected
+            ? await validatePendingPaymentProofUploads(tx, proofUploadIds, now)
+            : { ok: true, proofUploadIds: [] };
+
+          if (!validatedProofUploads.ok) {
+            const error = new Error(validatedProofUploads.error);
+            error.code = "INVALID_PAYMENT_PROOF_UPLOADS";
+            error.statusCode = validatedProofUploads.status;
+            throw error;
+          }
+
+          const user = await tx.user.update({
+            where: { email: normalisedEmail },
+            data: {
+              passwordHash,
+              role: "USER",
+              lastCodeSentAt: now,
+              verificationExpiresAt: new Date(
+                now.getTime() + VERIFICATION_WINDOW_MS,
+              ),
+              ...(cashBankTransferSelected
+                ? {
+                    membershipStatus: "NEED_REVIEW",
+                    membershipStatusUpdatedAt: now,
+                  }
+                : {}),
+              info: {
+                upsert: {
+                  create: { firstName, lastName, studentId: studentIdHash },
+                  update: { firstName, lastName, studentId: studentIdHash },
+                },
               },
             },
-          },
-          select: { id: true, email: true },
+            select: { id: true, email: true },
+          });
+
+          if (cashBankTransferSelected) {
+            await linkPendingPaymentProofUploads(
+              tx,
+              validatedProofUploads.proofUploadIds,
+              user.id,
+              now,
+            );
+
+            if (existing.membershipStatus !== "NEED_REVIEW") {
+              await tx.membershipStatusAudit.create({
+                data: {
+                  actorUserId: null,
+                  targetUserId: user.id,
+                  fromStatus: existing.membershipStatus,
+                  toStatus: "NEED_REVIEW",
+                  reason:
+                    "Cash / bank transfer proof submitted during registration",
+                },
+              });
+            }
+          }
+
+          return user;
         });
         await sendVerificationCode(updatedUser);
         return res.status(200).json({
-          message: REGISTER_GENERIC_MESSAGE,
+          ...buildRegisterResponse(paymentMethod),
         });
       }
 
@@ -386,27 +661,68 @@ router.post(
         passwordPolicy.normalizedPassword,
         SALT_ROUNDS,
       );
-      const createdUser = await prisma.user.create({
-        data: {
-          email: normalisedEmail,
-          passwordHash,
-          role: "USER",
-          isVerified: false,
-          lastCodeSentAt: new Date(),
-          verificationExpiresAt: new Date(Date.now() + VERIFICATION_WINDOW_MS),
-          info: {
-            create: { firstName, lastName, studentId: studentIdHash },
+      const createdUser = await prisma.$transaction(async (tx) => {
+        const validatedProofUploads = cashBankTransferSelected
+          ? await validatePendingPaymentProofUploads(tx, proofUploadIds, now)
+          : { ok: true, proofUploadIds: [] };
+
+        if (!validatedProofUploads.ok) {
+          const error = new Error(validatedProofUploads.error);
+          error.code = "INVALID_PAYMENT_PROOF_UPLOADS";
+          error.statusCode = validatedProofUploads.status;
+          throw error;
+        }
+
+        const user = await tx.user.create({
+          data: {
+            email: normalisedEmail,
+            passwordHash,
+            role: "USER",
+            isVerified: false,
+            lastCodeSentAt: now,
+            verificationExpiresAt: new Date(
+              now.getTime() + VERIFICATION_WINDOW_MS,
+            ),
+            ...(cashBankTransferSelected
+              ? {
+                  membershipStatus: "NEED_REVIEW",
+                  membershipStatusUpdatedAt: now,
+                }
+              : {}),
+            info: {
+              create: { firstName, lastName, studentId: studentIdHash },
+            },
           },
-        },
-        select: { id: true, email: true },
+          select: { id: true, email: true },
+        });
+
+        if (cashBankTransferSelected) {
+          await linkPendingPaymentProofUploads(
+            tx,
+            validatedProofUploads.proofUploadIds,
+            user.id,
+            now,
+          );
+        }
+
+        return user;
       });
 
       await sendVerificationCode(createdUser);
 
       return res.status(200).json({
-        message: REGISTER_GENERIC_MESSAGE,
+        ...buildRegisterResponse(paymentMethod),
       });
     } catch (err) {
+      if (err?.code === "INVALID_PAYMENT_PROOF_UPLOADS") {
+        return res.status(err.statusCode || 400).json({ error: err.message });
+      }
+      if (err?.code === "PAYMENT_PROOF_CLAIM_FAILED") {
+        return res.status(409).json({
+          error:
+            "One or more payment proof uploads were changed during registration. Please upload them again.",
+        });
+      }
       if (isStudentIdHashError(err)) {
         logger.error({ err }, "Student ID storage configuration error:");
         return res
@@ -1472,6 +1788,93 @@ router.get("/admin/members", authenticate, async (req, res) => {
   }
 });
 
+// ── GET /auth/admin/members/:userId/payment-proofs ─────────────────
+router.get(
+  "/admin/members/:userId/payment-proofs",
+  authenticate,
+  async (req, res) => {
+    if (!isAdminOrOwner(req)) {
+      return res.status(403).json({
+        error: "Only ADMIN or OWNER can view member payment proofs",
+      });
+    }
+
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const uploads = await prisma.paymentProofUpload.findMany({
+        where: { userId },
+        orderBy: [{ linkedAt: "desc" }, { createdAt: "desc" }],
+        select: PAYMENT_PROOF_UPLOAD_METADATA_SELECT,
+      });
+
+      return res.status(200).json({
+        data: uploads.map((upload) => formatPaymentProofUpload(upload)),
+      });
+    } catch (err) {
+      logger.error({ err, userId }, "List payment proofs error:");
+      return res.status(500).json({ error: "Failed to load payment proofs" });
+    }
+  },
+);
+
+// ── GET /auth/admin/payment-proofs/:proofId/file ───────────────────
+router.get(
+  "/admin/payment-proofs/:proofId/file",
+  authenticate,
+  async (req, res) => {
+    if (!isAdminOrOwner(req)) {
+      return res.status(403).json({
+        error: "Only ADMIN or OWNER can download payment proofs",
+      });
+    }
+
+    const proofId = String(req.params.proofId || "").trim();
+    if (!proofId) {
+      return res.status(400).json({ error: "Payment proof ID is required" });
+    }
+
+    try {
+      const upload = await prisma.paymentProofUpload.findUnique({
+        where: { id: proofId },
+        select: PAYMENT_PROOF_UPLOAD_FILE_SELECT,
+      });
+
+      if (!upload || !upload.userId) {
+        return res.status(404).json({ error: "Payment proof not found" });
+      }
+
+      const fileBytes = Buffer.isBuffer(upload.fileBytes)
+        ? upload.fileBytes
+        : Buffer.from(upload.fileBytes || []);
+
+      if (fileBytes.length === 0) {
+        return res.status(404).json({ error: "Payment proof file not found" });
+      }
+
+      setPrivateFileHeaders(res, upload.mimeType, upload.originalFilename);
+      return res.send(fileBytes);
+    } catch (err) {
+      logger.error({ err, proofId }, "Payment proof file lookup error:");
+      return res
+        .status(500)
+        .json({ error: "Failed to load payment proof file" });
+    }
+  },
+);
+
 // ── POST /auth/admin/members/:userId/status ─────────────────────────
 // Admin-driven membership transition (e.g. approve/reject proof). Legal
 // transitions are enforced by the membership service's frozen map.
@@ -1518,5 +1921,7 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
       .json({ error: "Failed to change membership status" });
   }
 });
+
+router.use(handleImageUploadError);
 
 export default router;
