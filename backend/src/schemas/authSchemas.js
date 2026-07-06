@@ -10,7 +10,7 @@ const email = requiredTrimmedString("Email", LIMITS.email).email({
 });
 const password = z
   .string()
-  .min(6, { message: "Password must be at least 6 characters" })
+  .min(12, { message: "Password must be at least 12 characters" })
   .max(LIMITS.password, {
     message: `Password must be ${LIMITS.password} characters or fewer`,
   });

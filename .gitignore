@@ -34,3 +34,6 @@ prisma/.env
 # Uploaded files (user-generated content, not source code)
 backend/uploads/
 backend/private-uploads/
+
+# MCP config (contains credentials)
+.mcp.json

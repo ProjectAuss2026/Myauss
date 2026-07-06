@@ -44,6 +44,10 @@ import {
   validatePasswordPolicy,
 } from "../utils/passwordPolicy.js";
 import {
+  parseAllowlist,
+  validateEmailDeliverability,
+} from "../utils/emailDeliverability.js";
+import {
   MEMBERSHIP_STATUS_VALUES,
   MembershipTransitionError,
   changeMembershipStatus,
@@ -68,7 +72,7 @@ const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
 const OTP_MAX_ATTEMPTS = 5;
 const INVITATION_WINDOW_HOURS = 72;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const OTP_RE = /^\d{6}$/;
 const DUMMY_PASSWORD_HASH =
   "$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem";
@@ -351,6 +355,15 @@ async function getInviteeEligibility(invitedEmail) {
 }
 
 async function sendVerificationCode(user) {
+  // MX deliverability check before sending — fails fast if domain can't receive mail.
+  // Trade-off: this reveals domain MX status on register (low risk — anyone can do MX lookup).
+  const emailCheck = await validateEmailDeliverability(user.email, {
+    allowlist: parseAllowlist(process.env.EMAIL_MX_ALLOWLIST),
+  });
+  if (!emailCheck.deliverable) {
+    return { sent: false, error: 'This email address does not appear to be deliverable. Please check for typos.' };
+  }
+
   const code = generateVerificationCode();
   const codeHash = hashVerificationCode(code);
   const now = Date.now();
@@ -374,7 +387,7 @@ async function sendVerificationCode(user) {
     console.log(
       `[OTP DEV] Verification code generated for ${user.email}. SMTP is not configured.`,
     );
-    return;
+    return { sent: true };
   }
 
   await deliverEmail({
@@ -391,6 +404,7 @@ async function sendVerificationCode(user) {
       </div>
     `,
   });
+  return { sent: true };
 }
 
 function buildResetUrl(token) {
@@ -753,7 +767,10 @@ router.post(
 
           return user;
         });
-        await sendVerificationCode(updatedUser);
+        const codeResult = await sendVerificationCode(updatedUser);
+        if (!codeResult.sent) {
+          return res.status(400).json({ error: codeResult.error });
+        }
         return res.status(200).json({
           ...buildRegisterResponse(paymentMethod),
         });
@@ -810,9 +827,10 @@ router.post(
 
         return user;
       });
-
-      await sendVerificationCode(createdUser);
-
+      const codeResult = await sendVerificationCode(createdUser);
+      if (!codeResult.sent) {
+        return res.status(400).json({ error: codeResult.error });
+      }
       return res.status(200).json({
         ...buildRegisterResponse(paymentMethod),
       });
@@ -1043,7 +1061,10 @@ router.post(
             },
             select: { id: true, email: true },
           });
-          await sendVerificationCode(updatedUser);
+          const codeResult = await sendVerificationCode(updatedUser);
+          if (!codeResult.sent) {
+            return res.status(400).json({ error: codeResult.error });
+          }
         }
       }
 
