@@ -1133,6 +1133,137 @@ test("membership status endpoint allows ADMIN or OWNER to decline NEED_REVIEW us
   }
 });
 
+test("decline email uses the shared SMTP mailer path when SMTP is configured", async () => {
+  const sentMessages = [];
+  process.env.SMTP_USER = "mailer@example.com";
+  process.env.SMTP_PASS = "test-password";
+  process.env.SMTP_FROM = "AUSS <noreply@example.com>";
+  globalThis.__AUSS_AUTH_TEST_HOOKS__ = {
+    sendMail: async (message) => {
+      sentMessages.push(message);
+    },
+  };
+
+  const member = storeUser(
+    makeUser({
+      email: "decline-mailer@example.com",
+      membershipStatus: "NEED_REVIEW",
+      info: {
+        id: "info-decline-mailer",
+        userId: "decline-mailer-member",
+        firstName: "Mailer",
+        lastName: "Member",
+      },
+    }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+  const reason = "The receipt does not show the correct bank reference.";
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "INACTIVE",
+      reason,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].from, "AUSS <noreply@example.com>");
+  assert.equal(sentMessages[0].to, member.email);
+  assert.match(sentMessages[0].subject, /Payment Proof Declined/);
+  assert.match(sentMessages[0].text, new RegExp(reason));
+  assert.match(sentMessages[0].html, /Auckland Uni Strength Society/);
+});
+
+test("decline email failure does not roll back the audited status transition", async () => {
+  let attempted = false;
+  globalThis.__AUSS_AUTH_TEST_HOOKS__ = {
+    sendPaymentProofDeclinedEmail: async () => {
+      attempted = true;
+      throw new Error("SMTP delivery failed");
+    },
+  };
+
+  const member = storeUser(
+    makeUser({
+      email: "delivery-failure@example.com",
+      membershipStatus: "NEED_REVIEW",
+    }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "INACTIVE",
+      reason: "The uploaded proof is not readable.",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(attempted, true);
+  assert.equal(usersById.get(member.id)?.membershipStatus, "INACTIVE");
+  assert.equal(response.json.data.membershipStatus, "INACTIVE");
+  assert.equal(
+    response.json.warning,
+    "Payment proof declined, but email notification could not be sent.",
+  );
+
+  const audit = membershipAudits.find(
+    (record) =>
+      record.actorUserId === actor.id && record.targetUserId === member.id,
+  );
+  assert.ok(audit);
+  assert.equal(audit.fromStatus, "NEED_REVIEW");
+  assert.equal(audit.toStatus, "INACTIVE");
+});
+
+test("approval does not send a payment proof decline email", async () => {
+  let declineEmailCalls = 0;
+  let mailerCalls = 0;
+  process.env.SMTP_USER = "mailer@example.com";
+  process.env.SMTP_PASS = "test-password";
+  globalThis.__AUSS_AUTH_TEST_HOOKS__ = {
+    sendPaymentProofDeclinedEmail: async () => {
+      declineEmailCalls += 1;
+    },
+    sendMail: async () => {
+      mailerCalls += 1;
+    },
+  };
+
+  const member = storeUser(
+    makeUser({ email: "approval@example.com", membershipStatus: "NEED_REVIEW" }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "VERIFIED",
+      reason: "Payment proof approved",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(usersById.get(member.id)?.membershipStatus, "VERIFIED");
+  assert.equal(declineEmailCalls, 0);
+  assert.equal(mailerCalls, 0);
+});
+
 test("membership status endpoint rejects illegal transitions", async () => {
   const member = storeUser(
     makeUser({ email: "inactive@example.com", membershipStatus: "INACTIVE" }),

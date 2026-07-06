@@ -47,7 +47,6 @@ import {
   MEMBERSHIP_STATUS_VALUES,
   MembershipTransitionError,
   changeMembershipStatus,
-  onMembershipStatusChange,
 } from "../services/membershipStatus.js";
 import {
   createPendingPaymentProofUpload,
@@ -241,6 +240,16 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+async function deliverEmail(message) {
+  const testHooks = getAuthTestHooks();
+  if (testHooks?.sendMail) {
+    await testHooks.sendMail(message);
+    return;
+  }
+
+  await transporter.sendMail(message);
+}
+
 // ── OTP helpers ─────────────────────────────────────────────────────
 function generateVerificationCode() {
   return crypto.randomInt(100000, 1000000).toString();
@@ -368,7 +377,7 @@ async function sendVerificationCode(user) {
     return;
   }
 
-  await transporter.sendMail({
+  await deliverEmail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: user.email,
     subject: "AUSS – Your Verification Code",
@@ -406,7 +415,7 @@ async function sendPasswordResetEmail(email, token) {
     return;
   }
 
-  await transporter.sendMail({
+  await deliverEmail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: email,
     subject: "AUSS – Reset Your Password",
@@ -428,7 +437,7 @@ async function sendPasswordResetConfirmationEmail(email) {
     return;
   }
 
-  await transporter.sendMail({
+  await deliverEmail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: email,
     subject: "AUSS – Your Password Was Reset",
@@ -472,7 +481,11 @@ async function sendPaymentProofDeclinedEmail({ to, name, reason }) {
   const email = normaliseEmail(to);
   const cleanReason = String(reason || "").trim();
   if (!email || !cleanReason) {
-    return;
+    return {
+      sent: false,
+      skipped: true,
+      skipReason: "missing-recipient-or-reason",
+    };
   }
 
   const content = buildPaymentProofDeclinedEmail({
@@ -488,61 +501,25 @@ async function sendPaymentProofDeclinedEmail({ to, name, reason }) {
       reason: cleanReason,
       ...content,
     });
-    return;
+    return { sent: true, skipped: false, via: "test-hook" };
   }
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.log(
       `[PAYMENT PROOF DEV] Decline email skipped for ${email}. SMTP is not configured.`,
     );
-    return;
+    return { sent: false, skipped: true, skipReason: "smtp-not-configured" };
   }
 
-  await transporter.sendMail({
+  await deliverEmail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: email,
     subject: content.subject,
     text: content.text,
     html: content.html,
   });
+  return { sent: true, skipped: false, via: "smtp" };
 }
-
-onMembershipStatusChange(async (event) => {
-  if (!isPaymentProofDecline(event.fromStatus, event.toStatus)) {
-    return;
-  }
-
-  const reason = String(event.reason || "").trim();
-  if (!reason) {
-    logger.warn(
-      { event },
-      "Skipped payment proof decline email because reason was missing",
-    );
-    return;
-  }
-
-  const target = await prisma.user.findUnique({
-    where: { id: event.targetUserId },
-    select: {
-      email: true,
-      info: { select: { firstName: true, lastName: true } },
-    },
-  });
-
-  if (!target?.email) {
-    logger.warn(
-      { targetUserId: event.targetUserId },
-      "Skipped payment proof decline email because target user was not found",
-    );
-    return;
-  }
-
-  await sendPaymentProofDeclinedEmail({
-    to: target.email,
-    name: getMemberDisplayName(target),
-    reason,
-  });
-});
 
 function formatUser(user) {
   return {
@@ -2032,13 +2009,19 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
   try {
     const target = await prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { id: true, membershipStatus: true },
+      select: {
+        id: true,
+        email: true,
+        membershipStatus: true,
+        info: { select: { firstName: true, lastName: true } },
+      },
     });
     if (!target) {
       return res.status(404).json({ error: "Target user not found" });
     }
 
-    if (isPaymentProofDecline(target.membershipStatus, toStatus) && !reason) {
+    const isDecline = isPaymentProofDecline(target.membershipStatus, toStatus);
+    if (isDecline && !reason) {
       return res.status(400).json({
         error: "Decline reason is required for payment proof decline",
       });
@@ -2050,7 +2033,57 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
       actorUserId: req.user.id,
       reason,
     });
-    return res.status(200).json({ data: formatUser(updated) });
+
+    let warning = null;
+    if (isDecline) {
+      const targetEmail = updated.email || target.email;
+      logger.info(
+        { targetUserId, targetEmail },
+        "Payment proof decline email send starting",
+      );
+
+      try {
+        const emailResult = await sendPaymentProofDeclinedEmail({
+          to: targetEmail,
+          name: getMemberDisplayName(updated) || getMemberDisplayName(target),
+          reason,
+        });
+
+        if (emailResult?.sent) {
+          logger.info(
+            { targetUserId, targetEmail },
+            "Payment proof decline email sent",
+          );
+        } else {
+          warning =
+            "Payment proof declined, but email notification was not sent.";
+          logger.warn(
+            { targetUserId, targetEmail, skipReason: emailResult?.skipReason },
+            "Payment proof decline email not sent",
+          );
+        }
+      } catch (emailError) {
+        warning =
+          "Payment proof declined, but email notification could not be sent.";
+        logger.error(
+          {
+            err: emailError,
+            errorMessage:
+              emailError instanceof Error
+                ? emailError.message
+                : String(emailError),
+            targetUserId,
+            targetEmail,
+          },
+          "Payment proof decline email failed",
+        );
+      }
+    }
+
+    return res.status(200).json({
+      data: formatUser(updated),
+      ...(warning ? { warning } : {}),
+    });
   } catch (err) {
     if (err instanceof MembershipTransitionError) {
       return res
