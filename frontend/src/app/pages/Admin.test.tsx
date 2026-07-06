@@ -1056,6 +1056,10 @@ describe("Admin membership roster", () => {
       name: "Approve membership",
     }) as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
+    const declineButton = within(dialog).getByRole("button", {
+      name: "Decline",
+    }) as HTMLButtonElement;
+    expect(declineButton.disabled).toBe(true);
   });
 
   it("shows a proof file error while keeping the modal open", async () => {
@@ -1165,6 +1169,113 @@ describe("Admin membership roster", () => {
     ).toBeNull();
   });
 
+  it("declines a Need Review member with a required reason, sends the decline request body, and refreshes the filtered roster", async () => {
+    let declined = false;
+    const deferredStatus = createDeferred<Response>();
+
+    installFetchMock({
+      membersHandler: (url: string) => {
+        if (url.includes("status=NEED_REVIEW")) {
+          return Promise.resolve(
+            membersResponse(
+              declined ? [] : [sampleMembers[1]],
+              declined
+                ? { page: 1, pageSize: 20, total: 0 }
+                : { page: 1, pageSize: 20, total: 1 },
+            ),
+          );
+        }
+
+        return Promise.resolve(membersResponse(sampleMembers));
+      },
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
+      proofFileHandler: () =>
+        Promise.resolve(
+          binaryResponse(proofImageBytes, {
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": 'attachment; filename="receipt.png"',
+            },
+          }),
+        ),
+      statusHandler: async (userId, _url, init) => {
+        expect(userId).toBe("member-2");
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          status: "INACTIVE",
+          reason: "Receipt does not show the correct amount.",
+        });
+        return deferredStatus.promise;
+      },
+    });
+
+    renderMembersView();
+    await screen.findByText("Alice Nguyen");
+    fireEvent.click(screen.getByRole("button", { name: "Need Review" }));
+    await screen.findByText("Bruce Lee");
+
+    const dialog = await openReviewPaymentDialog();
+    expect(
+      within(dialog).getByRole("button", { name: "Decline" }),
+    ).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Decline" }));
+
+    const reasonInput = await within(dialog).findByLabelText(
+      "Decline reason",
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm decline" }),
+    );
+
+    expect(
+      within(dialog).getByText("Enter a decline reason before submitting."),
+    ).toBeTruthy();
+
+    fireEvent.change(reasonInput, {
+      target: { value: "Receipt does not show the correct amount." },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm decline" }),
+    );
+
+    const decliningButton = (await within(dialog).findByRole("button", {
+      name: "Declining...",
+    })) as HTMLButtonElement;
+    expect(decliningButton.disabled).toBe(true);
+    const approveButton = within(dialog).getByRole("button", {
+      name: "Approve membership",
+    }) as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    declined = true;
+    deferredStatus.resolve(
+      jsonResponse({
+        data: {
+          ...sampleMembers[1],
+          membershipStatus: "INACTIVE",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(showToastMock).toHaveBeenCalledWith(
+        "Bruce Lee payment proof declined and membership marked inactive.",
+        "success",
+      );
+    });
+
+    expect(
+      await screen.findByText(
+        "No members match your current search and filter",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Bruce Lee")).toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: "Review payment proof" }),
+    ).toBeNull();
+  });
+
   it("refreshes the All roster so an approved member reappears as Verified", async () => {
     let approved = false;
 
@@ -1227,6 +1338,70 @@ describe("Admin membership roster", () => {
     });
   });
 
+  it("refreshes the All roster so a declined member reappears as Inactive", async () => {
+    let declined = false;
+
+    installFetchMock({
+      membersHandler: () =>
+        Promise.resolve(
+          membersResponse(
+            declined
+              ? [
+                  sampleMembers[0],
+                  { ...sampleMembers[1], membershipStatus: "INACTIVE" },
+                  sampleMembers[2],
+                ]
+              : sampleMembers,
+          ),
+        ),
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
+      proofFileHandler: () =>
+        Promise.resolve(
+          binaryResponse(proofImageBytes, {
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": 'attachment; filename="receipt.png"',
+            },
+          }),
+        ),
+      statusHandler: () => {
+        declined = true;
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              ...sampleMembers[1],
+              membershipStatus: "INACTIVE",
+            },
+          }),
+        );
+      },
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Decline" }));
+    fireEvent.change(await within(dialog).findByLabelText("Decline reason"), {
+      target: { value: "Receipt is missing the transaction date." },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm decline" }),
+    );
+
+    await waitFor(() => {
+      const row = screen.getByText("Bruce Lee").closest("tr");
+      expect(row).toBeTruthy();
+      expect(
+        within(row as HTMLTableRowElement).getByText("Inactive"),
+      ).toBeTruthy();
+      expect(
+        within(row as HTMLTableRowElement).queryByRole("button", {
+          name: "Review payment",
+        }),
+      ).toBeNull();
+    });
+  });
+
   it("keeps the review modal open and shows an error when approval fails", async () => {
     installFetchMock({
       paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
@@ -1264,6 +1439,52 @@ describe("Admin membership roster", () => {
     ).toBeTruthy();
     expect(showToastMock).toHaveBeenCalledWith(
       "Illegal transition: NEED_REVIEW → VERIFIED",
+      "error",
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Review payment proof" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the review modal open and shows an error when decline fails", async () => {
+    installFetchMock({
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
+      proofFileHandler: () =>
+        Promise.resolve(
+          binaryResponse(proofImageBytes, {
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": 'attachment; filename="receipt.png"',
+            },
+          }),
+        ),
+      statusHandler: () =>
+        Promise.resolve(
+          jsonResponse(
+            { error: "Decline reason is required for payment proof decline" },
+            400,
+          ),
+        ),
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Decline" }));
+    fireEvent.change(await within(dialog).findByLabelText("Decline reason"), {
+      target: { value: "Receipt cannot be verified." },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm decline" }),
+    );
+
+    expect(
+      await within(dialog).findByText(
+        "Decline reason is required for payment proof decline",
+      ),
+    ).toBeTruthy();
+    expect(showToastMock).toHaveBeenCalledWith(
+      "Decline reason is required for payment proof decline",
       "error",
     );
     expect(

@@ -38,6 +38,7 @@ import {
   GripVertical,
   Link as LinkIcon,
   CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { AttendeesModal } from "../components/AttendeesModal";
 import {
@@ -1877,11 +1878,11 @@ function formatPaymentProofStatus(status: string | null | undefined): string {
 function PaymentProofReviewModal({
   member,
   onClose,
-  onApproved,
+  onReviewed,
 }: {
   member: AdminMember;
   onClose: () => void;
-  onApproved: () => Promise<void> | void;
+  onReviewed: () => Promise<void> | void;
 }) {
   const { showToast } = useToast();
   const [proofs, setProofs] = useState<MemberPaymentProofMetadata[]>([]);
@@ -1895,8 +1896,15 @@ function PaymentProofReviewModal({
   const [proofFileMimeType, setProofFileMimeType] = useState<string | null>(
     null,
   );
-  const [approving, setApproving] = useState(false);
-  const [approveError, setApproveError] = useState<string | null>(null);
+  const [submittingAction, setSubmittingAction] = useState<
+    "approve" | "decline" | null
+  >(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [declineReasonVisible, setDeclineReasonVisible] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
+  const [declineReasonError, setDeclineReasonError] = useState<string | null>(
+    null,
+  );
 
   const selectedProof =
     proofs.find((proof) => proof.id === selectedProofId) || proofs[0] || null;
@@ -1908,7 +1916,8 @@ function PaymentProofReviewModal({
       try {
         setProofsLoading(true);
         setProofsError(null);
-        setApproveError(null);
+        setReviewError(null);
+        setDeclineReasonError(null);
         const nextProofs = await getMemberPaymentProofs(member.id);
         if (cancelled) return;
         setProofs(nextProofs);
@@ -2016,14 +2025,14 @@ function PaymentProofReviewModal({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !approving) {
+      if (event.key === "Escape" && !submittingAction) {
         onClose();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [approving, onClose]);
+  }, [submittingAction, onClose]);
 
   const retryMetadataLoad = async () => {
     setProofsLoading(true);
@@ -2082,13 +2091,14 @@ function PaymentProofReviewModal({
 
   const handleApprove = async () => {
     try {
-      setApproving(true);
-      setApproveError(null);
+      setSubmittingAction("approve");
+      setReviewError(null);
+      setDeclineReasonError(null);
       await updateAdminMemberStatus(member.id, {
         status: "VERIFIED",
         reason: PAYMENT_PROOF_APPROVAL_REASON,
       });
-      await onApproved();
+      await onReviewed();
       showToast(
         `${member.name || member.email || "Member"} approved and marked as verified.`,
         "success",
@@ -2099,10 +2109,47 @@ function PaymentProofReviewModal({
         error instanceof Error
           ? error.message
           : "Failed to approve payment proof";
-      setApproveError(message);
+      setReviewError(message);
       showToast(message, "error");
     } finally {
-      setApproving(false);
+      setSubmittingAction(null);
+    }
+  };
+
+  const handleDecline = async () => {
+    const cleanReason = declineReason.trim();
+    if (!cleanReason) {
+      setDeclineReasonError("Enter a decline reason before submitting.");
+      return;
+    }
+    if (cleanReason.length > 200) {
+      setDeclineReasonError("Decline reason must be 200 characters or fewer.");
+      return;
+    }
+
+    try {
+      setSubmittingAction("decline");
+      setReviewError(null);
+      setDeclineReasonError(null);
+      await updateAdminMemberStatus(member.id, {
+        status: "INACTIVE",
+        reason: cleanReason,
+      });
+      await onReviewed();
+      showToast(
+        `${member.name || member.email || "Member"} payment proof declined and membership marked inactive.`,
+        "success",
+      );
+      onClose();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to decline payment proof";
+      setReviewError(message);
+      showToast(message, "error");
+    } finally {
+      setSubmittingAction(null);
     }
   };
 
@@ -2112,12 +2159,13 @@ function PaymentProofReviewModal({
     !proofsLoading &&
     !proofsError &&
     proofs.length > 0;
+  const isSubmitting = submittingAction !== null;
 
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onClick={() => {
-        if (!approving) {
+        if (!isSubmitting) {
           onClose();
         }
       }}
@@ -2152,7 +2200,7 @@ function PaymentProofReviewModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={approving}
+            disabled={isSubmitting}
             className="rounded-xl border border-white/10 bg-white/[0.04] p-2 text-white/65 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Close payment proof review"
           >
@@ -2706,7 +2754,71 @@ function PaymentProofReviewModal({
               ) : null}
             </div>
 
-            {approveError && (
+            {declineReasonVisible && (
+              <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-5">
+                <label
+                  htmlFor="decline-reason"
+                  className="block text-red-100"
+                  style={{
+                    fontSize: "14px",
+                    fontFamily: "Outfit, sans-serif",
+                    fontWeight: 600,
+                  }}
+                >
+                  Decline reason
+                </label>
+                <p
+                  className="mt-1 text-red-100/65"
+                  style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
+                >
+                  This reason will be saved to the audit trail and sent to the
+                  member by email.
+                </p>
+                <textarea
+                  id="decline-reason"
+                  value={declineReason}
+                  onChange={(event) => {
+                    setDeclineReason(event.target.value);
+                    if (declineReasonError) {
+                      setDeclineReasonError(null);
+                    }
+                  }}
+                  maxLength={200}
+                  rows={4}
+                  disabled={isSubmitting}
+                  className="mt-3 w-full resize-none rounded-xl border border-red-200/20 bg-black/25 px-3 py-2.5 text-white outline-none transition-all placeholder:text-white/25 focus:border-red-300/45 disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{
+                    fontSize: "13px",
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                  placeholder="Explain why this proof could not be accepted."
+                />
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  {declineReasonError ? (
+                    <p
+                      className="text-red-100"
+                      role="alert"
+                      style={{
+                        fontSize: "12px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
+                    >
+                      {declineReasonError}
+                    </p>
+                  ) : (
+                    <span />
+                  )}
+                  <span
+                    className="text-white/35"
+                    style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
+                  >
+                    {declineReason.length}/200
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {reviewError && (
               <div
                 className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3"
                 role="alert"
@@ -2720,17 +2832,17 @@ function PaymentProofReviewModal({
                       fontFamily: "Inter, sans-serif",
                     }}
                   >
-                    {approveError}
+                    {reviewError}
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-3 flex-wrap">
               <button
                 type="button"
                 onClick={onClose}
-                disabled={approving}
+                disabled={isSubmitting}
                 className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-2.5 text-white/75 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   fontSize: "14px",
@@ -2740,10 +2852,72 @@ function PaymentProofReviewModal({
               >
                 Close
               </button>
+              {declineReasonVisible ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeclineReasonVisible(false);
+                      setDeclineReason("");
+                      setDeclineReasonError(null);
+                    }}
+                    disabled={isSubmitting}
+                    className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-2.5 text-white/70 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Outfit, sans-serif",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Cancel decline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDecline}
+                    disabled={isSubmitting || !canApprove}
+                    className="inline-flex items-center gap-2 rounded-xl border border-red-400/35 bg-red-500/15 px-5 py-2.5 text-red-100 transition-all hover:border-red-300/55 hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Outfit, sans-serif",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {submittingAction === "decline" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Declining...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="h-4 w-4" />
+                        Confirm decline
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeclineReasonVisible(true);
+                    setReviewError(null);
+                  }}
+                  disabled={isSubmitting || !canApprove}
+                  className="inline-flex items-center gap-2 rounded-xl border border-red-400/35 bg-red-500/10 px-5 py-2.5 text-red-100 transition-all hover:border-red-300/55 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    fontSize: "14px",
+                    fontFamily: "Outfit, sans-serif",
+                    fontWeight: 600,
+                  }}
+                >
+                  <XCircle className="h-4 w-4" />
+                  Decline
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleApprove}
-                disabled={approving || !canApprove}
+                disabled={isSubmitting || !canApprove}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#eb7524] px-5 py-2.5 text-white shadow-[0_4px_20px_rgba(235,117,36,0.28)] transition-all hover:bg-[#d4691f] disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   fontSize: "14px",
@@ -2751,7 +2925,7 @@ function PaymentProofReviewModal({
                   fontWeight: 600,
                 }}
               >
-                {approving ? (
+                {submittingAction === "approve" ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Approving...
@@ -3163,7 +3337,7 @@ function MembersManager({
           <PaymentProofReviewModal
             member={reviewMember}
             onClose={() => setReviewMember(null)}
-            onApproved={onRefreshMembers}
+            onReviewed={onRefreshMembers}
           />
         )}
       </div>

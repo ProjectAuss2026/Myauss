@@ -32,6 +32,7 @@ function makeUser(data) {
     role: data.role || "USER",
     tokenVersion: data.tokenVersion ?? 0,
     isVerified: data.isVerified ?? false,
+    membershipStatus: data.membershipStatus ?? "INACTIVE",
     lastCodeSentAt: data.lastCodeSentAt || new Date(),
     verificationExpiresAt:
       data.verificationExpiresAt || new Date(Date.now() + 60000),
@@ -318,6 +319,7 @@ test("authenticated user APIs do not return raw or hashed student ID", async () 
       email: "member@example.com",
       role: "USER",
       isVerified: true,
+      membershipStatus: "NEED_REVIEW",
       info: {
         id: "info-user-1",
         userId: "user-1",
@@ -336,6 +338,8 @@ test("authenticated user APIs do not return raw or hashed student ID", async () 
   });
 
   assert.equal(response.statusCode, 200);
+  assert.equal(response.json.user.membershipStatus, "NEED_REVIEW");
+  assert.equal(Object.hasOwn(response.json.user, "isVerified"), false);
   assert.equal(response.json.user.studentId, null);
   assert.equal(response.text.includes("123456789"), false);
   assert.equal(response.text.includes(user.info.studentId), false);

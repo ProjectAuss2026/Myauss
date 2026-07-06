@@ -41,6 +41,7 @@ const usersById = new Map();
 const paymentProofsById = new Map();
 const otpCodesByUserId = new Map();
 const membershipAudits = [];
+const declinedPaymentProofEmails = [];
 
 let tempUploadDir = "";
 let userSequence = 0;
@@ -409,11 +410,13 @@ async function resetState() {
   paymentProofsById.clear();
   otpCodesByUserId.clear();
   membershipAudits.length = 0;
+  declinedPaymentProofEmails.length = 0;
   userSequence = 0;
   paymentProofSequence = 0;
   delete process.env.SMTP_USER;
   delete process.env.SMTP_PASS;
   delete process.env.SMTP_FROM;
+  delete globalThis.__AUSS_AUTH_TEST_HOOKS__;
   if (tempUploadDir) {
     await fsPromises.rm(tempUploadDir, { recursive: true, force: true });
   }
@@ -918,6 +921,44 @@ test("membership status endpoint rejects normal USER users", async () => {
   assert.equal(response.statusCode, 403);
 });
 
+test("decline endpoint rejects unauthenticated users", async () => {
+  const member = storeUser(
+    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    body: {
+      status: "INACTIVE",
+      reason: "Receipt does not match the membership payment",
+    },
+  });
+
+  assert.equal(response.statusCode, 401);
+});
+
+test("decline endpoint rejects normal USER users", async () => {
+  const member = storeUser(
+    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "user@example.com", role: "USER", isVerified: true }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "INACTIVE",
+      reason: "Receipt does not match the membership payment",
+    },
+  });
+
+  assert.equal(response.statusCode, 403);
+});
+
 test("membership status endpoint allows ADMIN or OWNER to approve NEED_REVIEW users and writes an audit trail", async () => {
   for (const actorRole of ["ADMIN", "OWNER"]) {
     const member = storeUser(
@@ -966,6 +1007,129 @@ test("membership status endpoint allows ADMIN or OWNER to approve NEED_REVIEW us
     assert.equal(audit.toStatus, "VERIFIED");
     assert.equal(audit.reason, "Payment proof approved");
     assert.ok(audit.createdAt instanceof Date);
+  }
+});
+
+test("membership status endpoint requires a reason when declining a NEED_REVIEW payment proof", async () => {
+  const member = storeUser(
+    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "INACTIVE",
+      reason: "   ",
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(
+    response.json.error,
+    "Decline reason is required for payment proof decline",
+  );
+  assert.equal(usersById.get(member.id)?.membershipStatus, "NEED_REVIEW");
+  assert.equal(membershipAudits.length, 0);
+  assert.equal(declinedPaymentProofEmails.length, 0);
+});
+
+test("membership status endpoint rejects decline reasons over the audit limit", async () => {
+  const member = storeUser(
+    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "INACTIVE",
+      reason: "x".repeat(201),
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error, "Reason must be 200 characters or fewer");
+  assert.equal(usersById.get(member.id)?.membershipStatus, "NEED_REVIEW");
+  assert.equal(membershipAudits.length, 0);
+});
+
+test("membership status endpoint allows ADMIN or OWNER to decline NEED_REVIEW users, audits the reason, and sends email", async () => {
+  globalThis.__AUSS_AUTH_TEST_HOOKS__ = {
+    sendPaymentProofDeclinedEmail: async (payload) => {
+      declinedPaymentProofEmails.push(payload);
+    },
+  };
+
+  for (const actorRole of ["ADMIN", "OWNER"]) {
+    const member = storeUser(
+      makeUser({
+        id: `decline-${actorRole.toLowerCase()}-member`,
+        email: `decline-${actorRole.toLowerCase()}@example.com`,
+        membershipStatus: "NEED_REVIEW",
+        info: {
+          id: `info-decline-${actorRole.toLowerCase()}`,
+          userId: `decline-${actorRole.toLowerCase()}-member`,
+          firstName: "Cash",
+          lastName: "Member",
+        },
+      }),
+    );
+    const actor = storeUser(
+      makeUser({
+        email: `${actorRole.toLowerCase()}-decliner@example.com`,
+        role: actorRole,
+        isVerified: true,
+      }),
+    );
+    const reason = `Receipt total is unreadable for ${actorRole}`;
+
+    const response = await requestApp(createApp(), {
+      method: "POST",
+      path: `/api/auth/admin/members/${member.id}/status`,
+      token: authToken(actor),
+      body: {
+        status: "INACTIVE",
+        reason,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(usersById.get(member.id)?.membershipStatus, "INACTIVE");
+    assert.equal(response.json.data.membershipStatus, "INACTIVE");
+
+    const audit = membershipAudits.find(
+      (record) =>
+        record.actorUserId === actor.id && record.targetUserId === member.id,
+    );
+    assert.ok(audit);
+    assert.equal(audit.actorUserId, actor.id);
+    assert.equal(audit.targetUserId, member.id);
+    assert.equal(audit.fromStatus, "NEED_REVIEW");
+    assert.equal(audit.toStatus, "INACTIVE");
+    assert.equal(audit.reason, reason);
+    assert.ok(audit.createdAt instanceof Date);
+
+    const email = declinedPaymentProofEmails.find(
+      (record) => record.to === member.email,
+    );
+    assert.ok(email);
+    assert.equal(email.reason, reason);
+    assert.match(email.subject, /Payment Proof Declined/);
+    assert.match(email.text, /payment proof was reviewed and declined/i);
+    assert.match(email.text, new RegExp(reason));
+    assert.equal(email.text.includes("fileBytes"), false);
+    assert.equal(email.html.includes("fileBytes"), false);
+    assert.equal(email.text.includes("receipt.png"), false);
+    assert.equal(email.html.includes("receipt.png"), false);
   }
 });
 

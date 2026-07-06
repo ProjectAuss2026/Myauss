@@ -47,6 +47,7 @@ import {
   MEMBERSHIP_STATUS_VALUES,
   MembershipTransitionError,
   changeMembershipStatus,
+  onMembershipStatusChange,
 } from "../services/membershipStatus.js";
 import {
   createPendingPaymentProofUpload,
@@ -85,6 +86,9 @@ const RESET_TOKEN_ERROR = "Invalid or expired password reset token.";
 const ALLOWED_MEMBER_PAGE_SIZES = new Set([10, 20, 50]);
 const CASH_BANK_TRANSFER_PAYMENT_METHOD = "CASH_BANK_TRANSFER";
 const MAX_PAYMENT_PROOF_UPLOAD_BYTES = 10 * 1024 * 1024;
+const REVIEW_STATUS = "NEED_REVIEW";
+const DECLINED_STATUS = "INACTIVE";
+const MEMBERSHIP_STATUS_REASON_MAX_LENGTH = 200;
 const pendingPaymentProofUpload = createImageUploadMiddleware({
   fileSize: MAX_PAYMENT_PROOF_UPLOAD_BYTES,
 });
@@ -268,10 +272,31 @@ function normaliseEmail(email) {
     .toLowerCase();
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function getAuthTestHooks() {
   return process.env.NODE_ENV === "test"
     ? (globalThis.__AUSS_AUTH_TEST_HOOKS__ ?? null)
     : null;
+}
+
+function isPaymentProofDecline(fromStatus, toStatus) {
+  return fromStatus === REVIEW_STATUS && toStatus === DECLINED_STATUS;
+}
+
+function getMemberDisplayName(user) {
+  const name = [user?.info?.firstName, user?.info?.lastName]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return name || null;
 }
 
 function parseInviteHours(value) {
@@ -417,6 +442,107 @@ async function sendPasswordResetConfirmationEmail(email) {
     `,
   });
 }
+
+function buildPaymentProofDeclinedEmail({ name, reason }) {
+  const greeting = name ? `Hi ${name},` : "Hi,";
+  const subject = "AUSS - Payment Proof Declined";
+  const text = `${greeting}
+
+Your AUSS membership payment proof was reviewed and declined.
+
+Reason provided by the admin:
+${reason}
+
+Please submit a new or corrected proof, or contact AUSS if you have questions.`;
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;">
+      <h2 style="color:#0f172a;margin-top:0;">Auckland Uni Strength Society</h2>
+      <p>${escapeHtml(greeting)}</p>
+      <p>Your AUSS membership payment proof was reviewed and declined.</p>
+      <p><strong>Reason provided by the admin:</strong></p>
+      <p style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;color:#334155;">${escapeHtml(reason)}</p>
+      <p style="color:#64748b;font-size:14px;">Please submit a new or corrected proof, or contact AUSS if you have questions.</p>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
+async function sendPaymentProofDeclinedEmail({ to, name, reason }) {
+  const email = normaliseEmail(to);
+  const cleanReason = String(reason || "").trim();
+  if (!email || !cleanReason) {
+    return;
+  }
+
+  const content = buildPaymentProofDeclinedEmail({
+    name: name ? String(name).trim() : null,
+    reason: cleanReason,
+  });
+  const testHooks = getAuthTestHooks();
+
+  if (testHooks?.sendPaymentProofDeclinedEmail) {
+    await testHooks.sendPaymentProofDeclinedEmail({
+      to: email,
+      name: name || null,
+      reason: cleanReason,
+      ...content,
+    });
+    return;
+  }
+
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.log(
+      `[PAYMENT PROOF DEV] Decline email skipped for ${email}. SMTP is not configured.`,
+    );
+    return;
+  }
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: email,
+    subject: content.subject,
+    text: content.text,
+    html: content.html,
+  });
+}
+
+onMembershipStatusChange(async (event) => {
+  if (!isPaymentProofDecline(event.fromStatus, event.toStatus)) {
+    return;
+  }
+
+  const reason = String(event.reason || "").trim();
+  if (!reason) {
+    logger.warn(
+      { event },
+      "Skipped payment proof decline email because reason was missing",
+    );
+    return;
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id: event.targetUserId },
+    select: {
+      email: true,
+      info: { select: { firstName: true, lastName: true } },
+    },
+  });
+
+  if (!target?.email) {
+    logger.warn(
+      { targetUserId: event.targetUserId },
+      "Skipped payment proof decline email because target user was not found",
+    );
+    return;
+  }
+
+  await sendPaymentProofDeclinedEmail({
+    to: target.email,
+    name: getMemberDisplayName(target),
+    reason,
+  });
+});
 
 function formatUser(user) {
   return {
@@ -1897,8 +2023,27 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
   if (!MEMBERSHIP_STATUS_VALUES.includes(toStatus)) {
     return res.status(400).json({ error: "A valid target status is required" });
   }
+  if (reason && reason.length > MEMBERSHIP_STATUS_REASON_MAX_LENGTH) {
+    return res.status(400).json({
+      error: `Reason must be ${MEMBERSHIP_STATUS_REASON_MAX_LENGTH} characters or fewer`,
+    });
+  }
 
   try {
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, membershipStatus: true },
+    });
+    if (!target) {
+      return res.status(404).json({ error: "Target user not found" });
+    }
+
+    if (isPaymentProofDecline(target.membershipStatus, toStatus) && !reason) {
+      return res.status(400).json({
+        error: "Decline reason is required for payment proof decline",
+      });
+    }
+
     const updated = await changeMembershipStatus({
       targetUserId,
       toStatus,
