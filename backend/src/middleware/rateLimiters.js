@@ -1,10 +1,12 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit from "express-rate-limit";
 
 const MAX_SOFT_THROTTLE_BUCKETS = 10000;
 const MAX_CONCURRENT_DELAYED_REQUESTS = 500;
 
 function normaliseEmail(email) {
-  return String(email || '').trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 function getRetryAfterSeconds(req) {
@@ -17,7 +19,7 @@ function build429Handler(scope) {
   return (req, res) => {
     const retryAfterSeconds = getRetryAfterSeconds(req);
     if (retryAfterSeconds) {
-      res.set('Retry-After', String(retryAfterSeconds));
+      res.set("Retry-After", String(retryAfterSeconds));
     }
     return res.status(429).json({
       error: `Too many requests for ${scope}. Please try again later.`,
@@ -26,19 +28,14 @@ function build429Handler(scope) {
   };
 }
 
-function createLimiter({
-  windowMs,
-  max,
-  keyGenerator,
-  scope,
-}) {
+function createLimiter({ windowMs, max, keyGenerator, scope }) {
   return rateLimit({
     windowMs,
     max,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator,
-    skip: (req) => req.method === 'OPTIONS',
+    skip: (req) => req.method === "OPTIONS",
     handler: build429Handler(scope),
   });
 }
@@ -56,7 +53,7 @@ function createEmailSoftThrottle({
 
   return (req, res, next) => {
     const key = keyGenerator(req);
-    if (!key || key.endsWith(':unknown')) {
+    if (!key || key.endsWith(":unknown")) {
       return next();
     }
 
@@ -99,7 +96,7 @@ function createEmailSoftThrottle({
 
     if (delayedRequestCount >= MAX_CONCURRENT_DELAYED_REQUESTS) {
       return res.status(429).json({
-        error: 'Too many requests. Please try again later.',
+        error: "Too many requests. Please try again later.",
       });
     }
 
@@ -112,7 +109,7 @@ function createEmailSoftThrottle({
       settled = true;
       delayedRequestCount = Math.max(0, delayedRequestCount - 1);
     };
-    const onClose = () => {
+    const onAbort = () => {
       if (timeout) {
         clearTimeout(timeout);
         timeout = null;
@@ -120,10 +117,10 @@ function createEmailSoftThrottle({
       settle();
     };
 
-    req.once('close', onClose);
+    req.once("aborted", onAbort);
     timeout = setTimeout(() => {
-      req.off('close', onClose);
-      if (req.aborted || req.destroyed) {
+      req.off("aborted", onAbort);
+      if (req.aborted) {
         settle();
         return;
       }
@@ -136,13 +133,13 @@ function createEmailSoftThrottle({
 export const globalApiLimiter = createLimiter({
   windowMs: 60 * 1000,
   max: 100,
-  scope: 'the API',
+  scope: "the API",
 });
 
 export const loginIpLimiter = createLimiter({
   windowMs: 60 * 1000,
   max: 5,
-  scope: 'login',
+  scope: "login",
 });
 
 export const loginEmailThrottle = createEmailSoftThrottle({
@@ -150,13 +147,14 @@ export const loginEmailThrottle = createEmailSoftThrottle({
   threshold: 20,
   baseDelayMs: 150,
   maxDelayMs: 2000,
-  keyGenerator: (req) => `login-email:${normaliseEmail(req.body?.email) || 'unknown'}`,
+  keyGenerator: (req) =>
+    `login-email:${normaliseEmail(req.body?.email) || "unknown"}`,
 });
 
 export const registerIpLimiter = createLimiter({
   windowMs: 60 * 60 * 1000,
   max: 10,
-  scope: 'registration',
+  scope: "registration",
 });
 
 export const registerEmailThrottle = createEmailSoftThrottle({
@@ -164,13 +162,14 @@ export const registerEmailThrottle = createEmailSoftThrottle({
   threshold: 3,
   baseDelayMs: 300,
   maxDelayMs: 2500,
-  keyGenerator: (req) => `register-email:${normaliseEmail(req.body?.email) || 'unknown'}`,
+  keyGenerator: (req) =>
+    `register-email:${normaliseEmail(req.body?.email) || "unknown"}`,
 });
 
 export const resendIpLimiter = createLimiter({
   windowMs: 60 * 60 * 1000,
   max: 10,
-  scope: 'verification resend',
+  scope: "verification resend",
 });
 
 export const resendEmailThrottle = createEmailSoftThrottle({
@@ -178,13 +177,14 @@ export const resendEmailThrottle = createEmailSoftThrottle({
   threshold: 3,
   baseDelayMs: 300,
   maxDelayMs: 2500,
-  keyGenerator: (req) => `resend-email:${normaliseEmail(req.body?.email) || 'unknown'}`,
+  keyGenerator: (req) =>
+    `resend-email:${normaliseEmail(req.body?.email) || "unknown"}`,
 });
 
 export const forgotPasswordIpLimiter = createLimiter({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  scope: 'password reset',
+  scope: "password reset",
 });
 
 export const forgotPasswordEmailThrottle = createEmailSoftThrottle({
@@ -192,13 +192,14 @@ export const forgotPasswordEmailThrottle = createEmailSoftThrottle({
   threshold: 3,
   baseDelayMs: 400,
   maxDelayMs: 2500,
-  keyGenerator: (req) => `forgot-password-email:${normaliseEmail(req.body?.email) || 'unknown'}`,
+  keyGenerator: (req) =>
+    `forgot-password-email:${normaliseEmail(req.body?.email) || "unknown"}`,
 });
 
 export const verifyIpLimiter = createLimiter({
   windowMs: 60 * 1000,
   max: 10,
-  scope: 'verification',
+  scope: "verification",
 });
 
 export const verifyEmailThrottle = createEmailSoftThrottle({
@@ -206,12 +207,19 @@ export const verifyEmailThrottle = createEmailSoftThrottle({
   threshold: 6,
   baseDelayMs: 250,
   maxDelayMs: 2500,
-  keyGenerator: (req) => `verify-email:${normaliseEmail(req.body?.email) || 'unknown'}`,
+  keyGenerator: (req) =>
+    `verify-email:${normaliseEmail(req.body?.email) || "unknown"}`,
 });
 
 export const uploadUserLimiter = createLimiter({
   windowMs: 60 * 60 * 1000,
   max: 30,
-  keyGenerator: (req) => `upload-user:${req.user?.id || 'unknown'}`,
-  scope: 'file upload',
+  keyGenerator: (req) => `upload-user:${req.user?.id || "unknown"}`,
+  scope: "file upload",
+});
+
+export const paymentProofUploadIpLimiter = createLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  scope: "payment proof upload",
 });

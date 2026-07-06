@@ -6,12 +6,22 @@ const MX_TIMEOUT_MS = 3000;
  * Resolves MX records for the given domain with a timeout.
  * Returns the MX records array, or null if DNS is unreachable.
  */
-async function resolveMxWithTimeout(domain) {
+async function resolveMxWithTimeout(
+  domain,
+  resolveMx = dns.resolveMx,
+  timeoutMs = MX_TIMEOUT_MS,
+) {
   try {
     const records = await Promise.race([
-      dns.resolveMx(domain),
+      resolveMx(domain),
       new Promise((_, reject) =>
-        setTimeout(() => reject(Object.assign(new Error('mx_timeout'), { code: 'ETIMEOUT' })), MX_TIMEOUT_MS),
+        setTimeout(
+          () =>
+            reject(
+              Object.assign(new Error('mx_timeout'), { code: 'ETIMEOUT' }),
+            ),
+          timeoutMs,
+        ),
       ),
     ]);
     return records;
@@ -46,7 +56,7 @@ function getDomain(email) {
  *    mail server — return false.
  *
  * @param {string} email
- * @param {{ allowlist?: Set<string> }} options
+ * @param {{ allowlist?: Set<string>, resolveMx?: Function, timeoutMs?: number }} options
  * @returns {Promise<{ deliverable: boolean, reason?: string }>}
  */
 export async function validateEmailDeliverability(email, options = {}) {
@@ -60,7 +70,11 @@ export async function validateEmailDeliverability(email, options = {}) {
     return { deliverable: true };
   }
 
-  const mxRecords = await resolveMxWithTimeout(domain);
+  const mxRecords = await resolveMxWithTimeout(
+    domain,
+    options.resolveMx,
+    options.timeoutMs,
+  );
 
   if (mxRecords === null) {
     // DNS unreachable — fail open

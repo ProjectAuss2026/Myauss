@@ -1,81 +1,94 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import assert from "node:assert/strict";
+import { test } from "node:test";
 
-// Mock dns/promises before importing the module
-const mockResolveMx = vi.fn();
-vi.mock('node:dns/promises', () => ({
-  default: { resolveMx: (...args) => mockResolveMx(...args) },
-  resolveMx: (...args) => mockResolveMx(...args),
-}));
+import {
+  parseAllowlist,
+  validateEmailDeliverability,
+} from "../utils/emailDeliverability.js";
 
-const { validateEmailDeliverability, parseAllowlist } = await import('../utils/emailDeliverability.js');
-
-describe('validateEmailDeliverability', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+test("validateEmailDeliverability returns deliverable:true for an allowlisted domain", async () => {
+  let calls = 0;
+  const result = await validateEmailDeliverability("user@auckland.ac.nz", {
+    allowlist: new Set(["auckland.ac.nz"]),
+    resolveMx: async () => {
+      calls += 1;
+      return [];
+    },
   });
 
-  it('returns deliverable:true for an allowlisted domain (skip MX)', async () => {
-    const result = await validateEmailDeliverability('user@auckland.ac.nz', {
-      allowlist: new Set(['auckland.ac.nz']),
-    });
-    expect(result.deliverable).toBe(true);
-    expect(mockResolveMx).not.toHaveBeenCalled();
-  });
-
-  it('returns deliverable:true when MX records exist', async () => {
-    mockResolveMx.mockResolvedValue([{ exchange: 'mail.example.com', priority: 10 }]);
-    const result = await validateEmailDeliverability('user@example.com');
-    expect(result.deliverable).toBe(true);
-  });
-
-  it('returns deliverable:false when MX resolves to empty array', async () => {
-    mockResolveMx.mockResolvedValue([]);
-    const result = await validateEmailDeliverability('user@no-mx-records.com');
-    expect(result.deliverable).toBe(false);
-    expect(result.reason).toBe('no_mx_records');
-  });
-
-  it('fails open (deliverable:true) on DNS timeout within 3.5s', async () => {
-    // Never resolves — simulate a hung DNS resolver
-    mockResolveMx.mockImplementation(() => new Promise(() => {}));
-    const start = Date.now();
-    const result = await validateEmailDeliverability('user@timeout.com');
-    const elapsed = Date.now() - start;
-    expect(result.deliverable).toBe(true);
-    expect(elapsed).toBeLessThan(3500); // 3 s timeout + 500 ms tolerance
-  }, 5000);
-
-  it('fails open on other DNS errors', async () => {
-    mockResolveMx.mockRejectedValue(Object.assign(new Error('SERVFAIL'), { code: 'SERVFAIL' }));
-    const result = await validateEmailDeliverability('user@dns-error.com');
-    expect(result.deliverable).toBe(true);
-  });
-
-  it('returns deliverable:false for invalid email format (no domain)', async () => {
-    const result = await validateEmailDeliverability('notanemail');
-    expect(result.deliverable).toBe(false);
-    expect(result.reason).toBe('invalid_email_format');
-  });
-
-  it('returns deliverable:false for email with no @', async () => {
-    const result = await validateEmailDeliverability('noatsign.com');
-    expect(result.deliverable).toBe(false);
-    expect(result.reason).toBe('invalid_email_format');
-  });
+  assert.equal(result.deliverable, true);
+  assert.equal(calls, 0);
 });
 
-describe('parseAllowlist', () => {
-  it('parses comma-separated domains into a Set', () => {
-    const result = parseAllowlist('auckland.ac.nz, aucklanduni.ac.nz , EXAMPLE.COM');
-    expect(result).toEqual(new Set(['auckland.ac.nz', 'aucklanduni.ac.nz', 'example.com']));
+test("validateEmailDeliverability returns deliverable:true when MX records exist", async () => {
+  const result = await validateEmailDeliverability("user@example.com", {
+    resolveMx: async () => [{ exchange: "mail.example.com", priority: 10 }],
   });
 
-  it('returns empty Set for empty string', () => {
-    expect(parseAllowlist('')).toEqual(new Set());
+  assert.equal(result.deliverable, true);
+});
+
+test("validateEmailDeliverability returns deliverable:false when MX resolves to empty array", async () => {
+  const result = await validateEmailDeliverability("user@no-mx-records.com", {
+    resolveMx: async () => [],
   });
 
-  it('returns empty Set for null/undefined', () => {
-    expect(parseAllowlist(null)).toEqual(new Set());
-    expect(parseAllowlist(undefined)).toEqual(new Set());
+  assert.equal(result.deliverable, false);
+  assert.equal(result.reason, "no_mx_records");
+});
+
+test("validateEmailDeliverability fails open on DNS timeout", async () => {
+  const start = Date.now();
+  const result = await validateEmailDeliverability("user@timeout.com", {
+    resolveMx: async () => new Promise(() => {}),
+    timeoutMs: 10,
   });
+  const elapsed = Date.now() - start;
+
+  assert.equal(result.deliverable, true);
+  assert.ok(elapsed < 500);
+});
+
+test("validateEmailDeliverability fails open on other DNS errors", async () => {
+  const result = await validateEmailDeliverability("user@dns-error.com", {
+    resolveMx: async () => {
+      throw Object.assign(new Error("SERVFAIL"), { code: "SERVFAIL" });
+    },
+  });
+
+  assert.equal(result.deliverable, true);
+});
+
+test("validateEmailDeliverability returns deliverable:false for invalid email format", async () => {
+  const result = await validateEmailDeliverability("notanemail");
+
+  assert.equal(result.deliverable, false);
+  assert.equal(result.reason, "invalid_email_format");
+});
+
+test("validateEmailDeliverability returns deliverable:false for email with no at sign", async () => {
+  const result = await validateEmailDeliverability("noatsign.com");
+
+  assert.equal(result.deliverable, false);
+  assert.equal(result.reason, "invalid_email_format");
+});
+
+test("parseAllowlist parses comma-separated domains into a Set", () => {
+  const result = parseAllowlist(
+    "auckland.ac.nz, aucklanduni.ac.nz , EXAMPLE.COM",
+  );
+
+  assert.deepEqual(
+    result,
+    new Set(["auckland.ac.nz", "aucklanduni.ac.nz", "example.com"]),
+  );
+});
+
+test("parseAllowlist returns empty Set for empty string", () => {
+  assert.deepEqual(parseAllowlist(""), new Set());
+});
+
+test("parseAllowlist returns empty Set for null or undefined", () => {
+  assert.deepEqual(parseAllowlist(null), new Set());
+  assert.deepEqual(parseAllowlist(undefined), new Set());
 });

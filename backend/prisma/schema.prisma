@@ -25,6 +25,11 @@ enum MembershipStatus {
   VERIFIED
 }
 
+enum PaymentProofUploadStatus {
+  PENDING
+  LINKED
+}
+
 model User {
   id                    String            @id @default(uuid())
   email                 String            @unique
@@ -47,6 +52,7 @@ model User {
   membershipChangesMade     MembershipStatusAudit[] @relation("MembershipChangeActor")
   membershipChangesReceived MembershipStatusAudit[] @relation("MembershipChangeTarget")
   passwordResets            PasswordReset[]
+  paymentProofUploads       PaymentProofUpload[]
 
   @@index([membershipStatus, membershipStatusUpdatedAt])
 }
@@ -62,6 +68,27 @@ model PasswordReset {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+// Payment proof files are sensitive PII. The uploaded bytes are stored in the
+// database, are only retrievable by authorised admins, and unlinked staged
+// uploads expire for cleanup under the retention policy in the cleanup job.
+model PaymentProofUpload {
+  id               String                   @id @default(uuid())
+  userId           String?
+  originalFilename String
+  fileBytes        Bytes
+  mimeType         String
+  sizeBytes        Int
+  status           PaymentProofUploadStatus @default(PENDING)
+  linkedAt         DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  expiresAt        DateTime
+  user             User?                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
 }
 
 model UserInfo {

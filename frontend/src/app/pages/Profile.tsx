@@ -39,6 +39,42 @@ function getRoleBadgeLabel(role: string, hasAdminAccess: boolean) {
   return 'MEMBER';
 }
 
+function getMembershipStatusLabel(status: string | null | undefined) {
+  switch ((status || '').toUpperCase()) {
+    case 'VERIFIED':
+      return 'Verified';
+    case 'NEED_REVIEW':
+      return 'Need Review';
+    case 'INACTIVE':
+    default:
+      return 'Inactive';
+  }
+}
+
+function getMembershipStatusHelp(status: string | null | undefined) {
+  switch ((status || '').toUpperCase()) {
+    case 'VERIFIED':
+      return 'Membership is verified.';
+    case 'NEED_REVIEW':
+      return 'Payment proof is awaiting admin review.';
+    case 'INACTIVE':
+    default:
+      return 'Membership is not currently verified.';
+  }
+}
+
+function getMembershipStatusClass(status: string | null | undefined) {
+  switch ((status || '').toUpperCase()) {
+    case 'VERIFIED':
+      return 'text-green-400';
+    case 'NEED_REVIEW':
+      return 'text-[#ffcfad]';
+    case 'INACTIVE':
+    default:
+      return 'text-white/70';
+  }
+}
+
 export function Profile() {
   const { user, isAuthenticated, isLoading, logout, setUserFromToken } = useAuth();
   const { showToast } = useToast();
@@ -75,6 +111,7 @@ export function Profile() {
   const hasAdminAccess = user.role === 'ADMIN' || user.role === 'OWNER';
   const roleLabel = getRoleLabel(user.role);
   const roleBadgeLabel = getRoleBadgeLabel(user.role, hasAdminAccess);
+  const membershipStatus = user.membershipStatus || 'INACTIVE';
   const fullName = user.firstName && user.lastName
     ? `${user.firstName} ${user.lastName}`
     : user.email;
@@ -242,8 +279,11 @@ export function Profile() {
                     </div>
                     <div>
                       <p className="text-white/40 text-xs mb-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>Status</p>
-                      <p className="text-green-400" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
-                        Verified ✓
+                      <p className={getMembershipStatusClass(membershipStatus)} style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}>
+                        {getMembershipStatusLabel(membershipStatus)}
+                      </p>
+                      <p className="text-white/40 mt-0.5" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                        {getMembershipStatusHelp(membershipStatus)}
                       </p>
                     </div>
                   </div>
