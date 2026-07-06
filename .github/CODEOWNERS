@@ -1,0 +1,5 @@
+# KAN-101: route security-sensitive paths to security reviewers.
+# NOTE: replace with a @ProjectAuss2026/security team once one exists.
+/backend/             @ZingZing001 @aolin12138
+/.github/workflows/   @ZingZing001 @aolin12138
+/.env.example         @ZingZing001 @aolin12138
