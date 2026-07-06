@@ -33,6 +33,7 @@ import {
   verifyRefreshToken,
 } from '../utils/authTokens.js';
 import { normalizePassword, validatePasswordPolicy } from '../utils/passwordPolicy.js';
+import { validateEmailDeliverability, parseAllowlist } from '../utils/emailDeliverability.js';
 import {
   MEMBERSHIP_STATUS_VALUES,
   MembershipTransitionError,
@@ -45,7 +46,7 @@ const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
 const OTP_MAX_ATTEMPTS = 5;
 const INVITATION_WINDOW_HOURS = 72;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const OTP_RE = /^\d{6}$/;
 const DUMMY_PASSWORD_HASH = '$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem';
 const RESET_TOKEN_BYTES = 32;
@@ -139,6 +140,15 @@ async function getInviteeEligibility(invitedEmail) {
 }
 
 async function sendVerificationCode(user) {
+  // MX deliverability check before sending — fails fast if domain can't receive mail.
+  // Trade-off: this reveals domain MX status on register (low risk — anyone can do MX lookup).
+  const emailCheck = await validateEmailDeliverability(user.email, {
+    allowlist: parseAllowlist(process.env.EMAIL_MX_ALLOWLIST),
+  });
+  if (!emailCheck.deliverable) {
+    return { sent: false, error: 'This email address does not appear to be deliverable. Please check for typos.' };
+  }
+
   const code = generateVerificationCode();
   const codeHash = hashVerificationCode(code);
   const now = Date.now();
@@ -160,7 +170,7 @@ async function sendVerificationCode(user) {
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.log(`[OTP DEV] Verification code generated for ${user.email}. SMTP is not configured.`);
-    return;
+    return { sent: true };
   }
 
   await transporter.sendMail({
@@ -177,6 +187,7 @@ async function sendVerificationCode(user) {
       </div>
     `,
   });
+  return { sent: true };
 }
 
 function buildResetUrl(token) {
@@ -293,6 +304,7 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, validate(regi
     if (!passwordPolicy.ok) {
       return res.status(400).json({ error: passwordPolicy.error });
     }
+
     const studentIdHash = hashStudentId(studentId);
 
     const existing = await prisma.user.findUnique({ where: { email: normalisedEmail } });
@@ -321,7 +333,10 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, validate(regi
         },
         select: { id: true, email: true },
       });
-      await sendVerificationCode(updatedUser);
+      const codeResult1 = await sendVerificationCode(updatedUser);
+      if (!codeResult1.sent) {
+        return res.status(400).json({ error: codeResult1.error });
+      }
       return res.status(200).json({
         message: REGISTER_GENERIC_MESSAGE,
       });
@@ -344,7 +359,10 @@ router.post('/register', registerIpLimiter, registerEmailThrottle, validate(regi
       select: { id: true, email: true },
     });
 
-    await sendVerificationCode(createdUser);
+    const codeResult = await sendVerificationCode(createdUser);
+    if (!codeResult.sent) {
+      return res.status(400).json({ error: codeResult.error });
+    }
 
     return res.status(200).json({
       message: REGISTER_GENERIC_MESSAGE,
@@ -537,7 +555,10 @@ router.post('/resend-code', resendIpLimiter, resendEmailThrottle, validate(resen
           },
           select: { id: true, email: true },
         });
-        await sendVerificationCode(updatedUser);
+        const codeResult2 = await sendVerificationCode(updatedUser);
+        if (!codeResult2.sent) {
+          return res.status(400).json({ error: codeResult2.error });
+        }
       }
     }
 
