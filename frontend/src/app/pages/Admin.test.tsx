@@ -203,82 +203,88 @@ function installFetchMock(
     ) => Promise<Response> | Response;
   } = {},
 ) {
-  fetchMock.mockImplementation((input: string | URL | Request, init?: RequestInit) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
+  fetchMock.mockImplementation(
+    (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
 
-    const paymentProofsMatch = url.match(
-      /^\/api\/auth\/admin\/members\/([^/]+)\/payment-proofs$/,
-    );
-    if (paymentProofsMatch) {
-      if (options.paymentProofsHandler) {
-        return options.paymentProofsHandler(paymentProofsMatch[1], url, init);
-      }
-
-      return Promise.resolve(proofMetadataResponse());
-    }
-
-    const statusMatch = url.match(/^\/api\/auth\/admin\/members\/([^/]+)\/status$/);
-    if (statusMatch) {
-      if (options.statusHandler) {
-        return options.statusHandler(statusMatch[1], url, init);
-      }
-
-      return Promise.resolve(
-        jsonResponse({
-          data: {
-            ...sampleMembers[1],
-            membershipStatus: "VERIFIED",
-          },
-        }),
+      const paymentProofsMatch = url.match(
+        /^\/api\/auth\/admin\/members\/([^/]+)\/payment-proofs$/,
       );
-    }
+      if (paymentProofsMatch) {
+        if (options.paymentProofsHandler) {
+          return options.paymentProofsHandler(paymentProofsMatch[1], url, init);
+        }
 
-    const proofFileMatch = url.match(
-      /^\/api\/auth\/admin\/payment-proofs\/([^/]+)\/file$/,
-    );
-    if (proofFileMatch) {
-      if (options.proofFileHandler) {
-        return options.proofFileHandler(proofFileMatch[1], url, init);
+        return Promise.resolve(proofMetadataResponse());
       }
 
-      return Promise.resolve(
-        binaryResponse(proofImageBytes, {
-          headers: {
-            "Content-Type": "image/png",
-            "Content-Disposition": 'attachment; filename="receipt.png"',
-          },
-        }),
+      const statusMatch = url.match(
+        /^\/api\/auth\/admin\/members\/([^/]+)\/status$/,
       );
-    }
+      if (statusMatch) {
+        if (options.statusHandler) {
+          return options.statusHandler(statusMatch[1], url, init);
+        }
 
-    if (url.startsWith("/api/auth/admin/members")) {
-      if (options.membersHandler) {
-        return options.membersHandler(url, init);
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              ...sampleMembers[1],
+              membershipStatus: "VERIFIED",
+            },
+          }),
+        );
       }
-      return Promise.resolve(membersResponse(sampleMembers));
-    }
 
-    switch (url) {
-      case "/api/sponsorship":
-        return Promise.resolve(jsonResponse({ data: { id: 1, sponsors: [] } }));
-      case "/api/media-entries":
-        return Promise.resolve(jsonResponse({ data: [] }));
-      case "/api/activities/all":
-        return Promise.resolve(jsonResponse([]));
-      case "/api/admin/executives":
-      case "/api/admin/exec-roles":
-      case "/api/admin/exec-teams":
-      case "/api/admin/faq":
-        return Promise.resolve(jsonResponse({ data: [] }));
-      default:
-        return Promise.resolve(jsonResponse({}));
-    }
-  });
+      const proofFileMatch = url.match(
+        /^\/api\/auth\/admin\/payment-proofs\/([^/]+)\/file$/,
+      );
+      if (proofFileMatch) {
+        if (options.proofFileHandler) {
+          return options.proofFileHandler(proofFileMatch[1], url, init);
+        }
+
+        return Promise.resolve(
+          binaryResponse(proofImageBytes, {
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": 'attachment; filename="receipt.png"',
+            },
+          }),
+        );
+      }
+
+      if (url.startsWith("/api/auth/admin/members")) {
+        if (options.membersHandler) {
+          return options.membersHandler(url, init);
+        }
+        return Promise.resolve(membersResponse(sampleMembers));
+      }
+
+      switch (url) {
+        case "/api/sponsorship":
+          return Promise.resolve(
+            jsonResponse({ data: { id: 1, sponsors: [] } }),
+          );
+        case "/api/media-entries":
+          return Promise.resolve(jsonResponse({ data: [] }));
+        case "/api/activities/all":
+          return Promise.resolve(jsonResponse([]));
+        case "/api/admin/executives":
+        case "/api/admin/exec-roles":
+        case "/api/admin/exec-teams":
+        case "/api/admin/faq":
+          return Promise.resolve(jsonResponse({ data: [] }));
+        default:
+          return Promise.resolve(jsonResponse({}));
+      }
+    },
+  );
 }
 
 function renderMembersView() {
@@ -975,7 +981,9 @@ describe("Admin membership roster", () => {
     expect(within(dialog).getByText("Need Review")).toBeTruthy();
     expect(await within(dialog).findByText("receipt.png")).toBeTruthy();
     expect((await within(dialog).findAllByText("Linked")).length).toBe(2);
-    expect(await within(dialog).findByText("Loading proof preview...")).toBeTruthy();
+    expect(
+      await within(dialog).findByText("Loading proof preview..."),
+    ).toBeTruthy();
 
     deferredProofFile.resolve(
       binaryResponse(proofImageBytes, {
@@ -1019,7 +1027,9 @@ describe("Admin membership roster", () => {
   it("shows an error state when proof metadata loading fails", async () => {
     installFetchMock({
       paymentProofsHandler: () =>
-        Promise.resolve(jsonResponse({ error: "Proof metadata unavailable" }, 500)),
+        Promise.resolve(
+          jsonResponse({ error: "Proof metadata unavailable" }, 500),
+        ),
     });
 
     renderMembersView();
@@ -1039,7 +1049,9 @@ describe("Admin membership roster", () => {
     renderMembersView();
     const dialog = await openReviewPaymentDialog();
 
-    expect(await within(dialog).findByText("No payment proof uploaded")).toBeTruthy();
+    expect(
+      await within(dialog).findByText("No payment proof uploaded"),
+    ).toBeTruthy();
     const approveButton = within(dialog).getByRole("button", {
       name: "Approve membership",
     }) as HTMLButtonElement;
@@ -1050,7 +1062,9 @@ describe("Admin membership roster", () => {
     installFetchMock({
       paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
       proofFileHandler: () =>
-        Promise.resolve(jsonResponse({ error: "Payment proof file not found" }, 404)),
+        Promise.resolve(
+          jsonResponse({ error: "Payment proof file not found" }, 404),
+        ),
     });
 
     renderMembersView();
@@ -1059,8 +1073,12 @@ describe("Admin membership roster", () => {
     expect(
       await within(dialog).findByText("Could not load payment proof preview."),
     ).toBeTruthy();
-    expect(within(dialog).getByText("Payment proof file not found")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Review payment proof" })).toBeTruthy();
+    expect(
+      within(dialog).getByText("Payment proof file not found"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: "Review payment proof" }),
+    ).toBeTruthy();
   });
 
   it("approves a Need Review member, sends the approval request body, and refreshes the filtered roster", async () => {
@@ -1137,10 +1155,14 @@ describe("Admin membership roster", () => {
     });
 
     expect(
-      await screen.findByText("No members match your current search and filter"),
+      await screen.findByText(
+        "No members match your current search and filter",
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("Bruce Lee")).toBeNull();
-    expect(screen.queryByRole("dialog", { name: "Review payment proof" })).toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: "Review payment proof" }),
+    ).toBeNull();
   });
 
   it("refreshes the All roster so an approved member reappears as Verified", async () => {
@@ -1219,7 +1241,10 @@ describe("Admin membership roster", () => {
         ),
       statusHandler: () =>
         Promise.resolve(
-          jsonResponse({ error: "Illegal transition: NEED_REVIEW → VERIFIED" }, 409),
+          jsonResponse(
+            { error: "Illegal transition: NEED_REVIEW → VERIFIED" },
+            409,
+          ),
         ),
     });
 
@@ -1233,13 +1258,17 @@ describe("Admin membership roster", () => {
     );
 
     expect(
-      await within(dialog).findByText("Illegal transition: NEED_REVIEW → VERIFIED"),
+      await within(dialog).findByText(
+        "Illegal transition: NEED_REVIEW → VERIFIED",
+      ),
     ).toBeTruthy();
     expect(showToastMock).toHaveBeenCalledWith(
       "Illegal transition: NEED_REVIEW → VERIFIED",
       "error",
     );
-    expect(screen.getByRole("dialog", { name: "Review payment proof" })).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: "Review payment proof" }),
+    ).toBeTruthy();
   });
 
   it("redirects non-admin users away from the admin page", async () => {

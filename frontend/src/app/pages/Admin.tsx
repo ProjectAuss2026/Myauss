@@ -1967,8 +1967,12 @@ function PaymentProofReviewModal({
           }
           return nextObjectUrl;
         });
-        setProofFileName(file.filename || selectedProof?.originalFilename || null);
-        setProofFileMimeType(file.contentType || selectedProof?.mimeType || null);
+        setProofFileName(
+          file.filename || selectedProof?.originalFilename || null,
+        );
+        setProofFileMimeType(
+          file.contentType || selectedProof?.mimeType || null,
+        );
       } catch (error) {
         if (cancelled) return;
         setProofObjectUrl((previousUrl) => {
@@ -1996,7 +2000,11 @@ function PaymentProofReviewModal({
     return () => {
       cancelled = true;
     };
-  }, [selectedProofId, selectedProof?.mimeType, selectedProof?.originalFilename]);
+  }, [
+    selectedProofId,
+    selectedProof?.mimeType,
+    selectedProof?.originalFilename,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -2051,7 +2059,9 @@ function PaymentProofReviewModal({
         }
         return nextObjectUrl;
       });
-      setProofFileName(file.filename || selectedProof?.originalFilename || null);
+      setProofFileName(
+        file.filename || selectedProof?.originalFilename || null,
+      );
       setProofFileMimeType(file.contentType || selectedProof?.mimeType || null);
     } catch (error) {
       setProofObjectUrl((previousUrl) => {
@@ -2155,44 +2165,111 @@ function PaymentProofReviewModal({
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <p className="text-white/40" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  <p
+                    className="text-white/40"
+                    style={{
+                      fontSize: "11px",
+                      fontFamily: "Inter, sans-serif",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}
+                  >
                     Member name
                   </p>
-                  <p className="mt-1 text-white" style={{ fontSize: "15px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}>
+                  <p
+                    className="mt-1 text-white"
+                    style={{
+                      fontSize: "15px",
+                      fontFamily: "Inter, sans-serif",
+                      fontWeight: 600,
+                    }}
+                  >
                     {member.name || "—"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-white/40" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  <p
+                    className="text-white/40"
+                    style={{
+                      fontSize: "11px",
+                      fontFamily: "Inter, sans-serif",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}
+                  >
                     Email
                   </p>
-                  <p className="mt-1 text-white/75 break-all" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}>
+                  <p
+                    className="mt-1 text-white/75 break-all"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     {member.email || "—"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-white/40" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  <p
+                    className="text-white/40"
+                    style={{
+                      fontSize: "11px",
+                      fontFamily: "Inter, sans-serif",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}
+                  >
                     User ID
                   </p>
-                  <p className="mt-1 text-white/75 break-all" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}>
+                  <p
+                    className="mt-1 text-white/75 break-all"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     {member.id}
                   </p>
                 </div>
                 <div>
-                  <p className="text-white/40" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  <p
+                    className="text-white/40"
+                    style={{
+                      fontSize: "11px",
+                      fontFamily: "Inter, sans-serif",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}
+                  >
                     Current status
                   </p>
                   <div className="mt-1">
-                    <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] ${getMembershipBadgeClasses(member.membershipStatus)}`}>
+                    <span
+                      className={`inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] ${getMembershipBadgeClasses(member.membershipStatus)}`}
+                    >
                       {formatMembershipStatus(member.membershipStatus)}
                     </span>
                   </div>
                 </div>
                 <div>
-                  <p className="text-white/40" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  <p
+                    className="text-white/40"
+                    style={{
+                      fontSize: "11px",
+                      fontFamily: "Inter, sans-serif",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}
+                  >
                     Join date
                   </p>
-                  <p className="mt-1 text-white/75" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}>
+                  <p
+                    className="mt-1 text-white/75"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     {formatMemberDate(member.joinedAt)}
                   </p>
                 </div>
@@ -2202,36 +2279,80 @@ function PaymentProofReviewModal({
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
               <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
                 <div>
-                  <h4 className="text-white" style={{ fontSize: "17px", fontWeight: 600, fontFamily: "Outfit, sans-serif" }}>
+                  <h4
+                    className="text-white"
+                    style={{
+                      fontSize: "17px",
+                      fontWeight: 600,
+                      fontFamily: "Outfit, sans-serif",
+                    }}
+                  >
                     Uploaded proofs
                   </h4>
-                  <p className="mt-1 text-white/45" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                  <p
+                    className="mt-1 text-white/45"
+                    style={{
+                      fontSize: "13px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     Only authenticated admins can load these proof files.
                   </p>
                 </div>
                 {!proofsLoading && !proofsError && proofs.length > 0 && (
-                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-white/55" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                  <span
+                    className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-white/55"
+                    style={{
+                      fontSize: "12px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     {proofs.length} proof{proofs.length === 1 ? "" : "s"}
                   </span>
                 )}
               </div>
 
               {proofsLoading ? (
-                <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4" role="status">
+                <div
+                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4"
+                  role="status"
+                >
                   <Loader2 className="h-5 w-5 animate-spin text-[#eb7524]" />
-                  <span className="text-white/70" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}>
+                  <span
+                    className="text-white/70"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     Loading payment proof details...
                   </span>
                 </div>
               ) : proofsError ? (
-                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-4" role="alert">
+                <div
+                  className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-4"
+                  role="alert"
+                >
                   <div className="flex items-start gap-2">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
                     <div>
-                      <p className="text-red-100" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}>
+                      <p
+                        className="text-red-100"
+                        style={{
+                          fontSize: "14px",
+                          fontFamily: "Inter, sans-serif",
+                          fontWeight: 600,
+                        }}
+                      >
                         Failed to load payment proof metadata
                       </p>
-                      <p className="mt-1 text-red-100/80" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                      <p
+                        className="mt-1 text-red-100/80"
+                        style={{
+                          fontSize: "13px",
+                          fontFamily: "Inter, sans-serif",
+                        }}
+                      >
                         {proofsError}
                       </p>
                     </div>
@@ -2240,7 +2361,10 @@ function PaymentProofReviewModal({
                     type="button"
                     onClick={retryMetadataLoad}
                     className="mt-4 rounded-lg border border-red-200/30 bg-red-200/10 px-3 py-2 text-red-100 transition-all hover:bg-red-200/20"
-                    style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                    style={{
+                      fontSize: "13px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
                   >
                     Retry proof details
                   </button>
@@ -2248,11 +2372,25 @@ function PaymentProofReviewModal({
               ) : proofs.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-5 text-center">
                   <ImageIcon className="mx-auto mb-3 h-9 w-9 text-white/15" />
-                  <p className="text-white" style={{ fontSize: "15px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}>
+                  <p
+                    className="text-white"
+                    style={{
+                      fontSize: "15px",
+                      fontFamily: "Outfit, sans-serif",
+                      fontWeight: 600,
+                    }}
+                  >
                     No payment proof uploaded
                   </p>
-                  <p className="mt-2 text-white/45" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
-                    This member is in Need Review, but no proof metadata is available to inspect.
+                  <p
+                    className="mt-2 text-white/45"
+                    style={{
+                      fontSize: "13px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
+                    This member is in Need Review, but no proof metadata is
+                    available to inspect.
                   </p>
                 </div>
               ) : (
@@ -2272,39 +2410,102 @@ function PaymentProofReviewModal({
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p style={{ fontSize: "14px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}>
+                            <p
+                              style={{
+                                fontSize: "14px",
+                                fontFamily: "Inter, sans-serif",
+                                fontWeight: 600,
+                              }}
+                            >
                               {proof.originalFilename}
                             </p>
-                            <p className="mt-1 text-white/45" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
-                              {proof.mimeType} • {formatFileSize(proof.sizeBytes)}
+                            <p
+                              className="mt-1 text-white/45"
+                              style={{
+                                fontSize: "12px",
+                                fontFamily: "Inter, sans-serif",
+                              }}
+                            >
+                              {proof.mimeType} •{" "}
+                              {formatFileSize(proof.sizeBytes)}
                             </p>
                           </div>
-                          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-white/55" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif" }}>
-                            {proof.status ? formatPaymentProofStatus(proof.status) : "Uploaded"}
+                          <span
+                            className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-white/55"
+                            style={{
+                              fontSize: "11px",
+                              fontFamily: "Inter, sans-serif",
+                            }}
+                          >
+                            {proof.status
+                              ? formatPaymentProofStatus(proof.status)
+                              : "Uploaded"}
                           </span>
                         </div>
                         <div className="mt-3 grid gap-2 sm:grid-cols-3">
                           <div>
-                            <p className="text-white/35" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                            <p
+                              className="text-white/35"
+                              style={{
+                                fontSize: "11px",
+                                fontFamily: "Inter, sans-serif",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.08em",
+                              }}
+                            >
                               Uploaded
                             </p>
-                            <p className="mt-1 text-white/65" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                            <p
+                              className="mt-1 text-white/65"
+                              style={{
+                                fontSize: "12px",
+                                fontFamily: "Inter, sans-serif",
+                              }}
+                            >
                               {formatMemberDate(proof.createdAt || null)}
                             </p>
                           </div>
                           <div>
-                            <p className="text-white/35" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                            <p
+                              className="text-white/35"
+                              style={{
+                                fontSize: "11px",
+                                fontFamily: "Inter, sans-serif",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.08em",
+                              }}
+                            >
                               Linked
                             </p>
-                            <p className="mt-1 text-white/65" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                            <p
+                              className="mt-1 text-white/65"
+                              style={{
+                                fontSize: "12px",
+                                fontFamily: "Inter, sans-serif",
+                              }}
+                            >
                               {formatMemberDate(proof.linkedAt || null)}
                             </p>
                           </div>
                           <div>
-                            <p className="text-white/35" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                            <p
+                              className="text-white/35"
+                              style={{
+                                fontSize: "11px",
+                                fontFamily: "Inter, sans-serif",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.08em",
+                              }}
+                            >
                               Expires
                             </p>
-                            <p className="mt-1 text-white/65" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                            <p
+                              className="mt-1 text-white/65"
+                              style={{
+                                fontSize: "12px",
+                                fontFamily: "Inter, sans-serif",
+                              }}
+                            >
                               {formatMemberDate(proof.expiresAt || null)}
                             </p>
                           </div>
@@ -2321,11 +2522,25 @@ function PaymentProofReviewModal({
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
               <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
                 <div>
-                  <h4 className="text-white" style={{ fontSize: "17px", fontWeight: 600, fontFamily: "Outfit, sans-serif" }}>
+                  <h4
+                    className="text-white"
+                    style={{
+                      fontSize: "17px",
+                      fontWeight: 600,
+                      fontFamily: "Outfit, sans-serif",
+                    }}
+                  >
                     Proof preview
                   </h4>
-                  <p className="mt-1 text-white/45" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
-                    Files are fetched with authenticated admin requests and turned into temporary object URLs in the browser.
+                  <p
+                    className="mt-1 text-white/45"
+                    style={{
+                      fontSize: "13px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
+                    Files are fetched with authenticated admin requests and
+                    turned into temporary object URLs in the browser.
                   </p>
                 </div>
               </div>
@@ -2333,26 +2548,57 @@ function PaymentProofReviewModal({
               {!selectedProof ? (
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-10 text-center">
                   <ImageIcon className="mx-auto mb-3 h-10 w-10 text-white/15" />
-                  <p className="text-white/55" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}>
+                  <p
+                    className="text-white/55"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     Select a proof to preview it.
                   </p>
                 </div>
               ) : proofFileLoading ? (
-                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-10 text-center" role="status">
+                <div
+                  className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-10 text-center"
+                  role="status"
+                >
                   <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-[#eb7524]" />
-                  <p className="text-white/65" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}>
+                  <p
+                    className="text-white/65"
+                    style={{
+                      fontSize: "14px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     Loading proof preview...
                   </p>
                 </div>
               ) : proofFileError ? (
-                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-5" role="alert">
+                <div
+                  className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-5"
+                  role="alert"
+                >
                   <div className="flex items-start gap-2">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
                     <div>
-                      <p className="text-red-100" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}>
+                      <p
+                        className="text-red-100"
+                        style={{
+                          fontSize: "14px",
+                          fontFamily: "Inter, sans-serif",
+                          fontWeight: 600,
+                        }}
+                      >
                         Could not load payment proof preview.
                       </p>
-                      <p className="mt-1 text-red-100/80" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                      <p
+                        className="mt-1 text-red-100/80"
+                        style={{
+                          fontSize: "13px",
+                          fontFamily: "Inter, sans-serif",
+                        }}
+                      >
                         {proofFileError}
                       </p>
                     </div>
@@ -2361,12 +2607,16 @@ function PaymentProofReviewModal({
                     type="button"
                     onClick={retryProofFileLoad}
                     className="mt-4 rounded-lg border border-red-200/30 bg-red-200/10 px-3 py-2 text-red-100 transition-all hover:bg-red-200/20"
-                    style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                    style={{
+                      fontSize: "13px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
                   >
                     Retry file load
                   </button>
                 </div>
-              ) : proofObjectUrl && isImageMimeType(proofFileMimeType || selectedProof.mimeType) ? (
+              ) : proofObjectUrl &&
+                isImageMimeType(proofFileMimeType || selectedProof.mimeType) ? (
                 <div className="space-y-4">
                   <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/25">
                     <img
@@ -2381,7 +2631,10 @@ function PaymentProofReviewModal({
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
-                      style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
                     >
                       <ExternalLink className="h-4 w-4" />
                       Open proof
@@ -2390,7 +2643,10 @@ function PaymentProofReviewModal({
                       href={proofObjectUrl}
                       download={proofFileName || selectedProof.originalFilename}
                       className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
-                      style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
                     >
                       <ImageIcon className="h-4 w-4" />
                       Download proof
@@ -2399,11 +2655,25 @@ function PaymentProofReviewModal({
                 </div>
               ) : proofObjectUrl ? (
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-6">
-                  <p className="text-white" style={{ fontSize: "15px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}>
+                  <p
+                    className="text-white"
+                    style={{
+                      fontSize: "15px",
+                      fontFamily: "Outfit, sans-serif",
+                      fontWeight: 600,
+                    }}
+                  >
                     Preview unavailable
                   </p>
-                  <p className="mt-2 text-white/45" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
-                    This file type cannot be previewed inline, but you can still open or download it securely.
+                  <p
+                    className="mt-2 text-white/45"
+                    style={{
+                      fontSize: "13px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
+                    This file type cannot be previewed inline, but you can still
+                    open or download it securely.
                   </p>
                   <div className="mt-4 flex gap-3 flex-wrap">
                     <a
@@ -2411,7 +2681,10 @@ function PaymentProofReviewModal({
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
-                      style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
                     >
                       <ExternalLink className="h-4 w-4" />
                       Open proof
@@ -2420,7 +2693,10 @@ function PaymentProofReviewModal({
                       href={proofObjectUrl}
                       download={proofFileName || selectedProof.originalFilename}
                       className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
-                      style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
                     >
                       <ImageIcon className="h-4 w-4" />
                       Download proof
@@ -2431,10 +2707,19 @@ function PaymentProofReviewModal({
             </div>
 
             {approveError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3" role="alert">
+              <div
+                className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3"
+                role="alert"
+              >
                 <div className="flex items-start gap-2">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
-                  <p className="text-red-100" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                  <p
+                    className="text-red-100"
+                    style={{
+                      fontSize: "13px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
                     {approveError}
                   </p>
                 </div>
@@ -2447,7 +2732,11 @@ function PaymentProofReviewModal({
                 onClick={onClose}
                 disabled={approving}
                 className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-2.5 text-white/75 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 500 }}
+                style={{
+                  fontSize: "14px",
+                  fontFamily: "Outfit, sans-serif",
+                  fontWeight: 500,
+                }}
               >
                 Close
               </button>
@@ -2456,7 +2745,11 @@ function PaymentProofReviewModal({
                 onClick={handleApprove}
                 disabled={approving || !canApprove}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#eb7524] px-5 py-2.5 text-white shadow-[0_4px_20px_rgba(235,117,36,0.28)] transition-all hover:bg-[#d4691f] disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                style={{
+                  fontSize: "14px",
+                  fontFamily: "Outfit, sans-serif",
+                  fontWeight: 600,
+                }}
               >
                 {approving ? (
                   <>
@@ -2725,7 +3018,9 @@ function MembersManager({
                     <th className="px-4 py-3 font-medium">Join Date</th>
                     <th className="px-4 py-3 font-medium">Membership Status</th>
                     <th className="px-4 py-3 font-medium">Role</th>
-                    <th className="px-4 py-3 font-medium text-right">Actions</th>
+                    <th className="px-4 py-3 font-medium text-right">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="text-white/80" style={{ fontSize: "13.5px" }}>
@@ -2787,7 +3082,10 @@ function MembersManager({
                         ) : (
                           <span
                             className="text-white/20"
-                            style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
+                            style={{
+                              fontSize: "12px",
+                              fontFamily: "Inter, sans-serif",
+                            }}
                           >
                             —
                           </span>

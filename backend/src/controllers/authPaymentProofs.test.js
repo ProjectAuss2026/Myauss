@@ -87,6 +87,19 @@ function storeUser(user) {
   return user;
 }
 
+function filterUsers(where = {}) {
+  return Array.from(usersById.values()).filter((user) => {
+    if (
+      where.membershipStatus !== undefined &&
+      user.membershipStatus !== where.membershipStatus
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 function makePaymentProof(data = {}) {
   const id = data.id || `proof-${++paymentProofSequence}`;
   const createdAt = data.createdAt ?? new Date();
@@ -210,6 +223,29 @@ globalThis.prisma = {
 
       return selectRecord(user, args.select);
     },
+    count: async (args = {}) => filterUsers(args.where).length,
+    findMany: async (args = {}) => {
+      const users = [...filterUsers(args.where)].sort((left, right) => {
+        for (const clause of args.orderBy || []) {
+          const [field, direction] = Object.entries(clause)[0];
+          const multiplier = direction === "desc" ? -1 : 1;
+          const leftValue = left[field];
+          const rightValue = right[field];
+
+          if (leftValue == null && rightValue == null) continue;
+          if (leftValue == null) return 1;
+          if (rightValue == null) return -1;
+          if (leftValue > rightValue) return multiplier;
+          if (leftValue < rightValue) return -multiplier;
+        }
+
+        return 0;
+      });
+
+      const start = args.skip || 0;
+      const end = args.take ? start + args.take : undefined;
+      return cloneRecord(users.slice(start, end));
+    },
   },
   otpCode: {
     upsert: async (args) => {
@@ -225,8 +261,12 @@ globalThis.prisma = {
   },
   membershipStatusAudit: {
     create: async (args) => {
-      membershipAudits.push(cloneRecord(args.data));
-      return cloneRecord(args.data);
+      const record = {
+        ...cloneRecord(args.data),
+        createdAt: args.data.createdAt || new Date(),
+      };
+      membershipAudits.push(record);
+      return cloneRecord(record);
     },
   },
   paymentProofUpload: {
@@ -772,6 +812,7 @@ test("admin proof metadata endpoint works for ADMIN or OWNER", async () => {
     assert.equal(response.json.data.length, 1);
     assert.equal(response.json.data[0].id, VALID_PROOF_UPLOAD_ID);
     assert.equal(response.json.data[0].fileBytes, undefined);
+    assert.equal(response.json.data[0].privatePath, undefined);
     assert.equal(response.json.data[0].storagePath, undefined);
   }
 });
@@ -837,4 +878,158 @@ test("admin proof file endpoint works for ADMIN or OWNER", async () => {
     assert.ok(response.headers["content-disposition"].includes("receipt.png"));
     assert.deepEqual(response.buffer, PNG_BYTES);
   }
+});
+
+test("membership status endpoint rejects unauthenticated users", async () => {
+  const member = storeUser(
+    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    body: {
+      status: "VERIFIED",
+      reason: "Payment proof approved",
+    },
+  });
+
+  assert.equal(response.statusCode, 401);
+});
+
+test("membership status endpoint rejects normal USER users", async () => {
+  const member = storeUser(
+    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "user@example.com", role: "USER", isVerified: true }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "VERIFIED",
+      reason: "Payment proof approved",
+    },
+  });
+
+  assert.equal(response.statusCode, 403);
+});
+
+test("membership status endpoint allows ADMIN or OWNER to approve NEED_REVIEW users and writes an audit trail", async () => {
+  for (const actorRole of ["ADMIN", "OWNER"]) {
+    const member = storeUser(
+      makeUser({
+        id: `review-${actorRole.toLowerCase()}-member`,
+        email: `review-${actorRole.toLowerCase()}@example.com`,
+        membershipStatus: "NEED_REVIEW",
+        info: {
+          id: `info-${actorRole.toLowerCase()}`,
+          userId: `review-${actorRole.toLowerCase()}-member`,
+          firstName: "Cash",
+          lastName: "Member",
+        },
+      }),
+    );
+    const actor = storeUser(
+      makeUser({
+        email: `${actorRole.toLowerCase()}@example.com`,
+        role: actorRole,
+        isVerified: true,
+      }),
+    );
+
+    const response = await requestApp(createApp(), {
+      method: "POST",
+      path: `/api/auth/admin/members/${member.id}/status`,
+      token: authToken(actor),
+      body: {
+        status: "VERIFIED",
+        reason: "Payment proof approved",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(usersById.get(member.id)?.membershipStatus, "VERIFIED");
+    assert.equal(response.json.data.membershipStatus, "VERIFIED");
+
+    const audit = membershipAudits.find(
+      (record) =>
+        record.actorUserId === actor.id && record.targetUserId === member.id,
+    );
+    assert.ok(audit);
+    assert.equal(audit.actorUserId, actor.id);
+    assert.equal(audit.targetUserId, member.id);
+    assert.equal(audit.fromStatus, "NEED_REVIEW");
+    assert.equal(audit.toStatus, "VERIFIED");
+    assert.equal(audit.reason, "Payment proof approved");
+    assert.ok(audit.createdAt instanceof Date);
+  }
+});
+
+test("membership status endpoint rejects illegal transitions", async () => {
+  const member = storeUser(
+    makeUser({ email: "inactive@example.com", membershipStatus: "INACTIVE" }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "VERIFIED",
+      reason: "Payment proof approved",
+    },
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.json.error, "Illegal transition: INACTIVE → VERIFIED");
+});
+
+test("admin roster reflects VERIFIED status after approval", async () => {
+  const member = storeUser(
+    makeUser({
+      id: "roster-review-user",
+      email: "roster.review@example.com",
+      membershipStatus: "NEED_REVIEW",
+      info: {
+        id: "info-roster-review-user",
+        userId: "roster-review-user",
+        firstName: "Roster",
+        lastName: "Review",
+      },
+    }),
+  );
+  const actor = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  const approveResponse = await requestApp(createApp(), {
+    method: "POST",
+    path: `/api/auth/admin/members/${member.id}/status`,
+    token: authToken(actor),
+    body: {
+      status: "VERIFIED",
+      reason: "Payment proof approved",
+    },
+  });
+
+  assert.equal(approveResponse.statusCode, 200);
+
+  const rosterResponse = await requestApp(createApp(), {
+    path: "/api/auth/admin/members?status=VERIFIED&page=1&pageSize=20",
+    token: authToken(actor),
+  });
+
+  assert.equal(rosterResponse.statusCode, 200);
+  assert.ok(
+    rosterResponse.json.data.some(
+      (row) => row.id === member.id && row.membershipStatus === "VERIFIED",
+    ),
+  );
 });
