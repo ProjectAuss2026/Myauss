@@ -1,0 +1,20 @@
+# KAN-101: Dependabot — security + version updates
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/" # npm workspaces root — covers backend and frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, security]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, ci]

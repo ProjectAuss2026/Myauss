@@ -1,0 +1,10 @@
+# KAN-101: route security-sensitive paths to a security reviewer.
+# Replace @security-reviewer with the actual GitHub username or team (e.g. @ProjectAuss2026/security).
+# Note: ticket referenced /backend/src/auth/, /middleware/, /controllers/ — those
+# dirs don't exist yet; entries below cover them for when they're created.
+/backend/             @security-reviewer
+/backend/src/auth/    @security-reviewer
+/middleware/          @security-reviewer
+/controllers/         @security-reviewer
+/.github/workflows/   @security-reviewer
+/.env.example         @security-reviewer
