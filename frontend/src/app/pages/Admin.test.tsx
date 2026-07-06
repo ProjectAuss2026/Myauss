@@ -14,6 +14,11 @@ const navigateMock = vi.fn();
 const logoutMock = vi.fn();
 const showToastMock = vi.fn();
 const fetchMock = vi.fn();
+const createObjectUrlMock = vi.fn();
+const revokeObjectUrlMock = vi.fn();
+
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
 
 let authState = {
   user: {
@@ -57,6 +62,16 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function binaryResponse(
+  body: BodyInit,
+  init: { status?: number; headers?: Record<string, string> } = {},
+): Response {
+  return new Response(body, {
+    status: init.status ?? 200,
+    headers: init.headers,
   });
 }
 
@@ -112,6 +127,21 @@ const pageTwoMember = {
   membershipStatus: "VERIFIED",
 };
 
+const sampleProofs = [
+  {
+    id: "proof-1",
+    originalFilename: "receipt.png",
+    mimeType: "image/png",
+    sizeBytes: 2048,
+    status: "LINKED",
+    createdAt: "2026-05-03T12:15:00.000Z",
+    expiresAt: "2026-05-04T12:15:00.000Z",
+    linkedAt: "2026-05-03T12:16:00.000Z",
+  },
+];
+
+const proofImageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
 function membersResponse(
   members: unknown[],
   options: {
@@ -142,16 +172,38 @@ function membersResponse(
   });
 }
 
+function proofMetadataResponse(proofs: unknown[] = sampleProofs): Response {
+  return jsonResponse({ data: proofs });
+}
+
 function getRequestParams(url: string): URLSearchParams {
   return new URL(url, "http://localhost").searchParams;
 }
 
 function installFetchMock(
   options: {
-    membersHandler?: (url: string) => Promise<Response> | Response;
+    membersHandler?: (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response> | Response;
+    paymentProofsHandler?: (
+      userId: string,
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response> | Response;
+    proofFileHandler?: (
+      proofId: string,
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response> | Response;
+    statusHandler?: (
+      userId: string,
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response> | Response;
   } = {},
 ) {
-  fetchMock.mockImplementation((input: string | URL | Request) => {
+  fetchMock.mockImplementation((input: string | URL | Request, init?: RequestInit) => {
     const url =
       typeof input === "string"
         ? input
@@ -159,9 +211,54 @@ function installFetchMock(
           ? input.toString()
           : input.url;
 
+    const paymentProofsMatch = url.match(
+      /^\/api\/auth\/admin\/members\/([^/]+)\/payment-proofs$/,
+    );
+    if (paymentProofsMatch) {
+      if (options.paymentProofsHandler) {
+        return options.paymentProofsHandler(paymentProofsMatch[1], url, init);
+      }
+
+      return Promise.resolve(proofMetadataResponse());
+    }
+
+    const statusMatch = url.match(/^\/api\/auth\/admin\/members\/([^/]+)\/status$/);
+    if (statusMatch) {
+      if (options.statusHandler) {
+        return options.statusHandler(statusMatch[1], url, init);
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          data: {
+            ...sampleMembers[1],
+            membershipStatus: "VERIFIED",
+          },
+        }),
+      );
+    }
+
+    const proofFileMatch = url.match(
+      /^\/api\/auth\/admin\/payment-proofs\/([^/]+)\/file$/,
+    );
+    if (proofFileMatch) {
+      if (options.proofFileHandler) {
+        return options.proofFileHandler(proofFileMatch[1], url, init);
+      }
+
+      return Promise.resolve(
+        binaryResponse(proofImageBytes, {
+          headers: {
+            "Content-Type": "image/png",
+            "Content-Disposition": 'attachment; filename="receipt.png"',
+          },
+        }),
+      );
+    }
+
     if (url.startsWith("/api/auth/admin/members")) {
       if (options.membersHandler) {
-        return options.membersHandler(url);
+        return options.membersHandler(url, init);
       }
       return Promise.resolve(membersResponse(sampleMembers));
     }
@@ -189,6 +286,20 @@ function renderMembersView() {
   return render(<Admin />);
 }
 
+async function openReviewPaymentDialog(memberName = "Bruce Lee") {
+  const row = await screen.findByText(memberName);
+  const rowElement = row.closest("tr");
+  expect(rowElement).toBeTruthy();
+
+  fireEvent.click(
+    within(rowElement as HTMLTableRowElement).getByRole("button", {
+      name: "Review payment",
+    }),
+  );
+
+  return screen.findByRole("dialog", { name: "Review payment proof" });
+}
+
 beforeEach(() => {
   localStorage.clear();
   navigateMock.mockReset();
@@ -196,6 +307,19 @@ beforeEach(() => {
   showToastMock.mockReset();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  createObjectUrlMock.mockReset();
+  createObjectUrlMock.mockReturnValue("blob:proof-preview");
+  revokeObjectUrlMock.mockReset();
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    writable: true,
+    value: createObjectUrlMock,
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    writable: true,
+    value: revokeObjectUrlMock,
+  });
   authState = {
     user: {
       id: "admin-1",
@@ -220,6 +344,26 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+
+  if (originalCreateObjectURL) {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: originalCreateObjectURL,
+    });
+  } else {
+    Reflect.deleteProperty(URL, "createObjectURL");
+  }
+
+  if (originalRevokeObjectURL) {
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: originalRevokeObjectURL,
+    });
+  } else {
+    Reflect.deleteProperty(URL, "revokeObjectURL");
+  }
 });
 
 describe("Admin membership roster", () => {
@@ -400,9 +544,11 @@ describe("Admin membership roster", () => {
     vi.useRealTimers();
 
     await waitFor(() => {
-      expect(membersHandler).toHaveBeenCalledWith(
-        expect.stringContaining("search=alice"),
-      );
+      expect(
+        membersHandler.mock.calls.some(([url]) =>
+          String(url).includes("search=alice"),
+        ),
+      ).toBe(true);
     });
 
     membersHandler.mockClear();
@@ -450,15 +596,15 @@ describe("Admin membership roster", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("Page Two")).toBeTruthy();
-    expect(membersHandler).toHaveBeenCalledWith(
-      expect.stringContaining("page=2"),
-    );
+    expect(
+      membersHandler.mock.calls.some(([url]) => String(url).includes("page=2")),
+    ).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
     expect(await screen.findByText("Alice Nguyen")).toBeTruthy();
-    expect(membersHandler).toHaveBeenCalledWith(
-      expect.stringContaining("page=1"),
-    );
+    expect(
+      membersHandler.mock.calls.some(([url]) => String(url).includes("page=1")),
+    ).toBe(true);
   });
 
   it("renders backend-returned search results in the table", async () => {
@@ -642,9 +788,11 @@ describe("Admin membership roster", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "50" }));
     await waitFor(() => {
-      expect(membersHandler).toHaveBeenCalledWith(
-        expect.stringContaining("pageSize=50"),
-      );
+      expect(
+        membersHandler.mock.calls.some(([url]) =>
+          String(url).includes("pageSize=50"),
+        ),
+      ).toBe(true);
     });
 
     vi.useFakeTimers();
@@ -767,6 +915,331 @@ describe("Admin membership roster", () => {
     expect(
       within(reviewRow as HTMLTableRowElement).getByText("Need Review"),
     ).toBeTruthy();
+
+    const inactiveRow = screen.getByText("Charlie Kim").closest("tr");
+    expect(inactiveRow).toBeTruthy();
+    expect(
+      within(inactiveRow as HTMLTableRowElement).getByText("Inactive"),
+    ).toBeTruthy();
+  });
+
+  it("shows Review payment only for Need Review rows", async () => {
+    installFetchMock();
+
+    renderMembersView();
+
+    const reviewRow = (await screen.findByText("Bruce Lee")).closest("tr");
+    const verifiedRow = screen.getByText("Alice Nguyen").closest("tr");
+    const inactiveRow = screen.getByText("Charlie Kim").closest("tr");
+
+    expect(reviewRow).toBeTruthy();
+    expect(verifiedRow).toBeTruthy();
+    expect(inactiveRow).toBeTruthy();
+
+    expect(
+      within(reviewRow as HTMLTableRowElement).getByRole("button", {
+        name: "Review payment",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(verifiedRow as HTMLTableRowElement).queryByRole("button", {
+        name: "Review payment",
+      }),
+    ).toBeNull();
+    expect(
+      within(inactiveRow as HTMLTableRowElement).queryByRole("button", {
+        name: "Review payment",
+      }),
+    ).toBeNull();
+  });
+
+  it("opens the review modal, loads proof metadata, and previews the secure proof file", async () => {
+    const deferredProofFile = createDeferred<Response>();
+    const paymentProofsHandler = vi.fn(() => proofMetadataResponse());
+    const proofFileHandler = vi.fn(() => deferredProofFile.promise);
+
+    installFetchMock({ paymentProofsHandler, proofFileHandler });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    expect(paymentProofsHandler).toHaveBeenCalledTimes(1);
+    const [proofUserId, proofUrl, proofInit] = paymentProofsHandler.mock
+      .calls[0] as unknown as [string, string, RequestInit | undefined];
+    expect(proofUserId).toBe("member-2");
+    expect(proofUrl).toBe("/api/auth/admin/members/member-2/payment-proofs");
+    expect(proofInit?.credentials).toBe("include");
+    expect(within(dialog).getByText("Bruce Lee")).toBeTruthy();
+    expect(within(dialog).getByText("bruce@example.com")).toBeTruthy();
+    expect(within(dialog).getByText("member-2")).toBeTruthy();
+    expect(within(dialog).getByText("Need Review")).toBeTruthy();
+    expect(await within(dialog).findByText("receipt.png")).toBeTruthy();
+    expect((await within(dialog).findAllByText("Linked")).length).toBe(2);
+    expect(await within(dialog).findByText("Loading proof preview...")).toBeTruthy();
+
+    deferredProofFile.resolve(
+      binaryResponse(proofImageBytes, {
+        headers: {
+          "Content-Type": "image/png",
+          "Content-Disposition": 'attachment; filename="receipt.png"',
+        },
+      }),
+    );
+
+    const preview = await within(dialog).findByAltText(
+      "Payment proof preview for Bruce Lee",
+    );
+    expect(preview.getAttribute("src")).toBe("blob:proof-preview");
+    expect(createObjectUrlMock).toHaveBeenCalledTimes(1);
+    expect(
+      within(dialog).getByRole("link", { name: "Open proof" }),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByRole("link", { name: "Download proof" }),
+    ).toBeTruthy();
+  });
+
+  it("shows a loading state while proof metadata is fetched", async () => {
+    const deferredProofs = createDeferred<Response>();
+    installFetchMock({
+      paymentProofsHandler: () => deferredProofs.promise,
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    expect(
+      await within(dialog).findByText("Loading payment proof details..."),
+    ).toBeTruthy();
+
+    deferredProofs.resolve(proofMetadataResponse());
+    expect(await within(dialog).findByText("receipt.png")).toBeTruthy();
+  });
+
+  it("shows an error state when proof metadata loading fails", async () => {
+    installFetchMock({
+      paymentProofsHandler: () =>
+        Promise.resolve(jsonResponse({ error: "Proof metadata unavailable" }, 500)),
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    expect(
+      await within(dialog).findByText("Failed to load payment proof metadata"),
+    ).toBeTruthy();
+    expect(within(dialog).getByText("Proof metadata unavailable")).toBeTruthy();
+  });
+
+  it("shows an empty state when no payment proof is available", async () => {
+    installFetchMock({
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse([])),
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    expect(await within(dialog).findByText("No payment proof uploaded")).toBeTruthy();
+    const approveButton = within(dialog).getByRole("button", {
+      name: "Approve membership",
+    }) as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+  });
+
+  it("shows a proof file error while keeping the modal open", async () => {
+    installFetchMock({
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
+      proofFileHandler: () =>
+        Promise.resolve(jsonResponse({ error: "Payment proof file not found" }, 404)),
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    expect(
+      await within(dialog).findByText("Could not load payment proof preview."),
+    ).toBeTruthy();
+    expect(within(dialog).getByText("Payment proof file not found")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Review payment proof" })).toBeTruthy();
+  });
+
+  it("approves a Need Review member, sends the approval request body, and refreshes the filtered roster", async () => {
+    let approved = false;
+    const deferredStatus = createDeferred<Response>();
+
+    installFetchMock({
+      membersHandler: (url: string) => {
+        if (url.includes("status=NEED_REVIEW")) {
+          return Promise.resolve(
+            membersResponse(
+              approved ? [] : [sampleMembers[1]],
+              approved
+                ? { page: 1, pageSize: 20, total: 0 }
+                : { page: 1, pageSize: 20, total: 1 },
+            ),
+          );
+        }
+
+        return Promise.resolve(membersResponse(sampleMembers));
+      },
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
+      proofFileHandler: () =>
+        Promise.resolve(
+          binaryResponse(proofImageBytes, {
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": 'attachment; filename="receipt.png"',
+            },
+          }),
+        ),
+      statusHandler: async (userId, _url, init) => {
+        expect(userId).toBe("member-2");
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          status: "VERIFIED",
+          reason: "Payment proof approved",
+        });
+        return deferredStatus.promise;
+      },
+    });
+
+    renderMembersView();
+    await screen.findByText("Alice Nguyen");
+    fireEvent.click(screen.getByRole("button", { name: "Need Review" }));
+    await screen.findByText("Bruce Lee");
+
+    const dialog = await openReviewPaymentDialog();
+    const approveButton = (await within(dialog).findByRole("button", {
+      name: "Approve membership",
+    })) as HTMLButtonElement;
+    fireEvent.click(approveButton);
+
+    const approvingButton = (await within(dialog).findByRole("button", {
+      name: "Approving...",
+    })) as HTMLButtonElement;
+    expect(approvingButton.disabled).toBe(true);
+
+    approved = true;
+    deferredStatus.resolve(
+      jsonResponse({
+        data: {
+          ...sampleMembers[1],
+          membershipStatus: "VERIFIED",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(showToastMock).toHaveBeenCalledWith(
+        "Bruce Lee approved and marked as verified.",
+        "success",
+      );
+    });
+
+    expect(
+      await screen.findByText("No members match your current search and filter"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Bruce Lee")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Review payment proof" })).toBeNull();
+  });
+
+  it("refreshes the All roster so an approved member reappears as Verified", async () => {
+    let approved = false;
+
+    installFetchMock({
+      membersHandler: () =>
+        Promise.resolve(
+          membersResponse(
+            approved
+              ? [
+                  sampleMembers[0],
+                  { ...sampleMembers[1], membershipStatus: "VERIFIED" },
+                  sampleMembers[2],
+                ]
+              : sampleMembers,
+          ),
+        ),
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
+      proofFileHandler: () =>
+        Promise.resolve(
+          binaryResponse(proofImageBytes, {
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": 'attachment; filename="receipt.png"',
+            },
+          }),
+        ),
+      statusHandler: () => {
+        approved = true;
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              ...sampleMembers[1],
+              membershipStatus: "VERIFIED",
+            },
+          }),
+        );
+      },
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    fireEvent.click(
+      await within(dialog).findByRole("button", {
+        name: "Approve membership",
+      }),
+    );
+
+    await waitFor(() => {
+      const row = screen.getByText("Bruce Lee").closest("tr");
+      expect(row).toBeTruthy();
+      expect(
+        within(row as HTMLTableRowElement).getByText("Verified"),
+      ).toBeTruthy();
+      expect(
+        within(row as HTMLTableRowElement).queryByRole("button", {
+          name: "Review payment",
+        }),
+      ).toBeNull();
+    });
+  });
+
+  it("keeps the review modal open and shows an error when approval fails", async () => {
+    installFetchMock({
+      paymentProofsHandler: () => Promise.resolve(proofMetadataResponse()),
+      proofFileHandler: () =>
+        Promise.resolve(
+          binaryResponse(proofImageBytes, {
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": 'attachment; filename="receipt.png"',
+            },
+          }),
+        ),
+      statusHandler: () =>
+        Promise.resolve(
+          jsonResponse({ error: "Illegal transition: NEED_REVIEW → VERIFIED" }, 409),
+        ),
+    });
+
+    renderMembersView();
+    const dialog = await openReviewPaymentDialog();
+
+    fireEvent.click(
+      await within(dialog).findByRole("button", {
+        name: "Approve membership",
+      }),
+    );
+
+    expect(
+      await within(dialog).findByText("Illegal transition: NEED_REVIEW → VERIFIED"),
+    ).toBeTruthy();
+    expect(showToastMock).toHaveBeenCalledWith(
+      "Illegal transition: NEED_REVIEW → VERIFIED",
+      "error",
+    );
+    expect(screen.getByRole("dialog", { name: "Review payment proof" })).toBeTruthy();
   });
 
   it("redirects non-admin users away from the admin page", async () => {

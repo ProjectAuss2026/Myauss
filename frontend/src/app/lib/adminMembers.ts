@@ -52,6 +52,29 @@ export interface AdminMembersResult {
   pagination: AdminMembersPagination;
 }
 
+export interface MemberPaymentProofMetadata {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  expiresAt?: string | null;
+  linkedAt?: string | null;
+}
+
+export interface MemberPaymentProofFileResult {
+  blob: Blob;
+  contentType: string | null;
+  filename: string | null;
+}
+
+interface UpdateAdminMemberStatusOptions {
+  status: MembershipStatus;
+  reason?: string | null;
+}
+
 interface GetAdminMembersOptions {
   status?: MemberStatusFilter | MembershipStatus | null;
   search?: string;
@@ -98,6 +121,30 @@ async function getApiErrorMessage(response: Response): Promise<string> {
   } catch {
     return fallback;
   }
+}
+
+function parseContentDispositionFilename(value: string | null): string | null {
+  const headerValue = readString(value);
+  if (!headerValue) {
+    return null;
+  }
+
+  const utf8Match = headerValue.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const quotedMatch = headerValue.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+
+  const bareMatch = headerValue.match(/filename=([^;]+)/i);
+  return bareMatch?.[1]?.trim() || null;
 }
 
 function readPositiveInteger(value: unknown, fallback: number): number {
@@ -227,6 +274,79 @@ export async function getAdminMembers({
       requestedPageSize,
     ),
   };
+}
+
+export async function getMemberPaymentProofs(
+  userId: string,
+): Promise<MemberPaymentProofMetadata[]> {
+  const response = await fetchWithAuth(
+    `/api/auth/admin/members/${encodeURIComponent(userId)}/payment-proofs`,
+  );
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response));
+  }
+
+  const payload = await response.json().catch(() => null);
+  const records = Array.isArray(payload?.data) ? payload.data : [];
+
+  return records.map((record: Record<string, unknown>) => ({
+    id: String(record.id || ""),
+    originalFilename: readString(record.originalFilename) || "payment-proof",
+    mimeType: readString(record.mimeType) || "application/octet-stream",
+    sizeBytes:
+      typeof record.sizeBytes === "number" && Number.isFinite(record.sizeBytes)
+        ? record.sizeBytes
+        : 0,
+    status: readString(record.status),
+    createdAt: readString(record.createdAt),
+    updatedAt: readString(record.updatedAt),
+    expiresAt: readString(record.expiresAt),
+    linkedAt: readString(record.linkedAt),
+  }));
+}
+
+export async function getMemberPaymentProofFile(
+  proofId: string,
+): Promise<MemberPaymentProofFileResult> {
+  const response = await fetchWithAuth(
+    `/api/auth/admin/payment-proofs/${encodeURIComponent(proofId)}/file`,
+  );
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response));
+  }
+
+  return {
+    blob: await response.blob(),
+    contentType: readString(response.headers.get("content-type")),
+    filename: parseContentDispositionFilename(
+      response.headers.get("content-disposition"),
+    ),
+  };
+}
+
+export async function updateAdminMemberStatus(
+  userId: string,
+  { status, reason }: UpdateAdminMemberStatusOptions,
+): Promise<AdminMember | null> {
+  const response = await fetchWithAuth(
+    `/api/auth/admin/members/${encodeURIComponent(userId)}/status`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status, reason: reason || null }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response));
+  }
+
+  const payload = await response.json().catch(() => null);
+  return payload?.data ? mapAdminMember(payload.data) : null;
 }
 
 function normalizeSearchValue(value: string | null | undefined): string {
