@@ -424,3 +424,23 @@ export function formatMemberDate(value: string | null | undefined): string {
     day: "numeric",
   });
 }
+
+export function formatMemberDateTime(value: string | null | undefined): string {
+  const dateValue = readString(value);
+  if (!dateValue) {
+    return "—";
+  }
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleString("en-NZ", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

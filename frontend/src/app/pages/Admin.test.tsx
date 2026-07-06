@@ -94,6 +94,7 @@ const sampleMembers = [
     studentId: "123456789",
     createdAt: "2026-05-01T12:00:00.000Z",
     membershipStatus: "VERIFIED",
+    membershipStatusUpdatedAt: "2026-05-02T03:30:00.000Z",
   },
   {
     id: "member-2",
@@ -104,6 +105,7 @@ const sampleMembers = [
     studentId: null,
     createdAt: "2026-05-03T12:00:00.000Z",
     membershipStatus: "NEED_REVIEW",
+    membershipStatusUpdatedAt: "2026-05-03T12:30:00.000Z",
   },
   {
     id: "member-3",
@@ -113,6 +115,7 @@ const sampleMembers = [
     studentId: "555111222",
     createdAt: "2026-05-04T12:00:00.000Z",
     membershipStatus: "INACTIVE",
+    membershipStatusUpdatedAt: null,
   },
 ];
 
@@ -125,6 +128,7 @@ const pageTwoMember = {
   studentId: null,
   createdAt: "2026-05-05T12:00:00.000Z",
   membershipStatus: "VERIFIED",
+  membershipStatusUpdatedAt: "2026-05-06T01:15:00.000Z",
 };
 
 const sampleProofs = [
@@ -178,6 +182,16 @@ function proofMetadataResponse(proofs: unknown[] = sampleProofs): Response {
 
 function getRequestParams(url: string): URLSearchParams {
   return new URL(url, "http://localhost").searchParams;
+}
+
+function formatExpectedMemberDateTime(value: string): string {
+  return new Date(value).toLocaleString("en-NZ", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function installFetchMock(
@@ -929,6 +943,50 @@ describe("Admin membership roster", () => {
     ).toBeTruthy();
   });
 
+  it("shows Join Date and Status updated as separate roster columns", async () => {
+    installFetchMock();
+
+    renderMembersView();
+
+    expect(await screen.findByRole("columnheader", { name: "Join Date" }))
+      .toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Status updated" }))
+      .toBeTruthy();
+
+    const aliceRow = screen.getByText("Alice Nguyen").closest("tr");
+    expect(aliceRow).toBeTruthy();
+    expect(
+      within(aliceRow as HTMLTableRowElement).getByText(
+        new Date(sampleMembers[0].createdAt).toLocaleDateString("en-NZ", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }),
+      ),
+    ).toBeTruthy();
+    expect(
+      within(aliceRow as HTMLTableRowElement).getByText(
+        formatExpectedMemberDateTime(
+          sampleMembers[0].membershipStatusUpdatedAt as string,
+        ),
+      ),
+    ).toBeTruthy();
+
+    const inactiveRow = screen.getByText("Charlie Kim").closest("tr");
+    expect(inactiveRow).toBeTruthy();
+    const inactiveCells = Array.from(
+      (inactiveRow as HTMLTableRowElement).querySelectorAll("td"),
+    );
+    expect(inactiveCells[3].textContent?.trim()).toBe(
+      new Date(sampleMembers[2].createdAt).toLocaleDateString("en-NZ", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }),
+    );
+    expect(inactiveCells[5].textContent?.trim()).toBe("—");
+  });
+
   it("shows Review payment only for Need Review rows", async () => {
     installFetchMock();
 
@@ -1278,6 +1336,7 @@ describe("Admin membership roster", () => {
 
   it("refreshes the All roster so an approved member reappears as Verified", async () => {
     let approved = false;
+    const refreshedStatusUpdatedAt = "2026-05-06T09:45:00.000Z";
 
     installFetchMock({
       membersHandler: () =>
@@ -1286,7 +1345,11 @@ describe("Admin membership roster", () => {
             approved
               ? [
                   sampleMembers[0],
-                  { ...sampleMembers[1], membershipStatus: "VERIFIED" },
+                  {
+                    ...sampleMembers[1],
+                    membershipStatus: "VERIFIED",
+                    membershipStatusUpdatedAt: refreshedStatusUpdatedAt,
+                  },
                   sampleMembers[2],
                 ]
               : sampleMembers,
@@ -1309,6 +1372,7 @@ describe("Admin membership roster", () => {
             data: {
               ...sampleMembers[1],
               membershipStatus: "VERIFIED",
+              membershipStatusUpdatedAt: refreshedStatusUpdatedAt,
             },
           }),
         );
@@ -1331,6 +1395,11 @@ describe("Admin membership roster", () => {
         within(row as HTMLTableRowElement).getByText("Verified"),
       ).toBeTruthy();
       expect(
+        within(row as HTMLTableRowElement).getByText(
+          formatExpectedMemberDateTime(refreshedStatusUpdatedAt),
+        ),
+      ).toBeTruthy();
+      expect(
         within(row as HTMLTableRowElement).queryByRole("button", {
           name: "Review payment",
         }),
@@ -1340,6 +1409,7 @@ describe("Admin membership roster", () => {
 
   it("refreshes the All roster so a declined member reappears as Inactive", async () => {
     let declined = false;
+    const refreshedStatusUpdatedAt = "2026-05-06T10:20:00.000Z";
 
     installFetchMock({
       membersHandler: () =>
@@ -1348,7 +1418,11 @@ describe("Admin membership roster", () => {
             declined
               ? [
                   sampleMembers[0],
-                  { ...sampleMembers[1], membershipStatus: "INACTIVE" },
+                  {
+                    ...sampleMembers[1],
+                    membershipStatus: "INACTIVE",
+                    membershipStatusUpdatedAt: refreshedStatusUpdatedAt,
+                  },
                   sampleMembers[2],
                 ]
               : sampleMembers,
@@ -1371,6 +1445,7 @@ describe("Admin membership roster", () => {
             data: {
               ...sampleMembers[1],
               membershipStatus: "INACTIVE",
+              membershipStatusUpdatedAt: refreshedStatusUpdatedAt,
             },
           }),
         );
@@ -1393,6 +1468,11 @@ describe("Admin membership roster", () => {
       expect(row).toBeTruthy();
       expect(
         within(row as HTMLTableRowElement).getByText("Inactive"),
+      ).toBeTruthy();
+      expect(
+        within(row as HTMLTableRowElement).getByText(
+          formatExpectedMemberDateTime(refreshedStatusUpdatedAt),
+        ),
       ).toBeTruthy();
       expect(
         within(row as HTMLTableRowElement).queryByRole("button", {

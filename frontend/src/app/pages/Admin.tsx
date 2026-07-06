@@ -8,6 +8,7 @@ import {
   getMemberPaymentProofFile,
   getMemberPaymentProofs,
   formatMemberDate,
+  formatMemberDateTime,
   formatMemberRole,
   formatMembershipStatus,
   getAdminMembers,
@@ -3191,6 +3192,7 @@ function MembersManager({
                     <th className="px-4 py-3 font-medium">Student ID</th>
                     <th className="px-4 py-3 font-medium">Join Date</th>
                     <th className="px-4 py-3 font-medium">Membership Status</th>
+                    <th className="px-4 py-3 font-medium">Status updated</th>
                     <th className="px-4 py-3 font-medium">Role</th>
                     <th className="px-4 py-3 font-medium text-right">
                       Actions
@@ -3234,6 +3236,9 @@ function MembersManager({
                         >
                           {formatMembershipStatus(member.membershipStatus)}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 align-top text-white/60 whitespace-nowrap">
+                        {formatMemberDateTime(member.membershipStatusUpdatedAt)}
                       </td>
                       <td className="px-4 py-3 align-top text-white/70">
                         {formatMemberRole(member.role)}
