@@ -1,0 +1,13 @@
+# KAN-101: project gitleaks config — extends default rules with allowlist
+# entries for files that legitimately contain example keys/URLs.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Example configs and test fixtures (no real secrets)"
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)__fixtures__/''',
+  '''\.test\.(js|jsx|ts|tsx|mjs)$''',
+  '''\.gitleaks\.toml$''',
+]

@@ -1,12 +1,12 @@
 # KAN-101: CI security gates — dependency audit + secret scanning
-# Fails PRs and pushes to main on high/critical vulnerabilities or leaked secrets.
+# Fails PRs and pushes to dev/main on high/critical vulnerabilities or leaked secrets.
 name: Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -20,16 +20,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      # Repo has no committed lockfile; generate one so npm audit can run.
-      # TODO(KAN-101 follow-up): commit package-lock.json and drop this step.
-      - name: Generate lockfile if missing
-        run: |
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts
-          fi
-      # Root audit covers both workspaces (backend, frontend)
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+          cache: npm
+      # Audits the committed package-lock.json (root lockfile covers both
+      # workspaces). Includes dev dependencies — postinstall scripts in dev
+      # deps are still a supply-chain risk.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
 
   secret-scan:
     name: gitleaks secret scan
