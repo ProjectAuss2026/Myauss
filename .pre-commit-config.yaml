@@ -1,0 +1,7 @@
+# KAN-101: pre-commit secret scanning
+# Setup: pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks

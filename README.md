@@ -5,12 +5,14 @@ A modern full-stack web application built with Node.js/Express backend, React fr
 ## Tech Stack
 
 ### Backend
+
 - **Node.js** - JavaScript runtime
 - **Express.js** - Web framework
 - **Prisma** - ORM for database operations
 - **PostgreSQL** - Database (via Docker)
 
 ### Frontend
+
 - **React** - UI library
 - **Vite** - Fast build tool
 - **JavaScript** - Programming language
@@ -48,6 +50,7 @@ AUSS/
 ## Getting Started
 
 ### Prerequisites
+
 - Node.js (v18 or higher)
 - npm or yarn
 - Docker and Docker Compose (for PostgreSQL)
@@ -55,23 +58,28 @@ AUSS/
 ### Setup
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd AUSS
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Configure environment variables**
+
    ```bash
    cp .env.example .env
    ```
+
    Edit `.env` with your configuration (database credentials, API URLs, etc.)
 
 4. **Start PostgreSQL database**
+
    ```bash
    docker compose up -d
    ```
@@ -87,19 +95,25 @@ AUSS/
 ## Development
 
 ### Run Backend (Terminal 1)
+
 ```bash
 npm run server
 ```
+
 Backend runs on `http://localhost:5000`
 
 ### Run Frontend (Terminal 2)
+
 ```bash
 npm start
 ```
+
 Frontend runs on `http://localhost:3000`
 
 ### Database Management
+
 - **View data with Prisma Studio**
+
   ```bash
   cd backend
   npm run prisma:studio
@@ -112,6 +126,7 @@ Frontend runs on `http://localhost:3000`
   ```
 
 ### Stop Services
+
 ```bash
 # Stop Docker database
 docker compose down
@@ -131,11 +146,19 @@ See `.env.example` for all available configuration options:
 The frontend is configured to proxy API requests to the backend. Import the API utility:
 
 ```javascript
-import { fetchFromAPI } from './services/api';
+import { fetchFromAPI } from "./services/api";
 
 // Usage
-const data = await fetchFromAPI('/endpoint');
+const data = await fetchFromAPI("/endpoint");
 ```
+
+## Privacy And Retention Notes
+
+- Student membership registration stores student IDs as protected backend data rather than displaying them publicly.
+- Cash / Bank Transfer payment proof files are sensitive PII and their uploaded bytes are stored in PostgreSQL, never under the public `/uploads` static path or other repo-local upload folders.
+- Payment proof metadata and file downloads are restricted to authorised `ADMIN` or `OWNER` users.
+- Temporary staged payment proof uploads expire automatically and are cleaned up if they are never linked to a submitted registration.
+- Retention and deletion of linked payment proof files should stay aligned with the existing privacy/retention work tracked in backend comments and cleanup jobs.
 
 ## License
 

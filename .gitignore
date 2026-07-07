@@ -1,7 +1,6 @@
 
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -33,3 +32,7 @@ prisma/.env
 
 # Uploaded files (user-generated content, not source code)
 backend/uploads/
+backend/private-uploads/
+
+# MCP config (contains credentials)
+.mcp.json

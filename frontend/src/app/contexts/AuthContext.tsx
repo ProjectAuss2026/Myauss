@@ -7,6 +7,7 @@ interface AuthUser {
   role: string;
   firstName: string | null;
   lastName: string | null;
+  membershipStatus: string | null;
   studentId?: null;
 }
 
