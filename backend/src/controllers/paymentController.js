@@ -16,6 +16,12 @@ const PAYMENT_PURPOSE = 'auss_membership';
 let stripeClient = null;
 
 function getStripe() {
+  // Test seam: lets the controller tests inject a fake Stripe client the same
+  // way auth.controller.js consults __AUSS_AUTH_TEST_HOOKS__.
+  if (process.env.NODE_ENV === 'test' && globalThis.__AUSS_PAYMENT_TEST_HOOKS__?.stripe) {
+    return globalThis.__AUSS_PAYMENT_TEST_HOOKS__.stripe;
+  }
+
   if (stripeClient) {
     return stripeClient;
   }
@@ -27,6 +33,65 @@ function getStripe() {
 
   stripeClient = new Stripe(secretKey);
   return stripeClient;
+}
+
+/**
+ * Pull the human-auditable details (method type, card brand/last4, charge
+ * timestamp) out of a succeeded PaymentIntent. The webhook payload carries
+ * `latest_charge` as an id string rather than an expanded object, so this
+ * fetches the charge from Stripe when needed. Detail extraction is
+ * best-effort: a lookup failure still yields a recordable payment.
+ */
+async function extractPaymentDetails(stripe, paymentIntent) {
+  let charge = paymentIntent.latest_charge;
+
+  if (typeof charge === 'string' && charge) {
+    try {
+      charge = await stripe.charges.retrieve(charge);
+    } catch (error) {
+      logger.warn(
+        { err: error, paymentIntentId: paymentIntent.id },
+        'Failed to retrieve charge for payment ledger details',
+      );
+      charge = null;
+    }
+  }
+
+  const methodDetails = charge?.payment_method_details || null;
+  return {
+    method: methodDetails?.type || 'card',
+    cardBrand: methodDetails?.card?.brand || null,
+    cardLast4: methodDetails?.card?.last4 || null,
+    paidAt: charge?.created ? new Date(charge.created * 1000) : new Date(),
+  };
+}
+
+/**
+ * Write the succeeded PaymentIntent into the Payment ledger (KAN-138 AC7).
+ * Idempotent: both /confirm and the webhook call this, so the row is upserted
+ * on the unique stripePaymentIntentId and the second writer is a no-op.
+ */
+async function recordMembershipPayment({ stripe, paymentIntent, userId }) {
+  const [details, user] = await Promise.all([
+    extractPaymentDetails(stripe, paymentIntent),
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+  ]);
+
+  await prisma.payment.upsert({
+    where: { stripePaymentIntentId: paymentIntent.id },
+    update: {},
+    create: {
+      userId,
+      payerEmail: user?.email || paymentIntent.receipt_email || 'unknown',
+      stripePaymentIntentId: paymentIntent.id,
+      amountCents: paymentIntent.amount_received ?? paymentIntent.amount,
+      currency: paymentIntent.currency,
+      method: details.method,
+      cardBrand: details.cardBrand,
+      cardLast4: details.cardLast4,
+      paidAt: details.paidAt,
+    },
+  });
 }
 
 /**
@@ -127,7 +192,11 @@ export async function confirmMembershipPayment(req, res) {
 
   let paymentIntent;
   try {
-    paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    // latest_charge is expanded so the ledger recording below can read the
+    // card brand / last4 without a second Stripe roundtrip.
+    paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ['latest_charge'],
+    });
   } catch (error) {
     logger.warn({ err: error, paymentIntentId }, 'Failed to retrieve PaymentIntent');
     return res.status(404).json({ error: 'Payment not found' });
@@ -156,6 +225,17 @@ export async function confirmMembershipPayment(req, res) {
   } catch (error) {
     logger.error({ err: error, userId: req.user.id }, 'Failed to activate membership after payment');
     return res.status(500).json({ error: 'Payment succeeded but activation failed' });
+  }
+
+  try {
+    await recordMembershipPayment({ stripe, paymentIntent, userId: req.user.id });
+  } catch (error) {
+    // Non-fatal: the member is already active, and the webhook delivery will
+    // upsert the ledger row when it fires (Stripe retries on failure there).
+    logger.error(
+      { err: error, userId: req.user.id, paymentIntentId: paymentIntent.id },
+      'Failed to record payment in ledger after confirm',
+    );
   }
 
   return res.json({ membershipStatus: MEMBERSHIP_STATUS.VERIFIED });
@@ -202,6 +282,10 @@ export async function handleStripeWebhook(req, res) {
           actorUserId: null, // system-initiated
           reason: `Stripe webhook (${paymentIntent.id})`,
         });
+        // The webhook is the durable writer for the payment ledger (AC7):
+        // activation is idempotent, so failing here makes Stripe redeliver
+        // until both the status flip and the ledger row have landed.
+        await recordMembershipPayment({ stripe, paymentIntent, userId });
       } catch (error) {
         logger.error({ err: error, userId }, 'Failed to activate membership from webhook');
         // 500 so Stripe retries the delivery.

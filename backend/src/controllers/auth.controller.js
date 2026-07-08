@@ -1742,6 +1742,33 @@ router.post("/admin/users/:userId/demote", authenticate, async (req, res) => {
   }
 });
 
+// Shape of a Payment ledger row as exposed to admins (KAN-138 AC7). Kept in
+// one place so the roster's lastPayment summary and the per-member ledger
+// endpoint stay consistent.
+const PAYMENT_LEDGER_SELECT = Object.freeze({
+  id: true,
+  stripePaymentIntentId: true,
+  amountCents: true,
+  currency: true,
+  method: true,
+  cardBrand: true,
+  cardLast4: true,
+  paidAt: true,
+});
+
+function formatPayment(payment) {
+  return {
+    id: payment.id,
+    stripePaymentIntentId: payment.stripePaymentIntentId,
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+    method: payment.method,
+    cardBrand: payment.cardBrand,
+    cardLast4: payment.cardLast4,
+    paidAt: payment.paidAt,
+  };
+}
+
 // ── GET /auth/admin/members ─────────────────────────────────────────
 // Full member roster with membership status. Admin- and owner-accessible.
 // Optional ?status= filter (INACTIVE | NEED_REVIEW | VERIFIED).
@@ -1875,7 +1902,16 @@ router.get("/admin/members", authenticate, async (req, res) => {
       prisma.user.count({ where }),
       prisma.user.findMany({
         where,
-        include: { info: true },
+        include: {
+          info: true,
+          // Latest ledger entry per member so the roster shows what was paid,
+          // how, and when (KAN-138 AC7) without a per-row lookup.
+          payments: {
+            orderBy: [{ paidAt: "desc" }],
+            take: 1,
+            select: PAYMENT_LEDGER_SELECT,
+          },
+        },
         orderBy: [{ membershipStatusUpdatedAt: "desc" }],
         skip,
         take: pageSize,
@@ -1893,6 +1929,9 @@ router.get("/admin/members", authenticate, async (req, res) => {
       firstName: member.info?.firstName || null,
       lastName: member.info?.lastName || null,
       createdAt: member.createdAt,
+      lastPayment: member.payments?.[0]
+        ? formatPayment(member.payments[0])
+        : null,
     }));
 
     return res.status(200).json({
@@ -1950,6 +1989,50 @@ router.get(
     } catch (err) {
       logger.error({ err, userId }, "List payment proofs error:");
       return res.status(500).json({ error: "Failed to load payment proofs" });
+    }
+  },
+);
+
+// ── GET /auth/admin/members/:userId/payments ────────────────────────
+// Full card-payment ledger for one member (KAN-138 AC7): amount, method,
+// card brand/last4, timestamp, and the Stripe PaymentIntent reference.
+router.get(
+  "/admin/members/:userId/payments",
+  authenticate,
+  async (req, res) => {
+    if (!isAdminOrOwner(req)) {
+      return res.status(403).json({
+        error: "Only ADMIN or OWNER can view member payments",
+      });
+    }
+
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const payments = await prisma.payment.findMany({
+        where: { userId },
+        orderBy: [{ paidAt: "desc" }],
+        select: PAYMENT_LEDGER_SELECT,
+      });
+
+      return res.status(200).json({
+        data: payments.map((payment) => formatPayment(payment)),
+      });
+    } catch (err) {
+      logger.error({ err, userId }, "List member payments error:");
+      return res.status(500).json({ error: "Failed to load member payments" });
     }
   },
 );
