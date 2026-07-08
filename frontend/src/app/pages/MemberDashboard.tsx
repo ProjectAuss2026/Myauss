@@ -32,11 +32,16 @@ interface CollapsibleSectionProps {
   defaultOpen?: boolean;
   /** When true, the section content is blurred behind a "members only" overlay. */
   locked?: boolean;
+  /**
+   * When true, the locked overlay shows an "awaiting approval" state instead of
+   * a payment prompt — for members whose bank-transfer proof is under review.
+   */
+  pendingReview?: boolean;
   /** Called when a locked user clicks "Get your membership". */
   onUnlock?: () => void;
 }
 
-function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false, locked = false, onUnlock }: CollapsibleSectionProps) {
+function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false, locked = false, pendingReview = false, onUnlock }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
@@ -88,7 +93,7 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false, 
               </div>
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 px-6">
                 <div className="w-11 h-11 rounded-2xl bg-[#eb7524]/10 border border-[#eb7524]/25 flex items-center justify-center">
-                  <Lock className="w-5 h-5 text-[#eb7524]" />
+                  {pendingReview ? <Clock className="w-5 h-5 text-[#eb7524]" /> : <Lock className="w-5 h-5 text-[#eb7524]" />}
                 </div>
                 <p
                   className="text-white"
@@ -100,16 +105,28 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false, 
                   className="text-white/45 max-w-xs"
                   style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}
                 >
-                  Activate your membership to unlock this section.
+                  {pendingReview
+                    ? 'Your payment is under review — an executive will approve it soon.'
+                    : 'Activate your membership to unlock this section.'}
                 </p>
-                <button
-                  type="button"
-                  onClick={onUnlock}
-                  className="mt-1 px-4 py-2 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
-                  style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                >
-                  Get your membership
-                </button>
+                {pendingReview ? (
+                  <div
+                    className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#eb7524]/10 border border-[#eb7524]/30 text-[#ffcfad]"
+                    style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    Awaiting approval
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onUnlock}
+                    className="mt-1 px-4 py-2 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+                    style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                  >
+                    Get your membership
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -354,6 +371,10 @@ export function MemberDashboard() {
   // gated behind a paid/confirmed membership. Admins & owners always have access.
   const isVerifiedMember = hasAdminAccess || user.membershipStatus === 'VERIFIED';
   const membershipLocked = !isVerifiedMember;
+  // A member who submitted a bank-transfer proof is awaiting an executive's
+  // approval — they've already paid, so we must not push them back to the
+  // payment page. Their gated content stays locked until VERIFIED.
+  const isPendingReview = membershipLocked && user.membershipStatus === 'NEED_REVIEW';
   const goToMembership = () => navigate('/membership/pay');
   const membershipStatusDisplay = isVerifiedMember
     ? { label: 'Verified', className: 'text-green-400' }
@@ -464,37 +485,53 @@ export function MemberDashboard() {
               <div className="absolute -top-16 -right-10 w-56 h-56 bg-[#eb7524]/20 rounded-full blur-[90px] pointer-events-none" />
               <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
                 <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#eb7524]/15 border border-[#eb7524]/30 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 text-[#eb7524]" />
+                  {isPendingReview ? (
+                    <Clock className="w-6 h-6 sm:w-7 sm:h-7 text-[#eb7524]" />
+                  ) : (
+                    <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 text-[#eb7524]" />
+                  )}
                 </div>
                 <div className="flex-1">
                   <p
                     className="text-[#eb7524] uppercase tracking-[0.2em] mb-1.5"
                     style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                   >
-                    {user.membershipStatus === 'NEED_REVIEW' ? 'Payment under review' : 'Membership inactive'}
+                    {isPendingReview ? 'Payment under review' : 'Membership inactive'}
                   </p>
                   <h3
                     className="text-white mb-1.5"
                     style={{ fontSize: 'clamp(18px, 3.5vw, 22px)', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
                   >
-                    Activate your AUSS membership
+                    {isPendingReview ? 'Your payment is under review' : 'Activate your AUSS membership'}
                   </h3>
                   <p
                     className="text-white/55"
                     style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}
                   >
-                    Unlock event RSVPs, exclusive content, sponsor perks and private member links.
+                    {isPendingReview
+                      ? 'Thanks for submitting your payment. Please wait while an executive member reviews and approves it — your membership will activate automatically once confirmed.'
+                      : 'Unlock event RSVPs, exclusive content, sponsor perks and private member links.'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={goToMembership}
-                  className="group w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#eb7524] to-[#f59042] text-white shadow-[0_4px_16px_rgba(235,117,36,0.4)] hover:shadow-[0_6px_22px_rgba(235,117,36,0.6)] hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer"
-                  style={{ fontSize: '15px', fontFamily: 'Outfit, sans-serif', fontWeight: 700 }}
-                >
-                  Get your membership
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </button>
+                {isPendingReview ? (
+                  <div
+                    className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#eb7524]/10 border border-[#eb7524]/30 text-[#ffcfad]"
+                    style={{ fontSize: '15px', fontFamily: 'Outfit, sans-serif', fontWeight: 700 }}
+                  >
+                    <Clock className="w-4 h-4" />
+                    Awaiting approval
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={goToMembership}
+                    className="group w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#eb7524] to-[#f59042] text-white shadow-[0_4px_16px_rgba(235,117,36,0.4)] hover:shadow-[0_6px_22px_rgba(235,117,36,0.6)] hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer"
+                    style={{ fontSize: '15px', fontFamily: 'Outfit, sans-serif', fontWeight: 700 }}
+                  >
+                    Get your membership
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -715,7 +752,16 @@ export function MemberDashboard() {
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 w-full sm:w-auto">
-                          {membershipLocked ? (
+                          {isPendingReview ? (
+                            <div
+                              className="w-full sm:w-auto px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg text-white/40 flex items-center justify-center gap-1.5"
+                              style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+                              title="Your payment is under review — an executive will approve it soon"
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                              RSVP
+                            </div>
+                          ) : membershipLocked ? (
                             <button
                               onClick={goToMembership}
                               className="w-full sm:w-auto px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg text-white/40 hover:text-white/70 hover:border-[#eb7524]/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
@@ -812,7 +858,7 @@ export function MemberDashboard() {
           </CollapsibleSection>
 
           {/* Exclusive Content */}
-          <CollapsibleSection title="Exclusive Content" icon={Lock} locked={membershipLocked} onUnlock={goToMembership}>
+          <CollapsibleSection title="Exclusive Content" icon={Lock} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
             <div className="space-y-3">
               <p
                 className="text-white/60 mb-4"
@@ -876,7 +922,7 @@ export function MemberDashboard() {
           </CollapsibleSection>
 
           {/* Sponsor Discount Codes */}
-          <CollapsibleSection title="Sponsor Discount Codes" icon={Tag} locked={membershipLocked} onUnlock={goToMembership}>
+          <CollapsibleSection title="Sponsor Discount Codes" icon={Tag} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
             <div className="space-y-3">
               <p
                 className="text-white/60 mb-4"
@@ -957,7 +1003,7 @@ export function MemberDashboard() {
           </CollapsibleSection>
 
           {/* Private Links */}
-          <CollapsibleSection title="Private Links" icon={Link2} locked={membershipLocked} onUnlock={goToMembership}>
+          <CollapsibleSection title="Private Links" icon={Link2} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
             <div className="space-y-3">
               <p
                 className="text-white/60 mb-4"
