@@ -23,15 +23,20 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { RSVPModal } from '../components/RSVPModal';
+import { MembershipPromptModal } from '../components/MembershipPromptModal';
 
 interface CollapsibleSectionProps {
   title: string;
   icon: React.ElementType;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  /** When true, the section content is blurred behind a "members only" overlay. */
+  locked?: boolean;
+  /** Called when a locked user clicks "Get your membership". */
+  onUnlock?: () => void;
 }
 
-function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }: CollapsibleSectionProps) {
+function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false, locked = false, onUnlock }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
@@ -53,10 +58,11 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }
             <Icon className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-[#eb7524]" />
           </div>
           <h3
-            className="text-white"
+            className="text-white flex items-center gap-2"
             style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
           >
             {title}
+            {locked && <Lock className="w-3.5 h-3.5 text-white/30" />}
           </h3>
         </div>
         <ChevronDown
@@ -74,7 +80,41 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }
         }}
       >
         <div ref={contentRef} className="px-4 sm:px-6 pb-4 sm:pb-6 pt-2">
-          {children}
+          {locked ? (
+            <div className="relative">
+              {/* Blurred preview so members can see what they're unlocking */}
+              <div className="pointer-events-none select-none blur-[6px] opacity-60" aria-hidden="true">
+                {children}
+              </div>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 px-6">
+                <div className="w-11 h-11 rounded-2xl bg-[#eb7524]/10 border border-[#eb7524]/25 flex items-center justify-center">
+                  <Lock className="w-5 h-5 text-[#eb7524]" />
+                </div>
+                <p
+                  className="text-white"
+                  style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Members only
+                </p>
+                <p
+                  className="text-white/45 max-w-xs"
+                  style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}
+                >
+                  Activate your membership to unlock this section.
+                </p>
+                <button
+                  type="button"
+                  onClick={onUnlock}
+                  className="mt-1 px-4 py-2 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+                  style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Get your membership
+                </button>
+              </div>
+            </div>
+          ) : (
+            children
+          )}
         </div>
       </div>
     </div>
@@ -212,6 +252,14 @@ export function MemberDashboard() {
   const [inviteToken, setInviteToken] = useState('');
   const [acceptingInvite, setAcceptingInvite] = useState(false);
 
+  // Membership prompt — auto-shown once for INACTIVE members, then dismissible.
+  const [showMembershipPrompt, setShowMembershipPrompt] = useState(false);
+  useEffect(() => {
+    if (user?.membershipStatus === 'INACTIVE') {
+      setShowMembershipPrompt(true);
+    }
+  }, [user?.membershipStatus]);
+
   // Protected route — redirect unauthenticated users to login
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -302,6 +350,16 @@ export function MemberDashboard() {
 
   const roleLabel = getRoleLabel(user.role);
   const hasAdminAccess = user.role === 'ADMIN' || user.role === 'OWNER';
+  // Member perks (events, exclusive content, sponsor codes, private links) are
+  // gated behind a paid/confirmed membership. Admins & owners always have access.
+  const isVerifiedMember = hasAdminAccess || user.membershipStatus === 'VERIFIED';
+  const membershipLocked = !isVerifiedMember;
+  const goToMembership = () => navigate('/membership/pay');
+  const membershipStatusDisplay = isVerifiedMember
+    ? { label: 'Verified', className: 'text-green-400' }
+    : user.membershipStatus === 'NEED_REVIEW'
+    ? { label: 'Need Review', className: 'text-[#ffcfad]' }
+    : { label: 'Inactive', className: 'text-white/70' };
   const fullName = user.firstName && user.lastName
     ? `${user.firstName} ${user.lastName}`
     : user.firstName || user.email;
@@ -369,6 +427,16 @@ export function MemberDashboard() {
                   {roleLabel}
                 </span>
               </div>
+              {hasAdminAccess && (
+                <Link
+                  to="/manage"
+                  className="px-3 sm:px-4 py-2 bg-[#eb7524]/10 border border-[#eb7524]/20 rounded-full flex items-center gap-2 text-[#eb7524] hover:bg-[#eb7524]/15 hover:border-[#eb7524]/30 transition-all"
+                  style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden sm:inline">Manage Links</span>
+                </Link>
+              )}
               <button
                 onClick={handleLogout}
                 className="px-3 sm:px-4 py-2 bg-white/[0.03] border border-white/10 rounded-full flex items-center gap-2 text-white/60 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all cursor-pointer"
@@ -380,6 +448,57 @@ export function MemberDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Membership CTA — persistent prompt for members who aren't verified yet */}
+        {membershipLocked && (
+          <div
+            className="mb-8"
+            style={{
+              opacity: inView ? 1 : 0,
+              transform: inView ? 'translateY(0)' : 'translateY(20px)',
+              transition: 'opacity 0.6s ease 0.05s, transform 0.6s ease 0.05s',
+            }}
+          >
+            <div className="relative overflow-hidden rounded-3xl border border-[#eb7524]/30 bg-gradient-to-br from-[#eb7524]/[0.12] via-[#171717] to-[#171717] p-5 sm:p-7">
+              {/* Glow accents */}
+              <div className="absolute -top-16 -right-10 w-56 h-56 bg-[#eb7524]/20 rounded-full blur-[90px] pointer-events-none" />
+              <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#eb7524]/15 border border-[#eb7524]/30 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 text-[#eb7524]" />
+                </div>
+                <div className="flex-1">
+                  <p
+                    className="text-[#eb7524] uppercase tracking-[0.2em] mb-1.5"
+                    style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
+                  >
+                    {user.membershipStatus === 'NEED_REVIEW' ? 'Payment under review' : 'Membership inactive'}
+                  </p>
+                  <h3
+                    className="text-white mb-1.5"
+                    style={{ fontSize: 'clamp(18px, 3.5vw, 22px)', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
+                  >
+                    Activate your AUSS membership
+                  </h3>
+                  <p
+                    className="text-white/55"
+                    style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}
+                  >
+                    Unlock event RSVPs, exclusive content, sponsor perks and private member links.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={goToMembership}
+                  className="group w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#eb7524] to-[#f59042] text-white shadow-[0_4px_16px_rgba(235,117,36,0.4)] hover:shadow-[0_6px_22px_rgba(235,117,36,0.6)] hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer"
+                  style={{ fontSize: '15px', fontFamily: 'Outfit, sans-serif', fontWeight: 700 }}
+                >
+                  Get your membership
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* AUSS PASS QR Code */}
         <div
@@ -469,8 +588,8 @@ export function MemberDashboard() {
                     <span className="text-white/50" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
                       Status
                     </span>
-                    <span className="text-green-400" style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}>
-                      Verified ✓
+                    <span className={membershipStatusDisplay.className} style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}>
+                      {membershipStatusDisplay.label}
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-2">
@@ -478,7 +597,7 @@ export function MemberDashboard() {
                       Valid Until
                     </span>
                     <span className="text-white" style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}>
-                      Dec 31, 2026
+                      {isVerifiedMember ? 'Dec 31, 2026' : '—'}
                     </span>
                   </div>
                 </div>
@@ -596,15 +715,27 @@ export function MemberDashboard() {
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 w-full sm:w-auto">
-                          <button
-                            onClick={() => setRsvpActivity(event)}
-                            className={`w-full sm:w-auto px-4 py-2 ${
-                              isSoon ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-[#eb7524]/10 border-[#eb7524]/20 text-[#eb7524]'
-                            } border rounded-lg hover:bg-opacity-30 transition-all cursor-pointer`}
-                            style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-                          >
-                            RSVP
-                          </button>
+                          {membershipLocked ? (
+                            <button
+                              onClick={goToMembership}
+                              className="w-full sm:w-auto px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg text-white/40 hover:text-white/70 hover:border-[#eb7524]/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                              style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+                              title="Activate your membership to RSVP"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              RSVP
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setRsvpActivity(event)}
+                              className={`w-full sm:w-auto px-4 py-2 ${
+                                isSoon ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-[#eb7524]/10 border-[#eb7524]/20 text-[#eb7524]'
+                              } border rounded-lg hover:bg-opacity-30 transition-all cursor-pointer`}
+                              style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+                            >
+                              RSVP
+                            </button>
+                          )}
                           <button
                             onClick={() => navigate(`/activities/${event.id}`)}
                             className="w-full sm:w-auto px-4 py-2 text-white/40 hover:text-white/70 transition-colors cursor-pointer"
@@ -621,8 +752,67 @@ export function MemberDashboard() {
             )}
           </CollapsibleSection>
 
+          {/* Announcements */}
+          <CollapsibleSection title="Announcements" icon={Bell} defaultOpen={true}>
+            <div className="space-y-3">
+              {[
+                {
+                  title: 'New Training Schedule Released',
+                  date: 'May 10, 2026',
+                  content: 'Check out our updated training times for Semester 2. Now with extra Saturday sessions!',
+                  isNew: true,
+                },
+                {
+                  title: 'Competition Registration Open',
+                  date: 'May 8, 2026',
+                  content: 'Sign up for the Auckland University Strength Championship. Early bird pricing ends May 20th.',
+                  isNew: true,
+                },
+                {
+                  title: 'AGM Summary',
+                  date: 'May 1, 2026',
+                  content: 'Thank you to everyone who attended! View the meeting notes and upcoming initiatives.',
+                  isNew: false,
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
+                >
+                  <div className="flex items-start gap-3">
+                    {item.isNew && (
+                      <div className="w-2 h-2 bg-[#eb7524] rounded-full mt-2 flex-shrink-0" />
+                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4
+                          className="text-white"
+                          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                        >
+                          {item.title}
+                        </h4>
+                      </div>
+                      <p
+                        className="text-white/30 mb-2"
+                        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
+                      >
+                        {item.date}
+                      </p>
+                      <p
+                        className="text-white/50"
+                        style={{ fontSize: '14px', lineHeight: 1.5, fontFamily: 'Inter, sans-serif' }}
+                      >
+                        {item.content}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CollapsibleSection>
+
           {/* Exclusive Content */}
-          <CollapsibleSection title="Exclusive Content" icon={Lock}>
+          <CollapsibleSection title="Exclusive Content" icon={Lock} locked={membershipLocked} onUnlock={goToMembership}>
             <div className="space-y-3">
               <p
                 className="text-white/60 mb-4"
@@ -686,7 +876,7 @@ export function MemberDashboard() {
           </CollapsibleSection>
 
           {/* Sponsor Discount Codes */}
-          <CollapsibleSection title="Sponsor Discount Codes" icon={Tag}>
+          <CollapsibleSection title="Sponsor Discount Codes" icon={Tag} locked={membershipLocked} onUnlock={goToMembership}>
             <div className="space-y-3">
               <p
                 className="text-white/60 mb-4"
@@ -766,67 +956,8 @@ export function MemberDashboard() {
             </div>
           </CollapsibleSection>
 
-          {/* Announcements */}
-          <CollapsibleSection title="Announcements" icon={Bell}>
-            <div className="space-y-3">
-              {[
-                {
-                  title: 'New Training Schedule Released',
-                  date: 'May 10, 2026',
-                  content: 'Check out our updated training times for Semester 2. Now with extra Saturday sessions!',
-                  isNew: true,
-                },
-                {
-                  title: 'Competition Registration Open',
-                  date: 'May 8, 2026',
-                  content: 'Sign up for the Auckland University Strength Championship. Early bird pricing ends May 20th.',
-                  isNew: true,
-                },
-                {
-                  title: 'AGM Summary',
-                  date: 'May 1, 2026',
-                  content: 'Thank you to everyone who attended! View the meeting notes and upcoming initiatives.',
-                  isNew: false,
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
-                >
-                  <div className="flex items-start gap-3">
-                    {item.isNew && (
-                      <div className="w-2 h-2 bg-[#eb7524] rounded-full mt-2 flex-shrink-0" />
-                    )}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4
-                          className="text-white"
-                          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                        >
-                          {item.title}
-                        </h4>
-                      </div>
-                      <p
-                        className="text-white/30 mb-2"
-                        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.date}
-                      </p>
-                      <p
-                        className="text-white/50"
-                        style={{ fontSize: '14px', lineHeight: 1.5, fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.content}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CollapsibleSection>
-
           {/* Private Links */}
-          <CollapsibleSection title="Private Links" icon={Link2}>
+          <CollapsibleSection title="Private Links" icon={Link2} locked={membershipLocked} onUnlock={goToMembership}>
             <div className="space-y-3">
               <p
                 className="text-white/60 mb-4"
@@ -909,6 +1040,12 @@ export function MemberDashboard() {
         activityId={rsvpActivity?.id ?? 0}
         activityTitle={rsvpActivity?.title}
         onClose={() => setRsvpActivity(null)}
+      />
+
+      {/* Membership nudge for inactive members */}
+      <MembershipPromptModal
+        open={showMembershipPrompt}
+        onClose={() => setShowMembershipPrompt(false)}
       />
     </div>
   );

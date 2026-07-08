@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Elements,
   PaymentElement,
@@ -7,6 +7,8 @@ import {
   useElements,
 } from '@stripe/react-stripe-js';
 import type { Appearance, StripePaymentElementOptions } from '@stripe/stripe-js';
+import { useAuth } from '../contexts/AuthContext';
+import { fetchWithAuth } from '../lib/authFetch';
 import {
   ChevronLeft,
   Lock,
@@ -27,7 +29,7 @@ const INCLUDED = [
   'Full access to all AUSS sessions & events',
   'Member-only socials and competitions',
   'Discounted merch and partner offers',
-  'Verified member status on your profile',
+  'Verified member status on your AUSS pass',
 ];
 
 // Match the Stripe Payment Element to the app's dark / orange theme.
@@ -55,9 +57,14 @@ const paymentElementOptions: StripePaymentElementOptions = {
 function CheckoutForm() {
   const stripe = useStripe();
   const elements = useElements();
+  const { refreshUser } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
+  // True while we resolve the outcome of a redirect-based payment on return.
+  const [verifying, setVerifying] = useState(() =>
+    new URLSearchParams(window.location.search).has('payment_intent_client_secret')
+  );
 
   // When Stripe redirects back here after an authenticated/redirect payment,
   // read the outcome from the URL and show the result.
@@ -68,22 +75,36 @@ function CheckoutForm() {
     );
     if (!clientSecret) return;
 
-    stripe.retrievePaymentIntent(clientSecret).then(({ paymentIntent }) => {
-      switch (paymentIntent?.status) {
-        case 'succeeded':
-          setSucceeded(true);
-          setMessage('Payment successful — your membership is now active.');
-          break;
-        case 'processing':
-          setMessage('Your payment is processing. We’ll confirm shortly.');
-          break;
-        case 'requires_payment_method':
-          setMessage('Payment was not completed. Please try again.');
-          break;
-        default:
-          break;
-      }
-    });
+    stripe
+      .retrievePaymentIntent(clientSecret)
+      .then(({ paymentIntent }) => {
+        switch (paymentIntent?.status) {
+          case 'succeeded':
+            setSucceeded(true);
+            setMessage('Payment successful — your membership is now active.');
+            // Verify the payment server-side and flip the account to VERIFIED,
+            // then refresh the cached user so the dashboard unlocks.
+            fetchWithAuth('/api/payments/confirm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paymentIntentId: paymentIntent.id }),
+            })
+              .then(() => refreshUser())
+              .catch(() => {
+                /* Webhook is the backstop if this fails. */
+              });
+            break;
+          case 'processing':
+            setMessage('Your payment is processing. We’ll confirm shortly.');
+            break;
+          case 'requires_payment_method':
+            setMessage('Payment was not completed. Please try again.');
+            break;
+          default:
+            break;
+        }
+      })
+      .finally(() => setVerifying(false));
   }, [stripe]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,12 +145,23 @@ function CheckoutForm() {
           {message}
         </p>
         <Link
-          to="/profile"
+          to="/dashboard"
           className="mt-6 px-6 py-3 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all"
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '14px', fontWeight: 600 }}
         >
-          Go to Profile
+          Go to Dashboard
         </Link>
+      </div>
+    );
+  }
+
+  if (verifying) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1 py-16 gap-3">
+        <Loader2 className="w-7 h-7 text-[#eb7524] animate-spin" />
+        <span className="text-white/50" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+          Confirming your payment…
+        </span>
       </div>
     );
   }
@@ -174,9 +206,27 @@ function CheckoutForm() {
 }
 
 export function MembershipPayment() {
+  const { user, isAdmin, isLoading, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Already-active members can't pay again — send them back to the dashboard.
+  // (The success screen still renders because it lands here via the Stripe
+  // redirect before the user is refreshed to VERIFIED.)
+  const hasReturnParams = new URLSearchParams(window.location.search).has(
+    'payment_intent_client_secret'
+  );
+  const isActiveMember = isAdmin || user?.membershipStatus === 'VERIFIED';
+  useEffect(() => {
+    if (isLoading || hasReturnParams) return;
+    if (!isAuthenticated) {
+      navigate('/login');
+    } else if (isActiveMember) {
+      navigate('/dashboard');
+    }
+  }, [isLoading, isAuthenticated, isActiveMember, hasReturnParams, navigate]);
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -189,8 +239,22 @@ export function MembershipPayment() {
       return;
     }
 
+    // Returning from a Stripe redirect: reuse the completed intent's client
+    // secret from the URL so <Elements>/CheckoutForm mount and can read the
+    // outcome + activate the membership. Don't create a fresh intent.
+    const returnedSecret = new URLSearchParams(window.location.search).get(
+      'payment_intent_client_secret'
+    );
+    if (returnedSecret) {
+      setClientSecret(returnedSecret);
+      return;
+    }
+
+    // Already-active members shouldn't be starting a new payment.
+    if (isActiveMember) return;
+
     let cancelled = false;
-    fetch('/api/payments/intent', {
+    fetchWithAuth('/api/payments/intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     })
@@ -206,7 +270,7 @@ export function MembershipPayment() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hasReturnParams, isActiveMember]);
 
   const fade = (delay = 0) => ({
     opacity: mounted ? 1 : 0,
@@ -226,12 +290,12 @@ export function MembershipPayment() {
         {/* Back link */}
         <div style={fade(0)}>
           <Link
-            to="/profile"
+            to="/dashboard"
             className="inline-flex items-center gap-2 text-white/50 hover:text-white transition-colors mb-8 group"
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '14px' }}
           >
             <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            Back to Profile
+            Back to Dashboard
           </Link>
         </div>
 

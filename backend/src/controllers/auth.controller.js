@@ -2041,6 +2041,15 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
       return res.status(404).json({ error: "Target user not found" });
     }
 
+    // INACTIVE → VERIFIED is legal at the state-machine level so a successful
+    // card payment can activate a member instantly, but admins must still go
+    // through the review workflow — they can't skip it from this endpoint.
+    if (target.membershipStatus === "INACTIVE" && toStatus === "VERIFIED") {
+      return res.status(409).json({
+        error: `Illegal transition: ${target.membershipStatus} → ${toStatus}`,
+      });
+    }
+
     const isDecline = isPaymentProofDecline(target.membershipStatus, toStatus);
     if (isDecline && !reason) {
       return res.status(400).json({

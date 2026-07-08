@@ -14,6 +14,7 @@ import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import { handleStripeWebhook } from './controllers/paymentController.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
 import logger from './utils/logger.js';
 import {
@@ -110,6 +111,15 @@ export function createApp() {
     next();
   });
   app.use(createCorsMiddleware());
+
+  // Stripe webhook must see the raw body to verify the signature, so it is
+  // registered before the JSON body parser.
+  app.post(
+    '/api/payments/webhook',
+    express.raw({ type: 'application/json' }),
+    handleStripeWebhook,
+  );
+
   app.use(express.json());
 
   app.get('/healthz', (_req, res) => {

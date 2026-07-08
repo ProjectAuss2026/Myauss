@@ -118,14 +118,6 @@ export function Navigation() {
                           <LayoutDashboard className="w-4 h-4" />
                           Member Dashboard
                         </button>
-                        <button
-                          onClick={() => { setProfileDropdown(false); navigate('/profile'); }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-                          style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                        >
-                          <User className="w-4 h-4" />
-                          My Profile
-                        </button>
                         {hasAdminAccess && (
                           <>
                             <button
@@ -214,15 +206,6 @@ export function Navigation() {
                   >
                     <LayoutDashboard className="w-4 h-4" />
                     Member Dashboard
-                  </Link>
-                  <Link
-                    to="/profile"
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center gap-3 w-full py-3 text-white/80 hover:text-white transition-colors"
-                    style={{ fontFamily: 'Outfit, sans-serif' }}
-                  >
-                    <User className="w-4 h-4" />
-                    My Profile
                   </Link>
                   {hasAdminAccess && (
                     <>
