@@ -185,7 +185,10 @@ export async function handleStripeWebhook(req, res) {
     );
   } catch (error) {
     logger.warn({ err: error }, 'Stripe webhook signature verification failed');
-    return res.status(400).send(`Webhook Error: ${error.message}`);
+    // Don't reflect the exception text in the response body (CodeQL: exception
+    // text reinterpreted as HTML). The detail is logged above; Stripe only needs
+    // the 400 status to know delivery failed.
+    return res.status(400).json({ error: 'Webhook signature verification failed' });
   }
 
   if (event.type === 'payment_intent.succeeded') {
