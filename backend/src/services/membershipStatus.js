@@ -14,11 +14,12 @@ export const MEMBERSHIP_STATUS_VALUES = Object.freeze(Object.values(MEMBERSHIP_S
 
 // Frozen legal-transition map — the single source of truth for what moves are allowed.
 //   INACTIVE    → NEED_REVIEW  (member submits cash/bank-transfer proof)
-//   NEED_REVIEW → VERIFIED     (admin approves proof)
+//   INACTIVE    → VERIFIED     (successful card payment activates instantly)
+//   NEED_REVIEW → VERIFIED     (admin approves proof / member pays by card)
 //   NEED_REVIEW → INACTIVE     (admin rejects proof)
 //   VERIFIED    → INACTIVE     (admin-driven: membership lapsed / refunded)
 export const MEMBERSHIP_TRANSITIONS = Object.freeze({
-  INACTIVE: Object.freeze(['NEED_REVIEW']),
+  INACTIVE: Object.freeze(['NEED_REVIEW', 'VERIFIED']),
   NEED_REVIEW: Object.freeze(['VERIFIED', 'INACTIVE']),
   VERIFIED: Object.freeze(['INACTIVE']),
 });

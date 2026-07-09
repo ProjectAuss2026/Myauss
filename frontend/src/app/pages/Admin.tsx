@@ -7,12 +7,16 @@ import {
   type AdminMembersPagination,
   getMemberPaymentProofFile,
   getMemberPaymentProofs,
+  getMemberPayments,
   formatMemberDate,
   formatMemberDateTime,
   formatMemberRole,
   formatMembershipStatus,
+  formatPaymentAmount,
+  formatPaymentMethod,
   getAdminMembers,
   type AdminMember,
+  type MemberPayment,
   type MemberPaymentProofMetadata,
   type MemberStatusFilter,
   updateAdminMemberStatus,
@@ -2946,6 +2950,227 @@ function PaymentProofReviewModal({
   );
 }
 
+// Read-only card-payment ledger for one member (KAN-138 AC7). Shows what was
+// paid, how (brand + last4), when, and the Stripe PaymentIntent reference so
+// admins can cross-check the Stripe dashboard.
+function PaymentHistoryModal({
+  member,
+  onClose,
+}: {
+  member: AdminMember;
+  onClose: () => void;
+}) {
+  const [payments, setPayments] = useState<MemberPayment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPayments = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setPayments(await getMemberPayments(member.id));
+    } catch (err) {
+      setPayments([]);
+      setError(
+        err instanceof Error ? err.message : "Failed to load payment history",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const nextPayments = await getMemberPayments(member.id);
+        if (cancelled) return;
+        setPayments(nextPayments);
+      } catch (err) {
+        if (cancelled) return;
+        setPayments([]);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load payment history",
+        );
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [member.id]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-3xl border border-white/10 bg-[#111] shadow-2xl overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="payment-history-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <h3
+              id="payment-history-title"
+              className="text-white"
+              style={{
+                fontSize: "22px",
+                fontWeight: 600,
+                fontFamily: "Outfit, sans-serif",
+              }}
+            >
+              Payment history
+            </h3>
+            <p
+              className="mt-1 text-white/45"
+              style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+            >
+              Card transactions recorded for{" "}
+              {member.name || member.email || member.id}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close payment history"
+            className="rounded-xl border border-white/10 bg-white/[0.04] p-2 text-white/60 transition-all hover:text-white hover:bg-white/[0.08]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-5">
+          {loading ? (
+            <div className="py-10 text-center" role="status">
+              <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-[#eb7524]" />
+              <p
+                className="text-white/55"
+                style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+              >
+                Loading payment history...
+              </p>
+            </div>
+          ) : error ? (
+            <div
+              className="flex items-start justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 flex-wrap"
+              role="alert"
+            >
+              <div className="flex items-start gap-2 min-w-0">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+                <p
+                  className="text-red-200"
+                  style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                >
+                  {error}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadPayments}
+                className="text-red-100 underline hover:text-white cursor-pointer"
+                style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
+              >
+                Try again
+              </button>
+            </div>
+          ) : payments.length === 0 ? (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-10 text-center">
+              <p
+                className="text-white/55"
+                style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+              >
+                No card payments recorded for this member yet.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {payments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <p
+                        className="text-white"
+                        style={{
+                          fontSize: "15px",
+                          fontFamily: "Inter, sans-serif",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {formatPaymentAmount(
+                          payment.amountCents,
+                          payment.currency,
+                        )}
+                      </p>
+                      <p
+                        className="mt-1 text-white/55"
+                        style={{
+                          fontSize: "13px",
+                          fontFamily: "Inter, sans-serif",
+                        }}
+                      >
+                        {formatPaymentMethod(payment)}
+                      </p>
+                    </div>
+                    <p
+                      className="text-white/55 whitespace-nowrap"
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
+                    >
+                      {formatMemberDateTime(payment.paidAt)}
+                    </p>
+                  </div>
+                  {payment.stripePaymentIntentId && (
+                    <p
+                      className="mt-2 text-white/35 break-all"
+                      style={{
+                        fontSize: "11.5px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
+                    >
+                      Stripe reference: {payment.stripePaymentIntentId}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MembersManager({
   members,
   pagination,
@@ -2976,6 +3201,9 @@ function MembersManager({
   onRefreshMembers: () => Promise<void> | void;
 }) {
   const [reviewMember, setReviewMember] = useState<AdminMember | null>(null);
+  const [paymentsMember, setPaymentsMember] = useState<AdminMember | null>(
+    null,
+  );
   const hasSearch = search.trim().length > 0;
   const hasStatusFilter = statusFilter !== "ALL";
   const rangeStart = pagination.total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -3193,6 +3421,7 @@ function MembersManager({
                     <th className="px-4 py-3 font-medium">Join Date</th>
                     <th className="px-4 py-3 font-medium">Membership Status</th>
                     <th className="px-4 py-3 font-medium">Status updated</th>
+                    <th className="px-4 py-3 font-medium">Last Payment</th>
                     <th className="px-4 py-3 font-medium">Role</th>
                     <th className="px-4 py-3 font-medium text-right">
                       Actions
@@ -3239,6 +3468,35 @@ function MembersManager({
                       </td>
                       <td className="px-4 py-3 align-top text-white/60 whitespace-nowrap">
                         {formatMemberDateTime(member.membershipStatusUpdatedAt)}
+                      </td>
+                      <td className="px-4 py-3 align-top whitespace-nowrap">
+                        {member.lastPayment ? (
+                          <button
+                            type="button"
+                            onClick={() => setPaymentsMember(member)}
+                            title="View payment history"
+                            className="group text-left cursor-pointer"
+                          >
+                            <p
+                              className="text-white group-hover:text-[#ffcfad] transition-colors"
+                              style={{ fontSize: "13px", fontWeight: 600 }}
+                            >
+                              {formatPaymentAmount(
+                                member.lastPayment.amountCents,
+                                member.lastPayment.currency,
+                              )}{" "}
+                              · {formatPaymentMethod(member.lastPayment)}
+                            </p>
+                            <p
+                              className="text-white/35 mt-1 group-hover:text-white/55 transition-colors"
+                              style={{ fontSize: "11.5px" }}
+                            >
+                              {formatMemberDate(member.lastPayment.paidAt)}
+                            </p>
+                          </button>
+                        ) : (
+                          <span className="text-white/20">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 align-top text-white/70">
                         {formatMemberRole(member.role)}
@@ -3343,6 +3601,13 @@ function MembersManager({
             member={reviewMember}
             onClose={() => setReviewMember(null)}
             onReviewed={onRefreshMembers}
+          />
+        )}
+
+        {paymentsMember && (
+          <PaymentHistoryModal
+            member={paymentsMember}
+            onClose={() => setPaymentsMember(null)}
           />
         )}
       </div>

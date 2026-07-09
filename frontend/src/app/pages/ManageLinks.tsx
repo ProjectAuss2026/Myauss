@@ -368,7 +368,7 @@ export function ManageLinks() {
   /* ── Auth guard ─────────────────────────────────────────────────────── */
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== 'ADMIN' && user?.role !== 'OWNER'))) {
-      navigate('/profile');
+      navigate('/dashboard');
     }
   }, [authLoading, isAuthenticated, user, navigate]);
 
@@ -534,12 +534,12 @@ export function ManageLinks() {
       <div className="max-w-[900px] mx-auto px-6 py-12 md:py-20 relative">
         {/* Back link */}
         <Link
-          to="/profile"
+          to="/dashboard"
           className="inline-flex items-center gap-2 text-white/50 hover:text-white transition-colors mb-8 group"
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '14px' }}
         >
           <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          Back to Profile
+          Back to Dashboard
         </Link>
 
         {/* Header */}

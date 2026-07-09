@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { clearStoredAuth, fetchWithAuth, getStoredToken, refreshAccessToken, setStoredToken } from '../lib/authFetch';
 
+const USER_KEY = 'user';
+
 interface AuthUser {
   id: string;
   email: string;
@@ -26,6 +28,8 @@ interface AuthContextType {
   login: (credentials: LoginCredentials) => Promise<AuthUser>;
   /** Store token + user from external auth flows (e.g. email verification) */
   setUserFromToken: (token: string, user: AuthUser) => void;
+  /** Re-fetch the current user from the server (e.g. after membership changes). */
+  refreshUser: () => Promise<AuthUser | null>;
   logout: () => Promise<void>;
   clearError: () => void;
 }
@@ -102,6 +106,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(userData);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await fetchWithAuth('/api/auth/me');
+      if (!res.ok) return null;
+      const data = await res.json();
+      setUser(data.user);
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      return data.user as AuthUser;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     const token = getStoredToken();
     await fetch('/api/auth/logout', {
@@ -131,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error,
         login,
         setUserFromToken,
+        refreshUser,
         logout,
         clearError,
       }}

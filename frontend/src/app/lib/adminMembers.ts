@@ -24,6 +24,19 @@ export interface AdminMemberApiRecord {
   studentID?: string | null;
   createdAt?: string | null;
   joinedAt?: string | null;
+  lastPayment?: unknown;
+}
+
+// One row of the card-payment ledger (KAN-138 AC7).
+export interface MemberPayment {
+  id: string;
+  stripePaymentIntentId: string | null;
+  amountCents: number;
+  currency: string;
+  method: string | null;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  paidAt: string | null;
 }
 
 export interface AdminMember {
@@ -36,6 +49,7 @@ export interface AdminMember {
   membershipStatusUpdatedAt: string | null;
   role: string | null;
   isVerified: boolean;
+  lastPayment: MemberPayment | null;
 }
 
 export interface AdminMembersPagination {
@@ -222,6 +236,33 @@ function readPagination(
   };
 }
 
+export function mapMemberPayment(value: unknown): MemberPayment | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const id = readString(record.id);
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    stripePaymentIntentId: readString(record.stripePaymentIntentId),
+    amountCents:
+      typeof record.amountCents === "number" &&
+      Number.isFinite(record.amountCents)
+        ? record.amountCents
+        : 0,
+    currency: readString(record.currency)?.toLowerCase() || "nzd",
+    method: readString(record.method),
+    cardBrand: readString(record.cardBrand),
+    cardLast4: readString(record.cardLast4),
+    paidAt: readString(record.paidAt),
+  };
+}
+
 export function mapAdminMember(record: AdminMemberApiRecord): AdminMember {
   return {
     id: record.id,
@@ -233,6 +274,7 @@ export function mapAdminMember(record: AdminMemberApiRecord): AdminMember {
     membershipStatusUpdatedAt: readString(record.membershipStatusUpdatedAt),
     role: readString(record.role),
     isVerified: Boolean(record.isVerified),
+    lastPayment: mapMemberPayment(record.lastPayment),
   };
 }
 
@@ -304,6 +346,27 @@ export async function getMemberPaymentProofs(
     expiresAt: readString(record.expiresAt),
     linkedAt: readString(record.linkedAt),
   }));
+}
+
+export async function getMemberPayments(
+  userId: string,
+): Promise<MemberPayment[]> {
+  const response = await fetchWithAuth(
+    `/api/auth/admin/members/${encodeURIComponent(userId)}/payments`,
+  );
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response));
+  }
+
+  const payload = await response.json().catch(() => null);
+  const records = Array.isArray(payload?.data) ? payload.data : [];
+
+  return records
+    .map((record: unknown) => mapMemberPayment(record))
+    .filter((payment: MemberPayment | null): payment is MemberPayment =>
+      Boolean(payment),
+    );
 }
 
 export async function getMemberPaymentProofFile(
@@ -405,6 +468,31 @@ export function formatMemberRole(role: string | null | undefined): string {
     default:
       return readString(role) || "—";
   }
+}
+
+export function formatPaymentAmount(
+  amountCents: number,
+  currency: string | null | undefined,
+): string {
+  const code = (readString(currency) || "nzd").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-NZ", {
+      style: "currency",
+      currency: code,
+    }).format(amountCents / 100);
+  } catch {
+    return `${(amountCents / 100).toFixed(2)} ${code}`;
+  }
+}
+
+export function formatPaymentMethod(payment: MemberPayment): string {
+  if (payment.cardBrand || payment.cardLast4) {
+    const brand = payment.cardBrand
+      ? payment.cardBrand.charAt(0).toUpperCase() + payment.cardBrand.slice(1)
+      : "Card";
+    return payment.cardLast4 ? `${brand} •••• ${payment.cardLast4}` : brand;
+  }
+  return readString(payment.method)?.replace(/_/g, " ") || "Card";
 }
 
 export function formatMemberDate(value: string | null | undefined): string {
