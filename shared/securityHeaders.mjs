@@ -18,6 +18,11 @@ const IMAGE_SOURCE_ENV_KEYS = Object.freeze([
 ]);
 const DEFAULT_ENV = typeof process === 'undefined' ? {} : process.env;
 
+// Stripe.js + Payment Element require these origins in the page CSP.
+const STRIPE_SCRIPT_SRC_VALUES = Object.freeze(['https://js.stripe.com']);
+const STRIPE_FRAME_SRC_VALUES = Object.freeze(['https://js.stripe.com', 'https://hooks.stripe.com']);
+const STRIPE_CONNECT_SRC_VALUES = Object.freeze(['https://api.stripe.com']);
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -86,8 +91,17 @@ export function getConfiguredCspConnectSrcValues({
   return unique([
     "'self'",
     getSentryIngestOrigin(env),
+    ...STRIPE_CONNECT_SRC_VALUES,
     ...(allowWebSockets ? ['ws:', 'wss:'] : []),
   ]);
+}
+
+export function getConfiguredCspScriptSrcValues() {
+  return unique([...STRIPE_SCRIPT_SRC_VALUES]);
+}
+
+export function getConfiguredCspFrameSrcValues() {
+  return unique([...STRIPE_FRAME_SRC_VALUES]);
 }
 
 export function createContentSecurityPolicy({
@@ -98,11 +112,12 @@ export function createContentSecurityPolicy({
 } = {}) {
   return [
     "default-src 'self'",
-    `script-src 'self'${allowInlineScripts ? " 'unsafe-inline'" : ''}${allowEval ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' ${getConfiguredCspScriptSrcValues().join(' ')}${allowInlineScripts ? " 'unsafe-inline'" : ''}${allowEval ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline' https:",
     `img-src ${getConfiguredCspImageSrcValues(env).join(' ')}`,
     "font-src 'self' data: https:",
     `connect-src ${getConfiguredCspConnectSrcValues({ env, allowWebSockets }).join(' ')}`,
+    `frame-src ${getConfiguredCspFrameSrcValues().join(' ')}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

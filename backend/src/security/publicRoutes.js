@@ -30,6 +30,9 @@ export const PUBLIC_ROUTES = Object.freeze([
   route("GET", "/api/faq"),
   route("GET", "/api/executives"),
   route("GET", "/api/media-entries"),
+  // Stripe posts here directly; authenticity is enforced by webhook signature
+  // verification, not a JWT.
+  route("POST", "/api/payments/webhook"),
 ]);
 
 export const AUTHENTICATED_ROUTES = Object.freeze([
@@ -48,9 +51,12 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   route("POST", "/api/auth/admin/users/:userId/demote"),
   route("GET", "/api/auth/admin/members"),
   route("GET", "/api/auth/admin/members/:userId/payment-proofs"),
+  route("GET", "/api/auth/admin/members/:userId/payments"),
   route("GET", "/api/auth/admin/payment-proofs/:proofId/file"),
   route("POST", "/api/auth/admin/members/:userId/status"),
   route("POST", "/api/upload"),
+  route("POST", "/api/payments/intent"),
+  route("POST", "/api/payments/confirm"),
 ]);
 
 export const ADMIN_ROUTES = Object.freeze([

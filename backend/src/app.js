@@ -13,11 +13,15 @@ import sponsorshipRoutes from './routes/sponsorshipRoutes.js';
 import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import { handleStripeWebhook } from './controllers/paymentController.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
 import logger from './utils/logger.js';
 import {
   getConfiguredCspConnectSrcValues,
   getConfiguredCspImageSrcValues,
+  getConfiguredCspScriptSrcValues,
+  getConfiguredCspFrameSrcValues,
 } from '../../shared/securityHeaders.mjs';
 
 function getAllowedCorsOrigins() {
@@ -40,7 +44,7 @@ function createHelmetMiddleware() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: ["'self'", ...getConfiguredCspScriptSrcValues()],
         styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
         imgSrc: getConfiguredCspImageSrcValues(process.env),
         fontSrc: ["'self'", 'data:', 'https:'],
@@ -48,6 +52,7 @@ function createHelmetMiddleware() {
           env: process.env,
           allowWebSockets: process.env.NODE_ENV !== 'production',
         }),
+        frameSrc: getConfiguredCspFrameSrcValues(),
         frameAncestors: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -108,6 +113,14 @@ export function createApp() {
   app.use(createCorsMiddleware());
   // Stripe webhook needs raw body for signature verification — must come BEFORE express.json()
   app.use('/api/auth/webhooks/stripe', express.raw({ type: 'application/json' }));
+
+  // Legacy Stripe webhook path
+  app.post(
+    '/api/payments/webhook',
+    express.raw({ type: 'application/json' }),
+    handleStripeWebhook,
+  );
+
   app.use(express.json());
 
   app.get('/healthz', (_req, res) => {
@@ -157,6 +170,7 @@ export function createApp() {
   app.use('/api', faqRoutes);
   app.use('/api', executiveRoutes);
   app.use('/api', mediaRoutes);
+  app.use('/api', paymentRoutes);
 
   app.use(handleCorsErrors);
 

@@ -53,8 +53,34 @@ model User {
   membershipChangesReceived MembershipStatusAudit[] @relation("MembershipChangeTarget")
   passwordResets            PasswordReset[]
   paymentProofUploads       PaymentProofUpload[]
+  payments                  Payment[]
 
   @@index([membershipStatus, membershipStatusUpdatedAt])
+}
+
+// --- PAYMENT LEDGER (KAN-138 AC7) ---
+// Auditable record of every confirmed card/wallet payment, written idempotently
+// from both the /payments/confirm re-verification and the Stripe webhook
+// (upserted on stripePaymentIntentId). Unlike the audit tables this is a
+// financial ledger: userId is nullable with SetNull so transactions survive
+// account deletion, and payerEmail snapshots the payer for later reference.
+// No raw card data is stored — only Stripe's tokenized brand/last4 metadata.
+model Payment {
+  id                    String   @id @default(uuid())
+  userId                String?
+  payerEmail            String
+  stripePaymentIntentId String   @unique
+  amountCents           Int
+  currency              String   @db.VarChar(3) // ISO 4217 lowercase, e.g. "nzd"
+  method                String   @db.VarChar(40) // Stripe payment_method_details.type, e.g. "card"
+  cardBrand             String?  @db.VarChar(20) // e.g. "visa", "mastercard"
+  cardLast4             String?  @db.VarChar(4)
+  paidAt                DateTime
+  createdAt             DateTime @default(now())
+  user                  User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, paidAt])
+  @@index([paidAt])
 }
 
 model PasswordReset {

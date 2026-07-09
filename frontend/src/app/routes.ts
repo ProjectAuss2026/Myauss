@@ -9,7 +9,7 @@ import { Login } from './pages/Login';
 import { Verify } from './pages/Verify';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
-import { Profile } from './pages/Profile';
+import { MemberDashboard } from './pages/MemberDashboard';
 import { ManageLinks } from './pages/ManageLinks';
 import { Admin } from './pages/Admin';
 import { Sponsorship } from './pages/Sponsorship';
@@ -17,6 +17,7 @@ import { Activities } from './pages/Activities';
 import { ActivityDetails } from './pages/ActivityDetails';
 import { ActivateMembership } from './pages/ActivateMembership';
 import { MediaGallery } from './pages/MediaGallery';
+import { MembershipPayment } from './pages/MembershipPayment';
 
 export const router = createBrowserRouter([
   {
@@ -32,11 +33,12 @@ export const router = createBrowserRouter([
       { path: 'verify', Component: Verify },
       { path: 'forgot-password', Component: ForgotPassword },
       { path: 'reset', Component: ResetPassword },
-      { path: 'profile', Component: Profile },
+      { path: 'dashboard', Component: MemberDashboard },
       { path: 'activities', Component: Activities },
       { path: 'activities/:id', Component: ActivityDetails },
       { path: 'media', Component: MediaGallery },
       { path: 'verify-membership', Component: ActivateMembership },
+      { path: 'membership/pay', Component: MembershipPayment },
       { path: 'manage', Component: ManageLinks },
       { path: 'admin', Component: Admin },
       { path: '*', Component: NotFound },

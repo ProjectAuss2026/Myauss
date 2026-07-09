@@ -39,6 +39,7 @@ const INVALID_BYTES = Buffer.from("not-an-image", "utf8");
 const usersByEmail = new Map();
 const usersById = new Map();
 const paymentProofsById = new Map();
+const paymentsById = new Map();
 const otpCodesByUserId = new Map();
 const membershipAudits = [];
 const declinedPaymentProofEmails = [];
@@ -270,6 +271,24 @@ globalThis.prisma = {
       return cloneRecord(record);
     },
   },
+  payment: {
+    findMany: async (args = {}) => {
+      const rows = Array.from(paymentsById.values()).filter((payment) => {
+        if (
+          args.where?.userId !== undefined &&
+          payment.userId !== args.where.userId
+        ) {
+          return false;
+        }
+        return true;
+      });
+      rows.sort(
+        (left, right) =>
+          (right.paidAt?.getTime?.() ?? 0) - (left.paidAt?.getTime?.() ?? 0),
+      );
+      return rows.map((row) => selectRecord(row, args.select));
+    },
+  },
   paymentProofUpload: {
     create: async (args) => {
       const upload = makePaymentProof({
@@ -408,6 +427,7 @@ async function resetState() {
   usersByEmail.clear();
   usersById.clear();
   paymentProofsById.clear();
+  paymentsById.clear();
   otpCodesByUserId.clear();
   membershipAudits.length = 0;
   declinedPaymentProofEmails.length = 0;
@@ -1257,4 +1277,140 @@ test("admin roster reflects VERIFIED status after approval", async () => {
       (row) => row.id === member.id && row.membershipStatus === "VERIFIED",
     ),
   );
+});
+
+function makePayment(data = {}) {
+  const id = data.id || `payment-${paymentsById.size + 1}`;
+  const record = {
+    id,
+    userId: data.userId ?? null,
+    payerEmail: data.payerEmail ?? "payer@example.com",
+    stripePaymentIntentId: data.stripePaymentIntentId ?? `pi_${id}`,
+    amountCents: data.amountCents ?? 2000,
+    currency: data.currency ?? "nzd",
+    method: data.method ?? "card",
+    cardBrand: data.cardBrand ?? "visa",
+    cardLast4: data.cardLast4 ?? "4242",
+    paidAt: data.paidAt ?? new Date(),
+    createdAt: data.createdAt ?? new Date(),
+  };
+  paymentsById.set(id, record);
+  return record;
+}
+
+test("admin can list a member's payment ledger, newest first", async () => {
+  const member = storeUser(
+    makeUser({ id: "ledger-user", email: "ledger@example.com" }),
+  );
+  const admin = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+  makePayment({
+    id: "payment-old",
+    userId: member.id,
+    stripePaymentIntentId: "pi_old",
+    paidAt: new Date("2026-07-01T10:00:00Z"),
+  });
+  makePayment({
+    id: "payment-new",
+    userId: member.id,
+    stripePaymentIntentId: "pi_new",
+    cardBrand: "mastercard",
+    cardLast4: "4444",
+    paidAt: new Date("2026-07-06T10:00:00Z"),
+  });
+  // Another member's payment must not leak into the response.
+  makePayment({ id: "payment-other", userId: "someone-else" });
+
+  const response = await requestApp(createApp(), {
+    path: `/api/auth/admin/members/${member.id}/payments`,
+    token: authToken(admin),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.data.length, 2);
+  assert.deepEqual(
+    response.json.data.map((row) => row.stripePaymentIntentId),
+    ["pi_new", "pi_old"],
+  );
+
+  const [latest] = response.json.data;
+  assert.equal(latest.amountCents, 2000);
+  assert.equal(latest.currency, "nzd");
+  assert.equal(latest.method, "card");
+  assert.equal(latest.cardBrand, "mastercard");
+  assert.equal(latest.cardLast4, "4444");
+  assert.ok(latest.paidAt);
+  // The ledger response must never expose payer PII beyond what admins need.
+  assert.equal(latest.payerEmail, undefined);
+});
+
+test("member payment ledger requires an admin and an existing user", async () => {
+  const member = storeUser(
+    makeUser({ id: "ledger-guard-user", email: "guard@example.com" }),
+  );
+  const regularUser = storeUser(
+    makeUser({ email: "regular@example.com", isVerified: true }),
+  );
+  const admin = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  const forbiddenResponse = await requestApp(createApp(), {
+    path: `/api/auth/admin/members/${member.id}/payments`,
+    token: authToken(regularUser),
+  });
+  assert.equal(forbiddenResponse.statusCode, 403);
+
+  const missingResponse = await requestApp(createApp(), {
+    path: "/api/auth/admin/members/nonexistent-user/payments",
+    token: authToken(admin),
+  });
+  assert.equal(missingResponse.statusCode, 404);
+});
+
+test("admin roster includes the member's latest payment summary", async () => {
+  const member = storeUser(
+    makeUser({
+      id: "roster-payment-user",
+      email: "roster.payment@example.com",
+      membershipStatus: "VERIFIED",
+      info: {
+        id: "info-roster-payment-user",
+        userId: "roster-payment-user",
+        firstName: "Paid",
+        lastName: "Member",
+      },
+    }),
+  );
+  const admin = storeUser(
+    makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
+  );
+
+  // The roster query pulls the newest ledger row via the payments relation;
+  // the mock mirrors that by storing it on the user record.
+  member.payments = [
+    makePayment({
+      userId: member.id,
+      stripePaymentIntentId: "pi_roster",
+      paidAt: new Date("2026-07-06T10:00:00Z"),
+    }),
+  ];
+
+  const response = await requestApp(createApp(), {
+    path: "/api/auth/admin/members?page=1&pageSize=20",
+    token: authToken(admin),
+  });
+
+  assert.equal(response.statusCode, 200);
+  const row = response.json.data.find((entry) => entry.id === member.id);
+  assert.ok(row);
+  assert.equal(row.lastPayment.stripePaymentIntentId, "pi_roster");
+  assert.equal(row.lastPayment.amountCents, 2000);
+  assert.equal(row.lastPayment.cardBrand, "visa");
+  assert.equal(row.lastPayment.cardLast4, "4242");
+
+  const adminRow = response.json.data.find((entry) => entry.id === admin.id);
+  assert.ok(adminRow);
+  assert.equal(adminRow.lastPayment, null);
 });
