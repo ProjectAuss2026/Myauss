@@ -289,6 +289,36 @@ export function Profile() {
                   </div>
                 </div>
 
+                {(membershipStatus === "INACTIVE" || membershipStatus === "NEED_REVIEW") && (
+                  <div className="mt-6 p-4 rounded-xl bg-[#eb7524]/8 border border-[#eb7524]/20">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center shrink-0">
+                        <Shield className="w-5 h-5 text-[#eb7524]" />
+                      </div>
+                      <div>
+                        <p className="text-white mb-1" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}>
+                          {membershipStatus === "INACTIVE"
+                            ? "Activate your membership"
+                            : "Membership pending review"}
+                        </p>
+                        <p className="text-white/50 mb-3" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                          {membershipStatus === "INACTIVE"
+                            ? "Your membership is not yet active. Activate it to access full member benefits."
+                            : "Your payment proof is being reviewed by our exec team."}
+                        </p>
+                        <Link
+                          to="/verify-membership"
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+                          style={{ fontSize: '13px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}
+                        >
+                          {membershipStatus === "INACTIVE" ? "Activate Now" : "View Status"}
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {!hasAdminAccess && (
                   <div className="mt-6 p-4 rounded-xl bg-[#eb7524]/8 border border-[#eb7524]/20">
                     <p className="text-white mb-2" style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}>

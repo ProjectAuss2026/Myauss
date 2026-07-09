@@ -21,5 +21,8 @@
     "fullstack"
   ],
   "author": "ProjectAuss2026",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "lightningcss-win32-x64-msvc": "^1.32.0"
+  }
 }

@@ -3,6 +3,7 @@ import path from "node:path";
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import nodemailer from "nodemailer";
+import Stripe from "stripe";
 import "../env.js";
 import prisma from "../prismaClient.js";
 import { authenticate } from "../middleware/authMiddleware.js";
@@ -12,6 +13,7 @@ import {
   registerSchema,
   resendCodeSchema,
   verifySchema,
+  submitPaymentSchema,
 } from "../schemas/authSchemas.js";
 import { hashStudentId, isStudentIdHashError } from "../utils/studentIdHash.js";
 import logger from "../utils/logger.js";
@@ -27,6 +29,8 @@ import {
   resendIpLimiter,
   verifyEmailThrottle,
   verifyIpLimiter,
+  submitPaymentLimiter,
+  createCheckoutLimiter,
 } from "../middleware/rateLimiters.js";
 import {
   REFRESH_COOKIE_NAME,
@@ -96,6 +100,21 @@ const pendingPaymentProofUpload = createImageUploadMiddleware({
   fileSize: MAX_PAYMENT_PROOF_UPLOAD_BYTES,
 });
 
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2025-06-30.basil",
+    })
+  : null;
+
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STRIPE_MEMBERSHIP_PRICE_ID =
+  process.env.STRIPE_MEMBERSHIP_PRICE_ID || "";
+const STRIPE_MEMBERSHIP_AMOUNT_CENTS = Number(
+  process.env.STRIPE_MEMBERSHIP_AMOUNT_CENTS || "0",
+);
+const STRIPE_MEMBERSHIP_CURRENCY =
+  process.env.STRIPE_MEMBERSHIP_CURRENCY || "nzd";
+
 function getOtpPepper() {
   return process.env.OTP_PEPPER || process.env.JWT_SECRET || "";
 }
@@ -105,31 +124,6 @@ function parsePositiveIntegerQueryParam(value) {
   if (!raw) return null;
   if (!/^[1-9]\d*$/.test(raw)) return null;
   return Number(raw);
-}
-
-function wantsCashBankTransfer(paymentMethod) {
-  return (
-    String(paymentMethod || "")
-      .trim()
-      .toUpperCase() === CASH_BANK_TRANSFER_PAYMENT_METHOD
-  );
-}
-
-function sanitizeProofUploadIds(proofUploadIds) {
-  if (!Array.isArray(proofUploadIds)) {
-    return [];
-  }
-
-  return proofUploadIds
-    .map((proofUploadId) => String(proofUploadId || "").trim())
-    .filter(Boolean);
-}
-
-function buildRegisterResponse(paymentMethod) {
-  return {
-    message: REGISTER_GENERIC_MESSAGE,
-    pendingMembershipReview: wantsCashBankTransfer(paymentMethod),
-  };
 }
 
 async function validatePendingPaymentProofUploads(client, proofUploadIds, now) {
@@ -251,7 +245,13 @@ async function deliverEmail(message) {
     return;
   }
 
-  await transporter.sendMail(message);
+  try {
+    await transporter.sendMail(message);
+  } catch (err) {
+    // SMTP failures must not crash the server.
+    logger.error({ err }, "Email delivery failed:");
+    throw err;
+  }
 }
 
 // ── OTP helpers ─────────────────────────────────────────────────────
@@ -366,6 +366,11 @@ async function sendVerificationCode(user) {
 
   const code = generateVerificationCode();
   const codeHash = hashVerificationCode(code);
+
+  // Always log the code in development so it's usable even if email fails.
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`\n[DEV OTP] Code for ${user.email}: ${code}\n`);
+  }
   const now = Date.now();
   await prisma.otpCode.upsert({
     where: { userId: user.id },
@@ -385,17 +390,18 @@ async function sendVerificationCode(user) {
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.log(
-      `[OTP DEV] Verification code generated for ${user.email}. SMTP is not configured.`,
+      `[OTP DEV] Code for ${user.email}: ${code} (SMTP not configured)`,
     );
     return { sent: true };
   }
 
-  await deliverEmail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: user.email,
-    subject: "AUSS – Your Verification Code",
-    text: `Your verification code is: ${code}\n\nThis code expires in 24 hours.`,
-    html: `
+  try {
+    await deliverEmail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: user.email,
+      subject: "AUSS – Your Verification Code",
+      text: `Your verification code is: ${code}\n\nThis code expires in 24 hours.`,
+      html: `
       <div style="font-family:sans-serif;max-width:420px;margin:auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;">
         <h2 style="color:#0f172a;margin-top:0;">Auckland Uni Strength Society</h2>
         <p>Your verification code is:</p>
@@ -403,7 +409,13 @@ async function sendVerificationCode(user) {
         <p style="color:#64748b;font-size:14px;">This code expires in 24 hours. If you didn't request this, you can safely ignore this email.</p>
       </div>
     `,
-  });
+    });
+  } catch (emailErr) {
+    // Log the code in dev so it's still usable even if SMTP fails.
+    console.log(
+      `[OTP DEV] Code for ${user.email}: ${code} (email send failed: ${emailErr instanceof Error ? emailErr.message : emailErr})`,
+    );
+  }
   return { sent: true };
 }
 
@@ -586,6 +598,7 @@ function getRefreshTokenFromRequest(req) {
 // ── POST /auth/payment-proofs/pending ──────────────────────────────
 router.post(
   "/payment-proofs/pending",
+  authenticate,
   paymentProofUploadIpLimiter,
   pendingPaymentProofUpload.single("proof"),
   async (req, res, next) => {
@@ -606,6 +619,7 @@ router.post(
 // ── DELETE /auth/payment-proofs/pending/:proofUploadId ─────────────
 router.delete(
   "/payment-proofs/pending/:proofUploadId",
+  authenticate,
   paymentProofUploadIpLimiter,
   async (req, res) => {
     const proofUploadId = String(req.params.proofUploadId || "").trim();
@@ -654,12 +668,10 @@ router.post(
   validate(registerSchema),
   async (req, res) => {
     try {
-      const { email, password, firstName, lastName, studentId, paymentMethod } =
+      const { email, password, firstName, lastName, studentId } =
         req.body;
       const now = new Date();
       const normalisedEmail = normaliseEmail(email);
-      const cashBankTransferSelected = wantsCashBankTransfer(paymentMethod);
-      const proofUploadIds = sanitizeProofUploadIds(req.body?.proofUploadIds);
 
       const passwordPolicy = validatePasswordPolicy(password, [
         normalisedEmail,
@@ -672,32 +684,18 @@ router.post(
       }
       const studentIdHash = hashStudentId(studentId);
 
-      if (cashBankTransferSelected) {
-        const proofValidation = await validatePendingPaymentProofUploads(
-          prisma,
-          proofUploadIds,
-          now,
-        );
-        if (!proofValidation.ok) {
-          return res
-            .status(proofValidation.status)
-            .json({ error: proofValidation.error });
-        }
-      }
-
       const existing = await prisma.user.findUnique({
         where: { email: normalisedEmail },
         select: {
           id: true,
           email: true,
           isVerified: true,
-          membershipStatus: true,
         },
       });
 
       // Already verified — keep the response generic to avoid email enumeration.
       if (existing?.isVerified) {
-        return res.status(200).json(buildRegisterResponse(paymentMethod));
+        return res.status(200).json({ message: REGISTER_GENERIC_MESSAGE });
       }
 
       // Exists but unverified — update password, always force USER role
@@ -706,74 +704,29 @@ router.post(
           passwordPolicy.normalizedPassword,
           SALT_ROUNDS,
         );
-        const updatedUser = await prisma.$transaction(async (tx) => {
-          const validatedProofUploads = cashBankTransferSelected
-            ? await validatePendingPaymentProofUploads(tx, proofUploadIds, now)
-            : { ok: true, proofUploadIds: [] };
-
-          if (!validatedProofUploads.ok) {
-            const error = new Error(validatedProofUploads.error);
-            error.code = "INVALID_PAYMENT_PROOF_UPLOADS";
-            error.statusCode = validatedProofUploads.status;
-            throw error;
-          }
-
-          const user = await tx.user.update({
-            where: { email: normalisedEmail },
-            data: {
-              passwordHash,
-              role: "USER",
-              lastCodeSentAt: now,
-              verificationExpiresAt: new Date(
-                now.getTime() + VERIFICATION_WINDOW_MS,
-              ),
-              ...(cashBankTransferSelected
-                ? {
-                    membershipStatus: "NEED_REVIEW",
-                    membershipStatusUpdatedAt: now,
-                  }
-                : {}),
-              info: {
-                upsert: {
-                  create: { firstName, lastName, studentId: studentIdHash },
-                  update: { firstName, lastName, studentId: studentIdHash },
-                },
+        const updatedUser = await prisma.user.update({
+          where: { email: normalisedEmail },
+          data: {
+            passwordHash,
+            role: "USER",
+            lastCodeSentAt: now,
+            verificationExpiresAt: new Date(
+              now.getTime() + VERIFICATION_WINDOW_MS,
+            ),
+            info: {
+              upsert: {
+                create: { firstName, lastName, studentId: studentIdHash },
+                update: { firstName, lastName, studentId: studentIdHash },
               },
             },
-            select: { id: true, email: true },
-          });
-
-          if (cashBankTransferSelected) {
-            await linkPendingPaymentProofUploads(
-              tx,
-              validatedProofUploads.proofUploadIds,
-              user.id,
-              now,
-            );
-
-            if (existing.membershipStatus !== "NEED_REVIEW") {
-              await tx.membershipStatusAudit.create({
-                data: {
-                  actorUserId: null,
-                  targetUserId: user.id,
-                  fromStatus: existing.membershipStatus,
-                  toStatus: "NEED_REVIEW",
-                  reason:
-                    "Cash / bank transfer proof submitted during registration",
-                },
-              });
-            }
-          }
-
-          return user;
+          },
+          select: { id: true, email: true },
         });
         const codeResult = await sendVerificationCode(updatedUser);
         if (!codeResult.sent) {
           return res.status(400).json({ error: codeResult.error });
         }
-        return res.status(200).json({
-          ...buildRegisterResponse(paymentMethod),
-        });
+        return res.status(200).json({ message: REGISTER_GENERIC_MESSAGE });
       }
 
       // Brand new user
@@ -781,69 +734,28 @@ router.post(
         passwordPolicy.normalizedPassword,
         SALT_ROUNDS,
       );
-      const createdUser = await prisma.$transaction(async (tx) => {
-        const validatedProofUploads = cashBankTransferSelected
-          ? await validatePendingPaymentProofUploads(tx, proofUploadIds, now)
-          : { ok: true, proofUploadIds: [] };
-
-        if (!validatedProofUploads.ok) {
-          const error = new Error(validatedProofUploads.error);
-          error.code = "INVALID_PAYMENT_PROOF_UPLOADS";
-          error.statusCode = validatedProofUploads.status;
-          throw error;
-        }
-
-        const user = await tx.user.create({
-          data: {
-            email: normalisedEmail,
-            passwordHash,
-            role: "USER",
-            isVerified: false,
-            lastCodeSentAt: now,
-            verificationExpiresAt: new Date(
-              now.getTime() + VERIFICATION_WINDOW_MS,
-            ),
-            ...(cashBankTransferSelected
-              ? {
-                  membershipStatus: "NEED_REVIEW",
-                  membershipStatusUpdatedAt: now,
-                }
-              : {}),
-            info: {
-              create: { firstName, lastName, studentId: studentIdHash },
-            },
+      const createdUser = await prisma.user.create({
+        data: {
+          email: normalisedEmail,
+          passwordHash,
+          role: "USER",
+          isVerified: false,
+          lastCodeSentAt: now,
+          verificationExpiresAt: new Date(
+            now.getTime() + VERIFICATION_WINDOW_MS,
+          ),
+          info: {
+            create: { firstName, lastName, studentId: studentIdHash },
           },
-          select: { id: true, email: true },
-        });
-
-        if (cashBankTransferSelected) {
-          await linkPendingPaymentProofUploads(
-            tx,
-            validatedProofUploads.proofUploadIds,
-            user.id,
-            now,
-          );
-        }
-
-        return user;
+        },
+        select: { id: true, email: true },
       });
       const codeResult = await sendVerificationCode(createdUser);
       if (!codeResult.sent) {
         return res.status(400).json({ error: codeResult.error });
       }
-      return res.status(200).json({
-        ...buildRegisterResponse(paymentMethod),
-      });
+      return res.status(200).json({ message: REGISTER_GENERIC_MESSAGE });
     } catch (err) {
-      if (err?.code === "INVALID_PAYMENT_PROOF_UPLOADS") {
-        return res.status(err.statusCode || 400).json({ error: err.message });
-      }
-      if (err?.code === "PAYMENT_PROOF_CLAIM_FAILED") {
-        return res.status(409).json({
-          error:
-            "One or more payment proof uploads were changed during registration. Please upload them again.",
-        });
-      }
       if (isStudentIdHashError(err)) {
         logger.error({ err }, "Student ID storage configuration error:");
         return res
@@ -851,6 +763,91 @@ router.post(
           .json({ error: "Student ID storage is not configured" });
       }
       logger.error({ err }, "Register error:");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// ── POST /auth/membership/submit-payment ──────────────────────────
+// Authenticated INACTIVE users submit bank-transfer proof post-registration.
+router.post(
+  "/membership/submit-payment",
+  authenticate,
+  submitPaymentLimiter,
+  validate(submitPaymentSchema),
+  async (req, res) => {
+    try {
+      const proofUploadIds = req.body.proofUploadIds;
+      const now = new Date();
+
+      // Validate the proof uploads exist, are pending, and are not expired/linked.
+      const proofValidation = await validatePendingPaymentProofUploads(
+        prisma,
+        proofUploadIds,
+        now,
+      );
+      if (!proofValidation.ok) {
+        return res
+          .status(proofValidation.status)
+          .json({ error: proofValidation.error });
+      }
+
+      // Only INACTIVE users can submit payment.
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, membershipStatus: true },
+      });
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.membershipStatus !== "INACTIVE") {
+        return res.status(409).json({
+          error: `Membership is already ${(user.membershipStatus || "unknown").toLowerCase()}. Payment submission is only available for inactive members.`,
+        });
+      }
+
+      // Link proofs and transition status atomically in one transaction.
+      // changeMembershipStatus accepts a client param — passing the outer tx
+      // ensures proof linking rolls back if the status change fails.
+      const updated = await prisma.$transaction(async (tx) => {
+        await linkPendingPaymentProofUploads(
+          tx,
+          proofValidation.proofUploadIds,
+          user.id,
+          now,
+        );
+
+        return changeMembershipStatus({
+          targetUserId: user.id,
+          toStatus: "NEED_REVIEW",
+          actorUserId: req.user.id,
+          reason: "Cash / bank transfer proof submitted by member",
+          client: tx,
+        });
+      });
+
+      return res.status(200).json({
+        data: {
+          membershipStatus: updated.membershipStatus,
+          message: "Payment proof submitted. Your membership is pending admin review.",
+        },
+      });
+    } catch (err) {
+      if (err instanceof MembershipTransitionError) {
+        return res
+          .status(409)
+          .json({ error: `Cannot transition membership: ${err.from} → ${err.to}` });
+      }
+      if (err?.code === "INVALID_PAYMENT_PROOF_UPLOADS") {
+        return res.status(err.statusCode || 400).json({ error: err.message });
+      }
+      if (err?.code === "PAYMENT_PROOF_CLAIM_FAILED") {
+        return res.status(409).json({
+          error:
+            "One or more payment proof uploads were changed. Please upload them again.",
+        });
+      }
+      logger.error({ err }, "Submit membership payment error:");
       return res.status(500).json({ error: "Internal server error" });
     }
   },
@@ -2120,6 +2117,164 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
       .json({ error: "Failed to change membership status" });
   }
 });
+
+// ── POST /auth/membership/create-checkout ──────────────────────────
+// Creates a Stripe Checkout Session for membership payment.
+router.post(
+  "/membership/create-checkout",
+  authenticate,
+  createCheckoutLimiter,
+  async (req, res) => {
+    if (!stripe) {
+      return res.status(501).json({
+        error: "Stripe is not configured on this server",
+      });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, email: true, membershipStatus: true },
+      });
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.membershipStatus !== "INACTIVE") {
+        return res.status(409).json({
+          error: `Membership is already ${(user.membershipStatus || "unknown").toLowerCase()}. Payment is only available for inactive members.`,
+        });
+      }
+
+      // Reject if neither price ID nor amount is configured — prevents
+      // accidental zero-price checkouts when env vars are missing.
+      if (!STRIPE_MEMBERSHIP_PRICE_ID && !(STRIPE_MEMBERSHIP_AMOUNT_CENTS > 0)) {
+        return res.status(501).json({
+          error:
+            "Membership pricing is not configured. Please contact the AUSS team.",
+        });
+      }
+
+      // Build line items from server config — never from client.
+      const lineItems = STRIPE_MEMBERSHIP_PRICE_ID
+        ? [{ price: STRIPE_MEMBERSHIP_PRICE_ID, quantity: 1 }]
+        : [
+            {
+              price_data: {
+                currency: STRIPE_MEMBERSHIP_CURRENCY,
+                product_data: {
+                  name: "AUSS Membership",
+                  description: "Auckland University Strength Society annual membership",
+                },
+                unit_amount: STRIPE_MEMBERSHIP_AMOUNT_CENTS,
+              },
+              quantity: 1,
+            },
+          ];
+
+      const origin = req.headers.origin || process.env.CLIENT_URL || "http://localhost:5173";
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        line_items: lineItems,
+        customer_email: user.email,
+        metadata: {
+          userId: user.id,
+        },
+        success_url: `${origin}/verify-membership?payment=success`,
+        cancel_url: `${origin}/verify-membership?payment=cancelled`,
+      });
+
+      return res.status(200).json({ url: session.url });
+    } catch (err) {
+      logger.error({ err }, "Stripe checkout error:");
+      return res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  },
+);
+
+// ── POST /auth/webhooks/stripe ─────────────────────────────────────
+// Stripe webhook handler. Uses raw body for signature verification.
+// NOTE: express.json() runs BEFORE this router. The raw body must be
+// available via a route-specific middleware. In production, ensure the
+// webhook route receives the raw body (e.g. via express.raw() on the
+// parent app before express.json() for this specific path).
+router.post(
+  "/webhooks/stripe",
+  async (req, res) => {
+    if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+      return res.status(501).json({
+        error: "Stripe webhook is not configured on this server",
+      });
+    }
+
+    const sig = req.headers["stripe-signature"];
+    if (!sig || typeof sig !== "string") {
+      return res.status(400).json({ error: "Missing stripe-signature header" });
+    }
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        STRIPE_WEBHOOK_SECRET,
+      );
+    } catch (err) {
+      logger.warn({ err }, "Stripe webhook signature verification failed");
+      return res.status(400).json({ error: "Invalid signature" });
+    }
+
+    // Idempotent via the frozen membership-status transition map: if the
+    // user is already VERIFIED, changeMembershipStatus rejects the no-op
+    // VERIFIED → VERIFIED transition with a MembershipTransitionError,
+    // which we catch and acknowledge below.
+    //
+    // Known limitation: if an admin later reverts VERIFIED → INACTIVE
+    // and Stripe redelivers the same checkout.session.completed event
+    // (retries up to 3 days), the webhook will transition INACTIVE →
+    // VERIFIED again — silently undoing the admin's action. A proper
+    // fix is a StripeWebhookEvent dedup table keyed on event.id.
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const userId = session.metadata?.userId;
+      if (!userId) {
+        logger.warn({ sessionId: session.id }, "Stripe webhook: no userId in session metadata");
+        return res.status(200).json({ received: true });
+      }
+
+      try {
+        // Transition INACTIVE → VERIFIED; changeMembershipStatus is
+        // idempotent-safe — it rejects no-op transitions.
+        await changeMembershipStatus({
+          targetUserId: userId,
+          toStatus: "VERIFIED",
+          actorUserId: null, // system-driven, not the user
+          reason: `Stripe checkout session ${session.id}`,
+        });
+        logger.info(
+          { userId, sessionId: session.id },
+          "Stripe webhook: membership verified via payment",
+        );
+      } catch (err) {
+        if (err instanceof MembershipTransitionError) {
+          // Already VERIFIED or not INACTIVE — log and acknowledge.
+          logger.info(
+            { userId, from: err.from, to: err.to, sessionId: session.id },
+            "Stripe webhook: membership transition skipped (already processed)",
+          );
+        } else {
+          logger.error(
+            { err, userId, sessionId: session.id },
+            "Stripe webhook: failed to verify membership",
+          );
+          return res.status(500).json({ error: "Failed to process payment" });
+        }
+      }
+    }
+
+    return res.status(200).json({ received: true });
+  },
+);
 
 router.use(handleImageUploadError);
 

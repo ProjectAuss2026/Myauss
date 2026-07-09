@@ -12,108 +12,9 @@ import {
   ShieldCheck,
   Users,
   ChevronLeft,
-  AlertCircle,
-  FileImage,
-  Loader2,
-  RefreshCw,
-  Trash2,
-  Upload,
 } from "lucide-react";
 
 type AuthView = "login" | "register";
-type RegistrationPaymentMethod = "STANDARD" | "CASH_BANK_TRANSFER";
-type PaymentProofUploadStatus = "uploading" | "uploaded" | "error";
-
-type PaymentProofUploadItem = {
-  localId: string;
-  file: File;
-  id: string | null;
-  originalFilename: string;
-  mimeType: string | null;
-  sizeBytes: number;
-  expiresAt: string | null;
-  status: PaymentProofUploadStatus;
-  error: string | null;
-};
-
-type PaymentProofUploadResponse = {
-  data?: {
-    id: string;
-    originalFilename: string;
-    mimeType: string;
-    sizeBytes: number;
-    expiresAt: string;
-  };
-  error?: string;
-  message?: string;
-};
-
-const CASH_BANK_TRANSFER_PAYMENT_METHOD = "CASH_BANK_TRANSFER";
-
-async function readJsonResponse<T>(response: Response): Promise<T | null> {
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    return null;
-  }
-  return response.json() as Promise<T>;
-}
-
-async function uploadPendingPaymentProof(file: File) {
-  const formData = new FormData();
-  formData.append("proof", file);
-
-  const response = await fetch("/api/auth/payment-proofs/pending", {
-    method: "POST",
-    body: formData,
-  });
-  const payload = await readJsonResponse<PaymentProofUploadResponse>(response);
-
-  if (!response.ok || !payload?.data) {
-    throw new Error(
-      payload?.error || payload?.message || "Payment proof upload failed.",
-    );
-  }
-
-  return payload.data;
-}
-
-async function removePendingPaymentProof(proofUploadId: string) {
-  const response = await fetch(
-    `/api/auth/payment-proofs/pending/${encodeURIComponent(proofUploadId)}`,
-    { method: "DELETE" },
-  );
-  const payload = await readJsonResponse<{ error?: string; message?: string }>(
-    response,
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error ||
-        payload?.message ||
-        "Failed to remove payment proof upload.",
-    );
-  }
-}
-
-function formatBytes(sizeBytes: number) {
-  if (sizeBytes < 1024) {
-    return `${sizeBytes} B`;
-  }
-
-  if (sizeBytes < 1024 * 1024) {
-    return `${(sizeBytes / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function createLocalProofUploadId() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `proof-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -175,11 +76,6 @@ export function Login() {
   const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
   const [regStudentId, setRegStudentId] = useState("");
-  const [paymentMethod, setPaymentMethod] =
-    useState<RegistrationPaymentMethod>("STANDARD");
-  const [paymentProofUploads, setPaymentProofUploads] = useState<
-    PaymentProofUploadItem[]
-  >([]);
   const [submitted, setSubmitted] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
@@ -189,17 +85,6 @@ export function Login() {
   const { login } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const paymentProofInputRef = useRef<HTMLInputElement>(null);
-
-  const uploadedPaymentProofIds = paymentProofUploads
-    .filter((upload) => upload.status === "uploaded" && upload.id)
-    .map((upload) => upload.id as string);
-  const hasUploadingPaymentProofs = paymentProofUploads.some(
-    (upload) => upload.status === "uploading",
-  );
-  const showPaymentProofSection =
-    paymentMethod === CASH_BANK_TRANSFER_PAYMENT_METHOD ||
-    paymentProofUploads.length > 0;
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -245,128 +130,6 @@ export function Login() {
     setFieldErrors({});
     setTouched({});
   }
-
-  const updatePaymentProofUpload = (
-    localId: string,
-    updater: (upload: PaymentProofUploadItem) => PaymentProofUploadItem,
-  ) => {
-    setPaymentProofUploads((current) =>
-      current.map((upload) =>
-        upload.localId === localId ? updater(upload) : upload,
-      ),
-    );
-  };
-
-  const uploadProofFile = async (localId: string, file: File) => {
-    updatePaymentProofUpload(localId, (upload) => ({
-      ...upload,
-      status: "uploading",
-      error: null,
-      id: null,
-      mimeType: null,
-      sizeBytes: file.size,
-      expiresAt: null,
-      originalFilename: file.name,
-    }));
-
-    try {
-      const uploaded = await uploadPendingPaymentProof(file);
-      updatePaymentProofUpload(localId, (upload) => ({
-        ...upload,
-        id: uploaded.id,
-        originalFilename: uploaded.originalFilename,
-        mimeType: uploaded.mimeType,
-        sizeBytes: uploaded.sizeBytes,
-        expiresAt: uploaded.expiresAt,
-        status: "uploaded",
-        error: null,
-      }));
-    } catch (err: any) {
-      updatePaymentProofUpload(localId, (upload) => ({
-        ...upload,
-        status: "error",
-        error: err?.message || "Payment proof upload failed.",
-      }));
-    }
-  };
-
-  const handlePaymentProofFiles = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = "";
-
-    if (files.length === 0) {
-      return;
-    }
-
-    setRegisterError(null);
-
-    for (const file of files) {
-      const localId = createLocalProofUploadId();
-      setPaymentProofUploads((current) => [
-        ...current,
-        {
-          localId,
-          file,
-          id: null,
-          originalFilename: file.name,
-          mimeType: file.type || null,
-          sizeBytes: file.size,
-          expiresAt: null,
-          status: "uploading",
-          error: null,
-        },
-      ]);
-
-      await uploadProofFile(localId, file);
-    }
-  };
-
-  const handleRetryPaymentProof = async (localId: string) => {
-    const upload = paymentProofUploads.find((item) => item.localId === localId);
-    if (!upload) {
-      return;
-    }
-
-    setRegisterError(null);
-    await uploadProofFile(localId, upload.file);
-  };
-
-  const handleRemovePaymentProof = async (localId: string) => {
-    const upload = paymentProofUploads.find((item) => item.localId === localId);
-    if (!upload || upload.status === "uploading") {
-      return;
-    }
-
-    setRegisterError(null);
-
-    if (!upload.id) {
-      setPaymentProofUploads((current) =>
-        current.filter((item) => item.localId !== localId),
-      );
-      return;
-    }
-
-    updatePaymentProofUpload(localId, (item) => ({
-      ...item,
-      status: "uploading",
-      error: null,
-    }));
-
-    try {
-      await removePendingPaymentProof(upload.id);
-      setPaymentProofUploads((current) =>
-        current.filter((item) => item.localId !== localId),
-      );
-    } catch (err: any) {
-      updatePaymentProofUpload(localId, (item) => ({
-        ...item,
-        status: "uploaded",
-        error: err?.message || "Failed to remove payment proof upload.",
-      }));
-    }
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -431,24 +194,6 @@ export function Login() {
       return;
     }
 
-    if (
-      paymentMethod === CASH_BANK_TRANSFER_PAYMENT_METHOD &&
-      hasUploadingPaymentProofs
-    ) {
-      setRegisterError("Please wait for your payment proof uploads to finish.");
-      return;
-    }
-
-    if (
-      paymentMethod === CASH_BANK_TRANSFER_PAYMENT_METHOD &&
-      uploadedPaymentProofIds.length === 0
-    ) {
-      setRegisterError(
-        "Upload at least one payment proof before submitting Cash / Bank Transfer registration.",
-      );
-      return;
-    }
-
     setSubmitted(true);
     try {
       const body: Record<string, unknown> = {
@@ -459,21 +204,12 @@ export function Login() {
         studentId: regStudentId,
       };
 
-      if (paymentMethod === CASH_BANK_TRANSFER_PAYMENT_METHOD) {
-        body.paymentMethod = CASH_BANK_TRANSFER_PAYMENT_METHOD;
-        body.proofUploadIds = uploadedPaymentProofIds;
-      }
-
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await readJsonResponse<{
-        error?: string;
-        message?: string;
-        pendingMembershipReview?: boolean;
-      }>(res);
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         const msg = data?.error || "Registration failed.";
@@ -482,22 +218,13 @@ export function Login() {
         return;
       }
 
-      const pendingMembershipReview = Boolean(data?.pendingMembershipReview);
-      const pendingMembershipReviewMessage = pendingMembershipReview
-        ? "We received your membership submission. Verify your email with the code we sent. Your payment proof is pending admin review, and your membership will be verified after approval."
-        : null;
-
       showToast(
-        pendingMembershipReviewMessage ||
-          data?.message ||
-          "If your email is eligible, a verification code has been sent.",
+        "Check your email for the verification code. If you don't receive it, you may already be registered — try signing in instead.",
         "info",
       );
       navigate("/verify", {
         state: {
           email: regEmail,
-          pendingMembershipReview,
-          pendingMembershipReviewMessage,
         },
       });
     } catch {
@@ -1043,278 +770,6 @@ export function Login() {
                         Final privacy wording should be confirmed by AUSS.
                       </p>
                     </div>
-
-                    <div>
-                      <span
-                        className="block text-white/60 mb-1.5"
-                        style={{
-                          fontSize: "13px",
-                          fontFamily: "Inter, sans-serif",
-                        }}
-                      >
-                        Payment Method
-                      </span>
-                      <div className="space-y-3">
-                        <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 cursor-pointer transition-colors hover:border-white/20">
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            value="STANDARD"
-                            checked={paymentMethod === "STANDARD"}
-                            onChange={() => setPaymentMethod("STANDARD")}
-                            className="mt-1 h-4 w-4 accent-[#eb7524]"
-                          />
-                          <span>
-                            <span
-                              className="block text-white"
-                              style={{
-                                fontSize: "14px",
-                                fontFamily: "Outfit, sans-serif",
-                                fontWeight: 500,
-                              }}
-                            >
-                              Standard Registration
-                            </span>
-                            <span
-                              className="block text-white/40 mt-1"
-                              style={{
-                                fontSize: "12px",
-                                fontFamily: "Inter, sans-serif",
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              No payment-proof upload is required during
-                              registration.
-                            </span>
-                          </span>
-                        </label>
-
-                        <label className="flex items-start gap-3 rounded-xl border border-[#eb7524]/20 bg-[#eb7524]/[0.04] px-4 py-3 cursor-pointer transition-colors hover:border-[#eb7524]/35">
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            value={CASH_BANK_TRANSFER_PAYMENT_METHOD}
-                            checked={
-                              paymentMethod ===
-                              CASH_BANK_TRANSFER_PAYMENT_METHOD
-                            }
-                            onChange={() =>
-                              setPaymentMethod("CASH_BANK_TRANSFER")
-                            }
-                            className="mt-1 h-4 w-4 accent-[#eb7524]"
-                          />
-                          <span>
-                            <span
-                              className="block text-white"
-                              style={{
-                                fontSize: "14px",
-                                fontFamily: "Outfit, sans-serif",
-                                fontWeight: 500,
-                              }}
-                            >
-                              Cash / Bank Transfer
-                            </span>
-                            <span
-                              className="block text-white/40 mt-1"
-                              style={{
-                                fontSize: "12px",
-                                fontFamily: "Inter, sans-serif",
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              Upload at least one receipt or bank-transfer image
-                              before you submit your registration.
-                            </span>
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {showPaymentProofSection && (
-                      <div className="rounded-2xl border border-[#eb7524]/20 bg-[#eb7524]/[0.04] p-4 space-y-4">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-[#eb7524]/10 flex items-center justify-center shrink-0">
-                            <FileImage className="w-5 h-5 text-[#eb7524]" />
-                          </div>
-                          <div>
-                            <h3
-                              className="text-white"
-                              style={{
-                                fontSize: "15px",
-                                fontFamily: "Outfit, sans-serif",
-                                fontWeight: 600,
-                              }}
-                            >
-                              Payment Proof Uploads
-                            </h3>
-                            <p
-                              className="text-white/45 mt-1"
-                              style={{
-                                fontSize: "12px",
-                                fontFamily: "Inter, sans-serif",
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              Upload JPG, PNG, or WEBP photos of your receipt or
-                              bank-transfer statement. Maximum 10 MB per file.
-                              Files stay private, SVG files are rejected, only
-                              authorised admins can retrieve them, and unused
-                              staged uploads expire automatically.
-                            </p>
-                            {paymentMethod !==
-                              CASH_BANK_TRANSFER_PAYMENT_METHOD &&
-                              paymentProofUploads.length > 0 && (
-                                <p
-                                  className="text-white/35 mt-2"
-                                  style={{
-                                    fontSize: "12px",
-                                    fontFamily: "Inter, sans-serif",
-                                    lineHeight: 1.5,
-                                  }}
-                                >
-                                  These uploads will only be submitted if you
-                                  switch back to Cash / Bank Transfer.
-                                </p>
-                              )}
-                          </div>
-                        </div>
-
-                        <input
-                          ref={paymentProofInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          multiple
-                          onChange={handlePaymentProofFiles}
-                          className="hidden"
-                          aria-label="Upload payment proof files"
-                        />
-
-                        <button
-                          type="button"
-                          onClick={() => paymentProofInputRef.current?.click()}
-                          disabled={submitted || hasUploadingPaymentProofs}
-                          className="inline-flex items-center gap-2 rounded-xl border border-[#eb7524]/25 bg-[#eb7524]/10 px-4 py-2.5 text-white hover:bg-[#eb7524]/15 transition-colors disabled:opacity-60 cursor-pointer"
-                          style={{
-                            fontSize: "14px",
-                            fontFamily: "Outfit, sans-serif",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {hasUploadingPaymentProofs ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Upload className="w-4 h-4" />
-                          )}
-                          {hasUploadingPaymentProofs
-                            ? "Uploading proofs..."
-                            : "Upload Payment Proofs"}
-                        </button>
-
-                        {paymentProofUploads.length === 0 ? (
-                          <div
-                            className="rounded-xl border border-dashed border-white/10 px-4 py-4 text-white/35"
-                            style={{
-                              fontSize: "13px",
-                              fontFamily: "Inter, sans-serif",
-                            }}
-                          >
-                            No payment proof files uploaded yet.
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            {paymentProofUploads.map((upload) => (
-                              <div
-                                key={upload.localId}
-                                className="rounded-xl border border-white/10 bg-black/30 px-4 py-3"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p
-                                      className="text-white truncate"
-                                      style={{
-                                        fontSize: "14px",
-                                        fontFamily: "Outfit, sans-serif",
-                                        fontWeight: 500,
-                                      }}
-                                    >
-                                      {upload.originalFilename}
-                                    </p>
-                                    <p
-                                      className="text-white/35 mt-1"
-                                      style={{
-                                        fontSize: "12px",
-                                        fontFamily: "Inter, sans-serif",
-                                        lineHeight: 1.5,
-                                      }}
-                                    >
-                                      {upload.status === "uploaded"
-                                        ? `${formatBytes(upload.sizeBytes)}${upload.expiresAt ? ` • Expires ${new Date(upload.expiresAt).toLocaleString()}` : ""}`
-                                        : upload.status === "uploading"
-                                          ? "Uploading..."
-                                          : "Upload failed. Retry or remove this file."}
-                                    </p>
-                                    {upload.error && (
-                                      <p
-                                        className="text-red-400 mt-2 flex items-start gap-2"
-                                        style={{
-                                          fontSize: "12px",
-                                          fontFamily: "Inter, sans-serif",
-                                          lineHeight: 1.5,
-                                        }}
-                                      >
-                                        <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                                        <span>{upload.error}</span>
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    {upload.status === "error" && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleRetryPaymentProof(
-                                            upload.localId,
-                                          )
-                                        }
-                                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-white/70 hover:text-white hover:border-white/20 transition-colors cursor-pointer"
-                                        style={{
-                                          fontSize: "12px",
-                                          fontFamily: "Inter, sans-serif",
-                                          fontWeight: 500,
-                                        }}
-                                        aria-label={`Retry upload for ${upload.originalFilename}`}
-                                      >
-                                        <RefreshCw className="w-3.5 h-3.5" />
-                                        Retry
-                                      </button>
-                                    )}
-
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleRemovePaymentProof(upload.localId)
-                                      }
-                                      disabled={upload.status === "uploading"}
-                                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-white/60 hover:text-red-300 hover:border-red-500/30 transition-colors disabled:opacity-50 cursor-pointer"
-                                      style={{
-                                        fontSize: "12px",
-                                        fontFamily: "Inter, sans-serif",
-                                        fontWeight: 500,
-                                      }}
-                                      aria-label={`Remove upload ${upload.originalFilename}`}
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                      Remove
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
 
                     <div>
                       <label

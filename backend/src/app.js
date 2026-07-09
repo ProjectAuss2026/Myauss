@@ -106,6 +106,8 @@ export function createApp() {
     next();
   });
   app.use(createCorsMiddleware());
+  // Stripe webhook needs raw body for signature verification — must come BEFORE express.json()
+  app.use('/api/auth/webhooks/stripe', express.raw({ type: 'application/json' }));
   app.use(express.json());
 
   app.get('/healthz', (_req, res) => {

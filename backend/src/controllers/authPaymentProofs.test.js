@@ -442,6 +442,7 @@ test.afterEach(async () => {
 
 test("staged proof upload accepts valid jpg, png, and webp image proof", async () => {
   const app = createApp();
+  const user = storeUser(makeUser({ email: "proof-accept@example.com", isVerified: true }));
 
   for (const file of [
     {
@@ -466,6 +467,7 @@ test("staged proof upload accepts valid jpg, png, and webp image proof", async (
     const response = await requestApp(app, {
       method: "POST",
       path: "/api/auth/payment-proofs/pending",
+      token: authToken(user),
       formData: createProofFormData(file.bytes, file.filename, file.type),
     });
 
@@ -476,9 +478,11 @@ test("staged proof upload accepts valid jpg, png, and webp image proof", async (
 });
 
 test("staged proof upload rejects SVG", async () => {
+  const user = storeUser(makeUser({ email: "svg-reject@example.com", isVerified: true }));
   const response = await requestApp(createApp(), {
     method: "POST",
     path: "/api/auth/payment-proofs/pending",
+    token: authToken(user),
     formData: createProofFormData(SVG_BYTES, "receipt.svg", "image/svg+xml"),
   });
 
@@ -488,9 +492,11 @@ test("staged proof upload rejects SVG", async () => {
 });
 
 test("staged proof upload rejects invalid magic bytes", async () => {
+  const user = storeUser(makeUser({ email: "magic-reject@example.com", isVerified: true }));
   const response = await requestApp(createApp(), {
     method: "POST",
     path: "/api/auth/payment-proofs/pending",
+    token: authToken(user),
     formData: createProofFormData(INVALID_BYTES, "receipt.png", "image/png"),
   });
 
@@ -499,6 +505,7 @@ test("staged proof upload rejects invalid magic bytes", async () => {
 });
 
 test("staged proof upload rejects oversized files", async () => {
+  const user = storeUser(makeUser({ email: "oversize-reject@example.com", isVerified: true }));
   const oversized = Buffer.concat([
     JPEG_BYTES,
     Buffer.alloc(10 * 1024 * 1024 + 1 - JPEG_BYTES.length, 0),
@@ -506,6 +513,7 @@ test("staged proof upload rejects oversized files", async () => {
   const response = await requestApp(createApp(), {
     method: "POST",
     path: "/api/auth/payment-proofs/pending",
+    token: authToken(user),
     formData: createProofFormData(oversized, "receipt.jpg", "image/jpeg"),
   });
 
@@ -518,9 +526,11 @@ test("staged proof upload rejects oversized files", async () => {
 });
 
 test("staged proof upload stores file bytes in the database and does not write files to disk", async () => {
+  const user = storeUser(makeUser({ email: "proof-uploader@example.com", isVerified: true }));
   const response = await requestApp(createApp(), {
     method: "POST",
     path: "/api/auth/payment-proofs/pending",
+    token: authToken(user),
     formData: createProofFormData(JPEG_BYTES, "receipt.jpg", "image/jpeg"),
   });
   const [upload] = Array.from(paymentProofsById.values());
@@ -531,9 +541,11 @@ test("staged proof upload stores file bytes in the database and does not write f
 });
 
 test("staged proof upload returns proofUploadId and safe metadata", async () => {
+  const user = storeUser(makeUser({ email: "proof-meta@example.com", isVerified: true }));
   const response = await requestApp(createApp(), {
     method: "POST",
     path: "/api/auth/payment-proofs/pending",
+    token: authToken(user),
     formData: createProofFormData(JPEG_BYTES, "receipt.jpg", "image/jpeg"),
   });
 
@@ -548,9 +560,11 @@ test("staged proof upload returns proofUploadId and safe metadata", async () => 
 });
 
 test("staged proof deletion works for unlinked proof", async () => {
+  const user = storeUser(makeUser({ email: "proof-delete@example.com", isVerified: true }));
   const created = await requestApp(createApp(), {
     method: "POST",
     path: "/api/auth/payment-proofs/pending",
+    token: authToken(user),
     formData: createProofFormData(JPEG_BYTES, "receipt.jpg", "image/jpeg"),
   });
   const proofId = created.json.data.id;
@@ -558,6 +572,7 @@ test("staged proof deletion works for unlinked proof", async () => {
   const response = await requestApp(createApp(), {
     method: "DELETE",
     path: `/api/auth/payment-proofs/pending/${proofId}`,
+    token: authToken(user),
   });
 
   assert.equal(response.statusCode, 200);
@@ -566,7 +581,7 @@ test("staged proof deletion works for unlinked proof", async () => {
 
 test("staged proof deletion rejects already-linked proof", async () => {
   const user = storeUser(
-    makeUser({ email: "member@example.com", isVerified: false }),
+    makeUser({ email: "member@example.com", isVerified: true }),
   );
   const upload = storePaymentProof(
     makePaymentProof({
@@ -580,6 +595,7 @@ test("staged proof deletion rejects already-linked proof", async () => {
   const response = await requestApp(createApp(), {
     method: "DELETE",
     path: `/api/auth/payment-proofs/pending/${upload.id}`,
+    token: authToken(user),
   });
 
   assert.equal(response.statusCode, 409);
@@ -589,7 +605,9 @@ test("staged proof deletion rejects already-linked proof", async () => {
   );
 });
 
-test("registration with Cash / Bank Transfer fails without proofUploadIds", async () => {
+test("registration with Cash / Bank Transfer paymentMethod is ignored (decoupled from registration)", async () => {
+  // paymentMethod is no longer accepted by registration — it's silently ignored.
+  // All new users start as INACTIVE regardless.
   const response = await requestApp(createApp(), {
     method: "POST",
     path: "/api/auth/register",
@@ -602,104 +620,13 @@ test("registration with Cash / Bank Transfer fails without proofUploadIds", asyn
       paymentMethod: "CASH_BANK_TRANSFER",
     },
   });
+  const createdUser = usersByEmail.get("cash@example.com");
 
-  assert.equal(response.statusCode, 400);
-  assert.equal(response.json.error, "Validation failed");
-  assert.ok(
-    response.json.details.some(
-      (detail) =>
-        detail.path === "body.proofUploadIds" &&
-        detail.message.includes("required for Cash / Bank Transfer"),
-    ),
-  );
+  assert.equal(response.statusCode, 200);
+  assert.equal(createdUser.membershipStatus, "INACTIVE");
 });
 
-test("registration with invalid proofUploadIds fails", async () => {
-  const response = await requestApp(createApp(), {
-    method: "POST",
-    path: "/api/auth/register",
-    body: {
-      email: "cash@example.com",
-      password: STRONG_TEST_PASSWORD,
-      firstName: "Cash",
-      lastName: "Member",
-      studentId: "123456789",
-      paymentMethod: "CASH_BANK_TRANSFER",
-      proofUploadIds: [VALID_PROOF_UPLOAD_ID],
-    },
-  });
-
-  assert.equal(response.statusCode, 400);
-  assert.equal(
-    response.json.error,
-    "One or more payment proof uploads are invalid",
-  );
-});
-
-test("registration with expired proofUploadIds fails", async () => {
-  storePaymentProof(
-    makePaymentProof({
-      id: VALID_PROOF_UPLOAD_ID,
-      expiresAt: new Date(Date.now() - 1000),
-    }),
-  );
-
-  const response = await requestApp(createApp(), {
-    method: "POST",
-    path: "/api/auth/register",
-    body: {
-      email: "cash@example.com",
-      password: STRONG_TEST_PASSWORD,
-      firstName: "Cash",
-      lastName: "Member",
-      studentId: "123456789",
-      paymentMethod: "CASH_BANK_TRANSFER",
-      proofUploadIds: [VALID_PROOF_UPLOAD_ID],
-    },
-  });
-
-  assert.equal(response.statusCode, 400);
-  assert.equal(
-    response.json.error,
-    "One or more payment proof uploads have expired. Please upload them again.",
-  );
-});
-
-test("registration with already-linked proofUploadIds fails", async () => {
-  const linkedUser = storeUser(
-    makeUser({ email: "linked@example.com", isVerified: true }),
-  );
-  storePaymentProof(
-    makePaymentProof({
-      id: VALID_PROOF_UPLOAD_ID,
-      userId: linkedUser.id,
-      status: PAYMENT_PROOF_UPLOAD_STATUS.LINKED,
-      linkedAt: new Date(),
-    }),
-  );
-
-  const response = await requestApp(createApp(), {
-    method: "POST",
-    path: "/api/auth/register",
-    body: {
-      email: "cash@example.com",
-      password: STRONG_TEST_PASSWORD,
-      firstName: "Cash",
-      lastName: "Member",
-      studentId: "123456789",
-      paymentMethod: "CASH_BANK_TRANSFER",
-      proofUploadIds: [VALID_PROOF_UPLOAD_ID],
-    },
-  });
-
-  assert.equal(response.statusCode, 409);
-  assert.equal(
-    response.json.error,
-    "One or more payment proof uploads are already linked",
-  );
-});
-
-test("registration with valid proofUploadIds links proof uploads to the created user", async () => {
+test("registration with proofUploadIds does not link them (payment is now post-registration)", async () => {
   storePaymentProof(makePaymentProof({ id: VALID_PROOF_UPLOAD_ID }));
 
   const response = await requestApp(createApp(), {
@@ -718,13 +645,14 @@ test("registration with valid proofUploadIds links proof uploads to the created 
   const createdUser = usersByEmail.get("cash@example.com");
   const upload = paymentProofsById.get(VALID_PROOF_UPLOAD_ID);
 
+  // Registration succeeds, but proof upload is NOT linked (payment is now post-registration).
   assert.equal(response.statusCode, 200);
-  assert.equal(upload.userId, createdUser.id);
-  assert.equal(upload.status, PAYMENT_PROOF_UPLOAD_STATUS.LINKED);
-  assert.ok(upload.linkedAt instanceof Date);
+  assert.equal(createdUser.membershipStatus, "INACTIVE");
+  assert.equal(upload.userId, null);
+  assert.equal(upload.status, PAYMENT_PROOF_UPLOAD_STATUS.PENDING);
 });
 
-test("registration with Cash / Bank Transfer sets membershipStatus to NEED_REVIEW", async () => {
+test("registration with Cash / Bank Transfer creates user as INACTIVE (not NEED_REVIEW)", async () => {
   storePaymentProof(makePaymentProof({ id: VALID_PROOF_UPLOAD_ID }));
 
   const response = await requestApp(createApp(), {
@@ -743,8 +671,9 @@ test("registration with Cash / Bank Transfer sets membershipStatus to NEED_REVIE
   const createdUser = usersByEmail.get("cash@example.com");
 
   assert.equal(response.statusCode, 200);
-  assert.equal(createdUser.membershipStatus, "NEED_REVIEW");
-  assert.equal(response.json.pendingMembershipReview, true);
+  assert.equal(createdUser.membershipStatus, "INACTIVE");
+  // pendingMembershipReview is no longer in the response
+  assert.equal(response.json.pendingMembershipReview, undefined);
 });
 
 test("normal registration path still works", async () => {
@@ -763,7 +692,8 @@ test("normal registration path still works", async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(createdUser.membershipStatus, "INACTIVE");
-  assert.equal(response.json.pendingMembershipReview, false);
+  // pendingMembershipReview is no longer in the response
+  assert.equal(response.json.pendingMembershipReview, undefined);
 });
 
 test("admin proof metadata endpoint rejects unauthenticated users", async () => {
