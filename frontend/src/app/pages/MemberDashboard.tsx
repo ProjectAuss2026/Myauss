@@ -375,7 +375,7 @@ export function MemberDashboard() {
   // approval — they've already paid, so we must not push them back to the
   // payment page. Their gated content stays locked until VERIFIED.
   const isPendingReview = membershipLocked && user.membershipStatus === 'IN_REVIEW';
-  const goToMembership = () => navigate('/membership/pay');
+  const goToMembership = () => navigate('/verify-membership');
   const membershipStatusDisplay = isVerifiedMember
     ? { label: 'Verified', className: 'text-green-400' }
     : user.membershipStatus === 'IN_REVIEW'

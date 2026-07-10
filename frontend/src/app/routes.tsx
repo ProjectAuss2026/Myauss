@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { Root } from './pages/Root';
 import { Home } from './pages/Home';
 import { About } from './pages/About';
@@ -17,7 +17,6 @@ import { Activities } from './pages/Activities';
 import { ActivityDetails } from './pages/ActivityDetails';
 import { ActivateMembership } from './pages/ActivateMembership';
 import { MediaGallery } from './pages/MediaGallery';
-import { MembershipPayment } from './pages/MembershipPayment';
 
 export const router = createBrowserRouter([
   {
@@ -38,7 +37,7 @@ export const router = createBrowserRouter([
       { path: 'activities/:id', Component: ActivityDetails },
       { path: 'media', Component: MediaGallery },
       { path: 'verify-membership', Component: ActivateMembership },
-      { path: 'membership/pay', Component: MembershipPayment },
+      { path: 'membership/pay', Component: () => <Navigate to="/verify-membership" replace /> },
       { path: 'manage', Component: ManageLinks },
       { path: 'admin', Component: Admin },
       { path: '*', Component: NotFound },
