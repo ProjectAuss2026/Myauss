@@ -1829,7 +1829,7 @@ export function Admin() {
 const MEMBER_FILTER_OPTIONS: { value: MemberStatusFilter; label: string }[] = [
   { value: "ALL", label: "All" },
   { value: "INACTIVE", label: "Inactive" },
-  { value: "NEED_REVIEW", label: "Need Review" },
+  { value: "IN_REVIEW", label: "Need Review" },
   { value: "VERIFIED", label: "Verified" },
 ];
 
@@ -1837,7 +1837,7 @@ function getMembershipBadgeClasses(status: string): string {
   switch ((status || "").toUpperCase()) {
     case "VERIFIED":
       return "bg-green-500/15 text-green-200 border border-green-500/30";
-    case "NEED_REVIEW":
+    case "IN_REVIEW":
       return "bg-[#eb7524]/15 text-[#ffcfad] border border-[#eb7524]/35";
     case "INACTIVE":
     default:
@@ -2160,7 +2160,7 @@ function PaymentProofReviewModal({
 
   const previewLabel = `Payment proof preview for ${member.name || member.email || member.id}`;
   const canApprove =
-    member.membershipStatus === "NEED_REVIEW" &&
+    member.membershipStatus === "IN_REVIEW" &&
     !proofsLoading &&
     !proofsError &&
     proofs.length > 0;
@@ -3502,7 +3502,7 @@ function MembersManager({
                         {formatMemberRole(member.role)}
                       </td>
                       <td className="px-4 py-3 align-top text-right">
-                        {member.membershipStatus === "NEED_REVIEW" ? (
+                        {member.membershipStatus === "IN_REVIEW" ? (
                           <button
                             type="button"
                             onClick={() => setReviewMember(member)}

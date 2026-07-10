@@ -374,11 +374,11 @@ export function MemberDashboard() {
   // A member who submitted a bank-transfer proof is awaiting an executive's
   // approval — they've already paid, so we must not push them back to the
   // payment page. Their gated content stays locked until VERIFIED.
-  const isPendingReview = membershipLocked && user.membershipStatus === 'NEED_REVIEW';
-  const goToMembership = () => navigate('/membership/pay');
+  const isPendingReview = membershipLocked && user.membershipStatus === 'IN_REVIEW';
+  const goToMembership = () => navigate('/verify-membership');
   const membershipStatusDisplay = isVerifiedMember
     ? { label: 'Verified', className: 'text-green-400' }
-    : user.membershipStatus === 'NEED_REVIEW'
+    : user.membershipStatus === 'IN_REVIEW'
     ? { label: 'Need Review', className: 'text-[#ffcfad]' }
     : { label: 'Inactive', className: 'text-white/70' };
   const fullName = user.firstName && user.lastName

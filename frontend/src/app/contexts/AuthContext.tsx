@@ -11,6 +11,10 @@ interface AuthUser {
   lastName: string | null;
   membershipStatus: string | null;
   studentId?: null;
+  lastDeclineReason?: {
+    reason: string | null;
+    declinedAt: string;
+  } | null;
 }
 
 interface LoginCredentials {

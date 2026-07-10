@@ -104,7 +104,7 @@ const sampleMembers = [
     lastName: "Lee",
     studentId: null,
     createdAt: "2026-05-03T12:00:00.000Z",
-    membershipStatus: "NEED_REVIEW",
+    membershipStatus: "IN_REVIEW",
     membershipStatusUpdatedAt: "2026-05-03T12:30:00.000Z",
   },
   {
@@ -1149,7 +1149,7 @@ describe("Admin membership roster", () => {
 
     installFetchMock({
       membersHandler: (url: string) => {
-        if (url.includes("status=NEED_REVIEW")) {
+        if (url.includes("status=IN_REVIEW")) {
           return Promise.resolve(
             membersResponse(
               approved ? [] : [sampleMembers[1]],
@@ -1233,7 +1233,7 @@ describe("Admin membership roster", () => {
 
     installFetchMock({
       membersHandler: (url: string) => {
-        if (url.includes("status=NEED_REVIEW")) {
+        if (url.includes("status=IN_REVIEW")) {
           return Promise.resolve(
             membersResponse(
               declined ? [] : [sampleMembers[1]],
@@ -1497,7 +1497,7 @@ describe("Admin membership roster", () => {
       statusHandler: () =>
         Promise.resolve(
           jsonResponse(
-            { error: "Illegal transition: NEED_REVIEW → VERIFIED" },
+            { error: "Illegal transition: IN_REVIEW → VERIFIED" },
             409,
           ),
         ),
@@ -1514,11 +1514,11 @@ describe("Admin membership roster", () => {
 
     expect(
       await within(dialog).findByText(
-        "Illegal transition: NEED_REVIEW → VERIFIED",
+        "Illegal transition: IN_REVIEW → VERIFIED",
       ),
     ).toBeTruthy();
     expect(showToastMock).toHaveBeenCalledWith(
-      "Illegal transition: NEED_REVIEW → VERIFIED",
+      "Illegal transition: IN_REVIEW → VERIFIED",
       "error",
     );
     expect(

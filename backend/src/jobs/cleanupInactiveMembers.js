@@ -21,7 +21,7 @@ export function getRetentionDays() {
  * retention window. Keyed on `membershipStatusUpdatedAt` (not `createdAt`) so a
  * VERIFIED member later set back to INACTIVE gets a fresh window rather than
  * being deleted immediately; a fresh registration's timestamp equals its
- * createdAt, so it is removed ~`retentionDays` after sign-up. NEED_REVIEW and
+ * createdAt, so it is removed ~`retentionDays` after sign-up. IN_REVIEW and
  * VERIFIED accounts are never touched. Child rows (info, sessions, audit) are
  * removed by the schema's onDelete cascades.
  *
