@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(awk '{print \"behind: \"$1\"  ahead: \"$2}')",
+      "Bash(NODE_ENV=test node --test src/jobs/cleanupInactiveMembers.test.js src/jobs/expireVerifiedMembers.test.js)",
+      "Bash(NODE_ENV=test node --test src/security/authRoutes.test.js)"
+    ]
+  }
+}

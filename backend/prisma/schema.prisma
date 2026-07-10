@@ -39,6 +39,7 @@ model User {
   isVerified                Boolean                 @default(false)
   membershipStatus          MembershipStatus        @default(INACTIVE)
   membershipStatusUpdatedAt DateTime                @default(now())
+  inactiveWarnedAt          DateTime?
   lastCodeSentAt            DateTime                @default(now())
   verificationExpiresAt     DateTime
   createdAt                 DateTime                @default(now())
