@@ -230,10 +230,3 @@ export const submitPaymentLimiter = createLimiter({
   keyGenerator: (req) => `submit-payment:${req.user?.id || "unknown"}`,
   scope: "membership payment submit",
 });
-
-export const createCheckoutLimiter = createLimiter({
-  windowMs: 60 * 60 * 1000,
-  max: 10,
-  keyGenerator: (req) => `create-checkout:${req.user?.id || "unknown"}`,
-  scope: "membership checkout",
-});

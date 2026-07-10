@@ -1,7 +1,16 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
+import type { Appearance } from "@stripe/stripe-js";
+import { stripePromise, isStripeConfigured } from "../lib/stripe";
+import { fetchWithAuth } from "../lib/authFetch";
 import {
   ChevronLeft,
   ShieldCheck,
@@ -16,6 +25,7 @@ import {
   CheckCircle,
   Clock,
   ArrowRight,
+  Lock,
 } from "lucide-react";
 
 type PaymentProofUploadStatus = "uploading" | "uploaded" | "error";
@@ -116,7 +126,6 @@ export function ActivateMembership() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
 
@@ -126,13 +135,14 @@ export function ActivateMembership() {
   const [error, setError] = useState<string | null>(null);
   const paymentProofInputRef = useRef<HTMLInputElement>(null);
 
+  // Stripe inline payment state
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [stripeLoadError, setStripeLoadError] = useState<string | null>(null);
+
   const uploadedPaymentProofIds = paymentProofUploads
     .filter((u) => u.status === "uploaded" && u.id)
     .map((u) => u.id as string);
   const hasUploadingPaymentProofs = paymentProofUploads.some((u) => u.status === "uploading");
-
-  // Payment query params (from Stripe redirect)
-  const paymentResult = searchParams.get("payment");
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -144,16 +154,33 @@ export function ActivateMembership() {
     requestAnimationFrame(() => setMounted(true));
   }, []);
 
+  const membershipStatus = user?.membershipStatus || "INACTIVE";
+
+  // Request a Stripe PaymentIntent when user is INACTIVE
   useEffect(() => {
-    if (paymentResult === "success") {
-      showToast("Payment successful! Your membership is now verified.", "success");
-      // Clean the URL
-      window.history.replaceState({}, "", "/verify-membership");
-    } else if (paymentResult === "cancelled") {
-      showToast("Payment was cancelled. You can try again anytime.", "info");
-      window.history.replaceState({}, "", "/verify-membership");
-    }
-  }, [paymentResult]);
+    if (!isStripeConfigured || membershipStatus !== "INACTIVE") return;
+
+    let cancelled = false;
+    fetchWithAuth("/api/payments/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Failed to start payment");
+        if (!cancelled) setStripeClientSecret(data.clientSecret);
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setStripeLoadError(
+            err instanceof Error ? err.message : "Failed to start payment",
+          );
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membershipStatus]);
 
   if (isLoading || !user) {
     return (
@@ -162,8 +189,6 @@ export function ActivateMembership() {
       </div>
     );
   }
-
-  const membershipStatus = user.membershipStatus || "INACTIVE";
 
   // ── Payment proof upload handlers ──
 
@@ -293,33 +318,127 @@ export function ActivateMembership() {
     }
   };
 
-  // ── Stripe checkout ──
+  // ── Stripe inline payment ──
 
-  const handleStripeCheckout = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const token = await getAuthToken();
-      const res = await fetch("/api/auth/membership/create-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to start checkout.");
-      }
-
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    } catch (err: any) {
-      setError(err?.message || "Failed to start checkout.");
-      showToast(err?.message || "Checkout failed", "error");
-    } finally {
-      setSubmitting(false);
-    }
+  const cardAppearance: Appearance = {
+    theme: "night",
+    variables: {
+      colorPrimary: "#eb7524",
+      colorBackground: "#1a1a1a",
+      colorText: "#ffffff",
+      colorDanger: "#f87171",
+      fontFamily: "Inter, sans-serif",
+      borderRadius: "12px",
+    },
   };
+
+  function StripePaymentForm() {
+    const stripe = useStripe();
+    const elements = useElements();
+    const { refreshUser } = useAuth();
+    const [paying, setPaying] = useState(false);
+    const [payMsg, setPayMsg] = useState<string | null>(null);
+    const [paid, setPaid] = useState(false);
+
+    const handlePay = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!stripe || !elements) return;
+      setPaying(true);
+      setPayMsg(null);
+
+      const { error: stripeErr } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/verify-membership`,
+        },
+      });
+
+      if (stripeErr) {
+        setPayMsg(stripeErr.message ?? "Payment failed.");
+        setPaying(false);
+      }
+      // Redirect-based methods cause a page reload — the fallthrough below handles them.
+    };
+
+    // When Stripe redirects back here after a redirect-based payment method,
+    // read the outcome from the URL and confirm server-side.
+    useEffect(() => {
+      if (!stripe) return;
+      const piSecret = new URLSearchParams(window.location.search).get(
+        "payment_intent_client_secret",
+      );
+      if (!piSecret) return;
+
+      stripe.retrievePaymentIntent(piSecret).then(({ paymentIntent }) => {
+        if (paymentIntent?.status === "succeeded") {
+          setPaid(true);
+          setPayMsg("Payment successful — your membership is now active.");
+          fetchWithAuth("/api/payments/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paymentIntentId: paymentIntent.id }),
+          })
+            .then(() => refreshUser())
+            .catch(() => {
+              /* webhook backstop */
+            });
+        } else if (paymentIntent?.status === "requires_payment_method") {
+          setPayMsg("Payment was not completed. Please try again.");
+        }
+      });
+    }, [stripe]);
+
+    if (paid) {
+      return (
+        <div className="text-center py-4">
+          <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center mx-auto mb-3">
+            <CheckCircle className="w-6 h-6 text-green-400" />
+          </div>
+          <p className="text-white/70" style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}>
+            {payMsg}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <form onSubmit={handlePay}>
+        <PaymentElement
+          options={{
+            layout: "tabs",
+          }}
+        />
+        {payMsg && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-500/8 border border-red-500/20 px-4 py-3">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+            <span className="text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+              {payMsg}
+            </span>
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={!stripe || paying}
+          className="w-full mt-4 bg-green-600 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-green-500 transition-all disabled:opacity-60 cursor-pointer"
+          style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+        >
+          {paying ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Processing…
+            </>
+          ) : (
+            "Pay Now"
+          )}
+        </button>
+        <div className="flex items-center justify-center gap-2 mt-3 text-white/20">
+          <Lock className="w-3 h-3" />
+          <span style={{ fontSize: "11px", fontFamily: "Inter, sans-serif" }}>
+            Secure · Powered by Stripe
+          </span>
+        </div>
+      </form>
+    );
+  }
 
   return (
     <div className="bg-black min-h-screen relative overflow-hidden">
@@ -337,12 +456,12 @@ export function ActivateMembership() {
           }}
         >
           <Link
-            to="/profile"
+            to="/dashboard"
             className="inline-flex items-center gap-2 text-white/50 hover:text-white transition-colors mb-8 group"
             style={{ fontFamily: "Outfit, sans-serif", fontSize: "14px" }}
           >
             <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            Back to Profile
+            Back to Dashboard
           </Link>
         </div>
 
@@ -377,6 +496,30 @@ export function ActivateMembership() {
               {/* ── NEED_REVIEW ── */}
               {membershipStatus === "NEED_REVIEW" && (
                 <div className="text-center py-4">
+                  {user?.lastDeclineReason && (
+                    <div className="mb-4 text-left rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}>
+                            Previous submission declined
+                          </p>
+                          {user.lastDeclineReason.reason ? (
+                            <p className="text-red-400/80 mt-0.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                              Reason: {user.lastDeclineReason.reason}
+                            </p>
+                          ) : (
+                            <p className="text-red-400/80 mt-0.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                              Your previous submission was declined. Please review your proof and try again.
+                            </p>
+                          )}
+                          <p className="text-white/30 mt-0.5" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif" }}>
+                            {new Date(user.lastDeclineReason.declinedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="w-16 h-16 bg-[#eb7524]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <Clock className="w-8 h-8 text-[#eb7524]" />
                   </div>
@@ -437,6 +580,31 @@ export function ActivateMembership() {
                       style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
                     >
                       {error}
+                    </div>
+                  )}
+
+                  {user?.lastDeclineReason && (
+                    <div className="mb-4 text-left rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}>
+                            Previously declined
+                          </p>
+                          {user.lastDeclineReason.reason ? (
+                            <p className="text-red-400/80 mt-0.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                              Reason: {user.lastDeclineReason.reason}
+                            </p>
+                          ) : (
+                            <p className="text-red-400/80 mt-0.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>
+                              Your previous submission was declined. Please address the issue before resubmitting.
+                            </p>
+                          )}
+                          <p className="text-white/30 mt-0.5" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif" }}>
+                            {new Date(user.lastDeclineReason.declinedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -589,24 +757,34 @@ export function ActivateMembership() {
                       </div>
                     </div>
 
-                    <p
-                      className="text-white/35 mb-4"
-                      style={{ fontSize: "13px", fontFamily: "Inter, sans-serif", lineHeight: 1.5 }}
-                    >
-                      Pay securely with Stripe. Your membership is verified immediately
-                      after successful payment.
-                    </p>
-
-                    <button
-                      type="button"
-                      onClick={handleStripeCheckout}
-                      disabled={submitting}
-                      className="w-full bg-green-600 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-green-500 transition-all disabled:opacity-60 cursor-pointer"
-                      style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
-                    >
-                      {submitting ? "Redirecting..." : "Pay with Card"}
-                      {!submitting && <CreditCard className="w-4 h-4" />}
-                    </button>
+                    {isStripeConfigured ? (
+                      stripeLoadError ? (
+                        <div className="text-center py-4">
+                          <AlertCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
+                          <p className="text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                            {stripeLoadError}
+                          </p>
+                        </div>
+                      ) : stripeClientSecret ? (
+                        <Elements
+                          stripe={stripePromise}
+                          options={{ clientSecret: stripeClientSecret, appearance: cardAppearance }}
+                        >
+                          <StripePaymentForm />
+                        </Elements>
+                      ) : (
+                        <div className="flex items-center justify-center py-6">
+                          <Loader2 className="w-5 h-5 text-[#eb7524] animate-spin" />
+                        </div>
+                      )
+                    ) : (
+                      <p
+                        className="text-white/35 text-center py-4"
+                        style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                      >
+                        Card payments are not configured yet.
+                      </p>
+                    )}
                   </div>
                 </>
               )}

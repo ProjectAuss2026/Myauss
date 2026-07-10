@@ -3,7 +3,6 @@ import path from "node:path";
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import nodemailer from "nodemailer";
-import Stripe from "stripe";
 import "../env.js";
 import prisma from "../prismaClient.js";
 import { authenticate } from "../middleware/authMiddleware.js";
@@ -30,7 +29,6 @@ import {
   verifyEmailThrottle,
   verifyIpLimiter,
   submitPaymentLimiter,
-  createCheckoutLimiter,
 } from "../middleware/rateLimiters.js";
 import {
   REFRESH_COOKIE_NAME,
@@ -99,21 +97,6 @@ const MEMBERSHIP_STATUS_REASON_MAX_LENGTH = 200;
 const pendingPaymentProofUpload = createImageUploadMiddleware({
   fileSize: MAX_PAYMENT_PROOF_UPLOAD_BYTES,
 });
-
-const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: "2025-06-30.basil",
-    })
-  : null;
-
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
-const STRIPE_MEMBERSHIP_PRICE_ID =
-  process.env.STRIPE_MEMBERSHIP_PRICE_ID || "";
-const STRIPE_MEMBERSHIP_AMOUNT_CENTS = Number(
-  process.env.STRIPE_MEMBERSHIP_AMOUNT_CENTS || "0",
-);
-const STRIPE_MEMBERSHIP_CURRENCY =
-  process.env.STRIPE_MEMBERSHIP_CURRENCY || "nzd";
 
 function getOtpPepper() {
   return process.env.OTP_PEPPER || process.env.JWT_SECRET || "";
@@ -1314,8 +1297,37 @@ router.get("/me", authenticate, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
+
+    // Surface the most recent admin decline reason for NEED_REVIEW / INACTIVE users.
+    let lastDeclineReason = null;
+    try {
+      if (
+        user.membershipStatus === "NEED_REVIEW" ||
+        user.membershipStatus === "INACTIVE"
+      ) {
+        const lastDecline = await prisma.membershipStatusAudit.findFirst({
+          where: {
+            targetUserId: user.id,
+            fromStatus: "NEED_REVIEW",
+            toStatus: "INACTIVE",
+            actorUserId: { not: null },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { reason: true, createdAt: true },
+        });
+        if (lastDecline) {
+          lastDeclineReason = {
+            reason: lastDecline.reason || null,
+            declinedAt: lastDecline.createdAt.toISOString(),
+          };
+        }
+      }
+    } catch {
+      // membershipStatusAudit may not be available (e.g. in test mocks)
+    }
+
     return res.status(200).json({
-      user: formatUser(user),
+      user: { ...formatUser(user), lastDeclineReason },
     });
   } catch (err) {
     logger.error({ err }, "Me error:");
@@ -2211,164 +2223,6 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
       .json({ error: "Failed to change membership status" });
   }
 });
-
-// ── POST /auth/membership/create-checkout ──────────────────────────
-// Creates a Stripe Checkout Session for membership payment.
-router.post(
-  "/membership/create-checkout",
-  authenticate,
-  createCheckoutLimiter,
-  async (req, res) => {
-    if (!stripe) {
-      return res.status(501).json({
-        error: "Stripe is not configured on this server",
-      });
-    }
-
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: req.user.id },
-        select: { id: true, email: true, membershipStatus: true },
-      });
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      if (user.membershipStatus !== "INACTIVE") {
-        return res.status(409).json({
-          error: `Membership is already ${(user.membershipStatus || "unknown").toLowerCase()}. Payment is only available for inactive members.`,
-        });
-      }
-
-      // Reject if neither price ID nor amount is configured — prevents
-      // accidental zero-price checkouts when env vars are missing.
-      if (!STRIPE_MEMBERSHIP_PRICE_ID && !(STRIPE_MEMBERSHIP_AMOUNT_CENTS > 0)) {
-        return res.status(501).json({
-          error:
-            "Membership pricing is not configured. Please contact the AUSS team.",
-        });
-      }
-
-      // Build line items from server config — never from client.
-      const lineItems = STRIPE_MEMBERSHIP_PRICE_ID
-        ? [{ price: STRIPE_MEMBERSHIP_PRICE_ID, quantity: 1 }]
-        : [
-            {
-              price_data: {
-                currency: STRIPE_MEMBERSHIP_CURRENCY,
-                product_data: {
-                  name: "AUSS Membership",
-                  description: "Auckland University Strength Society annual membership",
-                },
-                unit_amount: STRIPE_MEMBERSHIP_AMOUNT_CENTS,
-              },
-              quantity: 1,
-            },
-          ];
-
-      const origin = req.headers.origin || process.env.CLIENT_URL || "http://localhost:5173";
-
-      const session = await stripe.checkout.sessions.create({
-        mode: "payment",
-        line_items: lineItems,
-        customer_email: user.email,
-        metadata: {
-          userId: user.id,
-        },
-        success_url: `${origin}/verify-membership?payment=success`,
-        cancel_url: `${origin}/verify-membership?payment=cancelled`,
-      });
-
-      return res.status(200).json({ url: session.url });
-    } catch (err) {
-      logger.error({ err }, "Stripe checkout error:");
-      return res.status(500).json({ error: "Failed to create checkout session" });
-    }
-  },
-);
-
-// ── POST /auth/webhooks/stripe ─────────────────────────────────────
-// Stripe webhook handler. Uses raw body for signature verification.
-// NOTE: express.json() runs BEFORE this router. The raw body must be
-// available via a route-specific middleware. In production, ensure the
-// webhook route receives the raw body (e.g. via express.raw() on the
-// parent app before express.json() for this specific path).
-router.post(
-  "/webhooks/stripe",
-  async (req, res) => {
-    if (!stripe || !STRIPE_WEBHOOK_SECRET) {
-      return res.status(501).json({
-        error: "Stripe webhook is not configured on this server",
-      });
-    }
-
-    const sig = req.headers["stripe-signature"];
-    if (!sig || typeof sig !== "string") {
-      return res.status(400).json({ error: "Missing stripe-signature header" });
-    }
-
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        STRIPE_WEBHOOK_SECRET,
-      );
-    } catch (err) {
-      logger.warn({ err }, "Stripe webhook signature verification failed");
-      return res.status(400).json({ error: "Invalid signature" });
-    }
-
-    // Idempotent via the frozen membership-status transition map: if the
-    // user is already VERIFIED, changeMembershipStatus rejects the no-op
-    // VERIFIED → VERIFIED transition with a MembershipTransitionError,
-    // which we catch and acknowledge below.
-    //
-    // Known limitation: if an admin later reverts VERIFIED → INACTIVE
-    // and Stripe redelivers the same checkout.session.completed event
-    // (retries up to 3 days), the webhook will transition INACTIVE →
-    // VERIFIED again — silently undoing the admin's action. A proper
-    // fix is a StripeWebhookEvent dedup table keyed on event.id.
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      const userId = session.metadata?.userId;
-      if (!userId) {
-        logger.warn({ sessionId: session.id }, "Stripe webhook: no userId in session metadata");
-        return res.status(200).json({ received: true });
-      }
-
-      try {
-        // Transition INACTIVE → VERIFIED; changeMembershipStatus is
-        // idempotent-safe — it rejects no-op transitions.
-        await changeMembershipStatus({
-          targetUserId: userId,
-          toStatus: "VERIFIED",
-          actorUserId: null, // system-driven, not the user
-          reason: `Stripe checkout session ${session.id}`,
-        });
-        logger.info(
-          { userId, sessionId: session.id },
-          "Stripe webhook: membership verified via payment",
-        );
-      } catch (err) {
-        if (err instanceof MembershipTransitionError) {
-          // Already VERIFIED or not INACTIVE — log and acknowledge.
-          logger.info(
-            { userId, from: err.from, to: err.to, sessionId: session.id },
-            "Stripe webhook: membership transition skipped (already processed)",
-          );
-        } else {
-          logger.error(
-            { err, userId, sessionId: session.id },
-            "Stripe webhook: failed to verify membership",
-          );
-          return res.status(500).json({ error: "Failed to process payment" });
-        }
-      }
-    }
-
-    return res.status(200).json({ received: true });
-  },
-);
 
 router.use(handleImageUploadError);
 

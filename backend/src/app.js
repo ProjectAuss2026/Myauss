@@ -111,10 +111,9 @@ export function createApp() {
     next();
   });
   app.use(createCorsMiddleware());
-  // Stripe webhook needs raw body for signature verification — must come BEFORE express.json()
-  app.use('/api/auth/webhooks/stripe', express.raw({ type: 'application/json' }));
 
-  // Legacy Stripe webhook path
+  // Stripe webhook must see the raw body to verify the signature, so it is
+  // registered before the JSON body parser.
   app.post(
     '/api/payments/webhook',
     express.raw({ type: 'application/json' }),
