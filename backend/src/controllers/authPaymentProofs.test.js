@@ -672,7 +672,7 @@ test("registration with proofUploadIds does not link them (payment is now post-r
   assert.equal(upload.status, PAYMENT_PROOF_UPLOAD_STATUS.PENDING);
 });
 
-test("registration with Cash / Bank Transfer creates user as INACTIVE (not NEED_REVIEW)", async () => {
+test("registration with Cash / Bank Transfer creates user as INACTIVE (not IN_REVIEW)", async () => {
   storePaymentProof(makePaymentProof({ id: VALID_PROOF_UPLOAD_ID }));
 
   const response = await requestApp(createApp(), {
@@ -835,7 +835,7 @@ test("admin proof file endpoint works for ADMIN or OWNER", async () => {
 
 test("membership status endpoint rejects unauthenticated users", async () => {
   const member = storeUser(
-    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+    makeUser({ email: "member@example.com", membershipStatus: "IN_REVIEW" }),
   );
 
   const response = await requestApp(createApp(), {
@@ -852,7 +852,7 @@ test("membership status endpoint rejects unauthenticated users", async () => {
 
 test("membership status endpoint rejects normal USER users", async () => {
   const member = storeUser(
-    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+    makeUser({ email: "member@example.com", membershipStatus: "IN_REVIEW" }),
   );
   const actor = storeUser(
     makeUser({ email: "user@example.com", role: "USER", isVerified: true }),
@@ -873,7 +873,7 @@ test("membership status endpoint rejects normal USER users", async () => {
 
 test("decline endpoint rejects unauthenticated users", async () => {
   const member = storeUser(
-    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+    makeUser({ email: "member@example.com", membershipStatus: "IN_REVIEW" }),
   );
 
   const response = await requestApp(createApp(), {
@@ -890,7 +890,7 @@ test("decline endpoint rejects unauthenticated users", async () => {
 
 test("decline endpoint rejects normal USER users", async () => {
   const member = storeUser(
-    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+    makeUser({ email: "member@example.com", membershipStatus: "IN_REVIEW" }),
   );
   const actor = storeUser(
     makeUser({ email: "user@example.com", role: "USER", isVerified: true }),
@@ -909,13 +909,13 @@ test("decline endpoint rejects normal USER users", async () => {
   assert.equal(response.statusCode, 403);
 });
 
-test("membership status endpoint allows ADMIN or OWNER to approve NEED_REVIEW users and writes an audit trail", async () => {
+test("membership status endpoint allows ADMIN or OWNER to approve IN_REVIEW users and writes an audit trail", async () => {
   for (const actorRole of ["ADMIN", "OWNER"]) {
     const member = storeUser(
       makeUser({
         id: `review-${actorRole.toLowerCase()}-member`,
         email: `review-${actorRole.toLowerCase()}@example.com`,
-        membershipStatus: "NEED_REVIEW",
+        membershipStatus: "IN_REVIEW",
         info: {
           id: `info-${actorRole.toLowerCase()}`,
           userId: `review-${actorRole.toLowerCase()}-member`,
@@ -953,16 +953,16 @@ test("membership status endpoint allows ADMIN or OWNER to approve NEED_REVIEW us
     assert.ok(audit);
     assert.equal(audit.actorUserId, actor.id);
     assert.equal(audit.targetUserId, member.id);
-    assert.equal(audit.fromStatus, "NEED_REVIEW");
+    assert.equal(audit.fromStatus, "IN_REVIEW");
     assert.equal(audit.toStatus, "VERIFIED");
     assert.equal(audit.reason, "Payment proof approved");
     assert.ok(audit.createdAt instanceof Date);
   }
 });
 
-test("membership status endpoint requires a reason when declining a NEED_REVIEW payment proof", async () => {
+test("membership status endpoint requires a reason when declining a IN_REVIEW payment proof", async () => {
   const member = storeUser(
-    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+    makeUser({ email: "member@example.com", membershipStatus: "IN_REVIEW" }),
   );
   const actor = storeUser(
     makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
@@ -983,14 +983,14 @@ test("membership status endpoint requires a reason when declining a NEED_REVIEW 
     response.json.error,
     "Decline reason is required for payment proof decline",
   );
-  assert.equal(usersById.get(member.id)?.membershipStatus, "NEED_REVIEW");
+  assert.equal(usersById.get(member.id)?.membershipStatus, "IN_REVIEW");
   assert.equal(membershipAudits.length, 0);
   assert.equal(declinedPaymentProofEmails.length, 0);
 });
 
 test("membership status endpoint rejects decline reasons over the audit limit", async () => {
   const member = storeUser(
-    makeUser({ email: "member@example.com", membershipStatus: "NEED_REVIEW" }),
+    makeUser({ email: "member@example.com", membershipStatus: "IN_REVIEW" }),
   );
   const actor = storeUser(
     makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
@@ -1008,11 +1008,11 @@ test("membership status endpoint rejects decline reasons over the audit limit", 
 
   assert.equal(response.statusCode, 400);
   assert.equal(response.json.error, "Reason must be 200 characters or fewer");
-  assert.equal(usersById.get(member.id)?.membershipStatus, "NEED_REVIEW");
+  assert.equal(usersById.get(member.id)?.membershipStatus, "IN_REVIEW");
   assert.equal(membershipAudits.length, 0);
 });
 
-test("membership status endpoint allows ADMIN or OWNER to decline NEED_REVIEW users, audits the reason, and sends email", async () => {
+test("membership status endpoint allows ADMIN or OWNER to decline IN_REVIEW users, audits the reason, and sends email", async () => {
   globalThis.__AUSS_AUTH_TEST_HOOKS__ = {
     sendPaymentProofDeclinedEmail: async (payload) => {
       declinedPaymentProofEmails.push(payload);
@@ -1024,7 +1024,7 @@ test("membership status endpoint allows ADMIN or OWNER to decline NEED_REVIEW us
       makeUser({
         id: `decline-${actorRole.toLowerCase()}-member`,
         email: `decline-${actorRole.toLowerCase()}@example.com`,
-        membershipStatus: "NEED_REVIEW",
+        membershipStatus: "IN_REVIEW",
         info: {
           id: `info-decline-${actorRole.toLowerCase()}`,
           userId: `decline-${actorRole.toLowerCase()}-member`,
@@ -1063,7 +1063,7 @@ test("membership status endpoint allows ADMIN or OWNER to decline NEED_REVIEW us
     assert.ok(audit);
     assert.equal(audit.actorUserId, actor.id);
     assert.equal(audit.targetUserId, member.id);
-    assert.equal(audit.fromStatus, "NEED_REVIEW");
+    assert.equal(audit.fromStatus, "IN_REVIEW");
     assert.equal(audit.toStatus, "INACTIVE");
     assert.equal(audit.reason, reason);
     assert.ok(audit.createdAt instanceof Date);
@@ -1097,7 +1097,7 @@ test("decline email uses the shared SMTP mailer path when SMTP is configured", a
   const member = storeUser(
     makeUser({
       email: "decline-mailer@example.com",
-      membershipStatus: "NEED_REVIEW",
+      membershipStatus: "IN_REVIEW",
       info: {
         id: "info-decline-mailer",
         userId: "decline-mailer-member",
@@ -1142,7 +1142,7 @@ test("decline email failure does not roll back the audited status transition", a
   const member = storeUser(
     makeUser({
       email: "delivery-failure@example.com",
-      membershipStatus: "NEED_REVIEW",
+      membershipStatus: "IN_REVIEW",
     }),
   );
   const actor = storeUser(
@@ -1173,7 +1173,7 @@ test("decline email failure does not roll back the audited status transition", a
       record.actorUserId === actor.id && record.targetUserId === member.id,
   );
   assert.ok(audit);
-  assert.equal(audit.fromStatus, "NEED_REVIEW");
+  assert.equal(audit.fromStatus, "IN_REVIEW");
   assert.equal(audit.toStatus, "INACTIVE");
 });
 
@@ -1192,7 +1192,7 @@ test("approval does not send a payment proof decline email", async () => {
   };
 
   const member = storeUser(
-    makeUser({ email: "approval@example.com", membershipStatus: "NEED_REVIEW" }),
+    makeUser({ email: "approval@example.com", membershipStatus: "IN_REVIEW" }),
   );
   const actor = storeUser(
     makeUser({ email: "admin@example.com", role: "ADMIN", isVerified: true }),
@@ -1241,7 +1241,7 @@ test("admin roster reflects VERIFIED status after approval", async () => {
     makeUser({
       id: "roster-review-user",
       email: "roster.review@example.com",
-      membershipStatus: "NEED_REVIEW",
+      membershipStatus: "IN_REVIEW",
       info: {
         id: "info-roster-review-user",
         userId: "roster-review-user",

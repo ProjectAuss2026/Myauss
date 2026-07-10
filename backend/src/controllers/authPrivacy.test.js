@@ -319,7 +319,7 @@ test("authenticated user APIs do not return raw or hashed student ID", async () 
       email: "member@example.com",
       role: "USER",
       isVerified: true,
-      membershipStatus: "NEED_REVIEW",
+      membershipStatus: "IN_REVIEW",
       info: {
         id: "info-user-1",
         userId: "user-1",
@@ -338,7 +338,7 @@ test("authenticated user APIs do not return raw or hashed student ID", async () 
   });
 
   assert.equal(response.statusCode, 200);
-  assert.equal(response.json.user.membershipStatus, "NEED_REVIEW");
+  assert.equal(response.json.user.membershipStatus, "IN_REVIEW");
   assert.equal(Object.hasOwn(response.json.user, "isVerified"), false);
   assert.equal(response.json.user.studentId, null);
   assert.equal(response.text.includes("123456789"), false);

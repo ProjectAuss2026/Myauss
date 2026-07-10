@@ -14,21 +14,21 @@ const {
 } = await import('./membershipStatus.js');
 
 test('enum exposes exactly the three lifecycle states', () => {
-  assert.deepEqual(MEMBERSHIP_STATUS_VALUES, ['INACTIVE', 'NEED_REVIEW', 'VERIFIED']);
+  assert.deepEqual(MEMBERSHIP_STATUS_VALUES, ['INACTIVE', 'IN_REVIEW', 'VERIFIED']);
 });
 
 test('legal transitions match the agreed frozen map', () => {
-  assert.ok(isValidTransition('INACTIVE', 'NEED_REVIEW'));
+  assert.ok(isValidTransition('INACTIVE', 'IN_REVIEW'));
   // A successful card payment activates a member instantly.
   assert.ok(isValidTransition('INACTIVE', 'VERIFIED'));
-  assert.ok(isValidTransition('NEED_REVIEW', 'VERIFIED'));
-  assert.ok(isValidTransition('NEED_REVIEW', 'INACTIVE'));
+  assert.ok(isValidTransition('IN_REVIEW', 'VERIFIED'));
+  assert.ok(isValidTransition('IN_REVIEW', 'INACTIVE'));
   assert.ok(isValidTransition('VERIFIED', 'INACTIVE'));
 });
 
 test('illegal transitions are rejected', () => {
   // Cannot jump straight back to review from verified.
-  assert.ok(!isValidTransition('VERIFIED', 'NEED_REVIEW'));
+  assert.ok(!isValidTransition('VERIFIED', 'IN_REVIEW'));
   // No-op / same-state is not a valid transition.
   assert.ok(!isValidTransition('INACTIVE', 'INACTIVE'));
   // Unknown states never validate.

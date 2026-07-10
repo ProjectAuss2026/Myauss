@@ -493,8 +493,8 @@ export function ActivateMembership() {
                 </div>
               )}
 
-              {/* ── NEED_REVIEW ── */}
-              {membershipStatus === "NEED_REVIEW" && (
+              {/* ── IN_REVIEW ── */}
+              {membershipStatus === "IN_REVIEW" && (
                 <div className="text-center py-4">
                   {user?.lastDeclineReason && (
                     <div className="mb-4 text-left rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3">

@@ -6,21 +6,21 @@ import logger from '../utils/logger.js';
 // are independent axes: a user can be email-verified but membership INACTIVE.
 export const MEMBERSHIP_STATUS = Object.freeze({
   INACTIVE: 'INACTIVE',
-  NEED_REVIEW: 'NEED_REVIEW',
+  IN_REVIEW: 'IN_REVIEW',
   VERIFIED: 'VERIFIED',
 });
 
 export const MEMBERSHIP_STATUS_VALUES = Object.freeze(Object.values(MEMBERSHIP_STATUS));
 
 // Frozen legal-transition map — the single source of truth for what moves are allowed.
-//   INACTIVE    → NEED_REVIEW  (member submits cash/bank-transfer proof)
+//   INACTIVE    → IN_REVIEW  (member submits cash/bank-transfer proof)
 //   INACTIVE    → VERIFIED     (successful card payment activates instantly)
-//   NEED_REVIEW → VERIFIED     (admin approves proof / member pays by card)
-//   NEED_REVIEW → INACTIVE     (admin rejects proof)
+//   IN_REVIEW → VERIFIED     (admin approves proof / member pays by card)
+//   IN_REVIEW → INACTIVE     (admin rejects proof)
 //   VERIFIED    → INACTIVE     (admin-driven: membership lapsed / refunded)
 export const MEMBERSHIP_TRANSITIONS = Object.freeze({
-  INACTIVE: Object.freeze(['NEED_REVIEW', 'VERIFIED']),
-  NEED_REVIEW: Object.freeze(['VERIFIED', 'INACTIVE']),
+  INACTIVE: Object.freeze(['IN_REVIEW', 'VERIFIED']),
+  IN_REVIEW: Object.freeze(['VERIFIED', 'INACTIVE']),
   VERIFIED: Object.freeze(['INACTIVE']),
 });
 

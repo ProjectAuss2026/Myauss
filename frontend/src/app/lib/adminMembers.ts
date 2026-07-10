@@ -2,7 +2,7 @@ import { fetchWithAuth } from "./authFetch";
 
 export const MEMBERSHIP_STATUS_VALUES = [
   "INACTIVE",
-  "NEED_REVIEW",
+  "IN_REVIEW",
   "VERIFIED",
 ] as const;
 
@@ -448,7 +448,7 @@ export function formatMembershipStatus(
   switch ((status || "").toUpperCase()) {
     case "INACTIVE":
       return "Inactive";
-    case "NEED_REVIEW":
+    case "IN_REVIEW":
       return "Need Review";
     case "VERIFIED":
       return "Verified";

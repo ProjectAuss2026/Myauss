@@ -91,7 +91,7 @@ const RESET_TOKEN_ERROR = "Invalid or expired password reset token.";
 const ALLOWED_MEMBER_PAGE_SIZES = new Set([10, 20, 50]);
 const CASH_BANK_TRANSFER_PAYMENT_METHOD = "CASH_BANK_TRANSFER";
 const MAX_PAYMENT_PROOF_UPLOAD_BYTES = 10 * 1024 * 1024;
-const REVIEW_STATUS = "NEED_REVIEW";
+const REVIEW_STATUS = "IN_REVIEW";
 const DECLINED_STATUS = "INACTIVE";
 const MEMBERSHIP_STATUS_REASON_MAX_LENGTH = 200;
 const pendingPaymentProofUpload = createImageUploadMiddleware({
@@ -804,7 +804,7 @@ router.post(
 
         return changeMembershipStatus({
           targetUserId: user.id,
-          toStatus: "NEED_REVIEW",
+          toStatus: "IN_REVIEW",
           actorUserId: req.user.id,
           reason: "Cash / bank transfer proof submitted by member",
           client: tx,
@@ -1298,17 +1298,17 @@ router.get("/me", authenticate, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Surface the most recent admin decline reason for NEED_REVIEW / INACTIVE users.
+    // Surface the most recent admin decline reason for IN_REVIEW / INACTIVE users.
     let lastDeclineReason = null;
     try {
       if (
-        user.membershipStatus === "NEED_REVIEW" ||
+        user.membershipStatus === "IN_REVIEW" ||
         user.membershipStatus === "INACTIVE"
       ) {
         const lastDecline = await prisma.membershipStatusAudit.findFirst({
           where: {
             targetUserId: user.id,
-            fromStatus: "NEED_REVIEW",
+            fromStatus: "IN_REVIEW",
             toStatus: "INACTIVE",
             actorUserId: { not: null },
           },
@@ -1782,7 +1782,7 @@ function formatPayment(payment) {
 
 // ── GET /auth/admin/members ─────────────────────────────────────────
 // Full member roster with membership status. Admin- and owner-accessible.
-// Optional ?status= filter (INACTIVE | NEED_REVIEW | VERIFIED).
+// Optional ?status= filter (INACTIVE | IN_REVIEW | VERIFIED).
 // Optional ?search= filter across email, member name, and exact student ID.
 // Optional ?page= and ?pageSize= pagination controls.
 router.get("/admin/members", authenticate, async (req, res) => {
