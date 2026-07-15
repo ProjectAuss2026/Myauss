@@ -16,12 +16,12 @@ enum Role {
 }
 
 // Membership account status — distinct from `User.isVerified` (email OTP).
-// INACTIVE   = registered but membership not yet paid/confirmed
-// NEED_REVIEW = cash/bank-transfer proof submitted, awaiting admin verification
-// VERIFIED    = active member (payment confirmed); unlocks gated content
+// INACTIVE  = registered but membership not yet paid/confirmed
+// IN_REVIEW = cash/bank-transfer proof submitted, awaiting admin verification
+// VERIFIED  = active member (payment confirmed); unlocks gated content
 enum MembershipStatus {
   INACTIVE
-  NEED_REVIEW
+  IN_REVIEW
   VERIFIED
 }
 

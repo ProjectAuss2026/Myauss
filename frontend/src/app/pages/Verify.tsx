@@ -7,7 +7,7 @@ import {
   ChevronLeft,
   RefreshCw,
   CheckCircle,
-  ShieldCheck,
+  ArrowRight,
 } from "lucide-react";
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -40,12 +40,6 @@ export function Verify() {
   const { showToast } = useToast();
 
   const email = (location.state as any)?.email || "";
-  const pendingMembershipReview = Boolean(
-    (location.state as any)?.pendingMembershipReview,
-  );
-  const pendingMembershipReviewMessage =
-    (location.state as any)?.pendingMembershipReviewMessage ||
-    "We received your membership submission. Your payment proof is pending admin review, and your membership will be verified after approval.";
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +48,7 @@ export function Verify() {
   const [cooldown, setCooldown] = useState(60);
   const [resendLoading, setResendLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [isInactiveNewUser, setIsInactiveNewUser] = useState(false);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
@@ -161,17 +156,17 @@ export function Verify() {
       // Success — update auth context (triggers nav re-render)
       setUserFromToken(data.token, data.user);
       setSuccess(true);
-      showToast(
-        pendingMembershipReview
-          ? "Email verified. Your payment proof is still pending admin review."
-          : "Email verified! Welcome to AUSS",
-        "success",
-      );
 
-      // Brief success animation, then navigate
-      setTimeout(() => {
-        navigate("/");
-      }, 1500);
+      if (data.user?.membershipStatus === "INACTIVE") {
+        setIsInactiveNewUser(true);
+        showToast("Email verified! Welcome to AUSS", "success");
+      } else {
+        showToast("Email verified! Welcome back", "success");
+        // Brief success animation, then navigate home
+        setTimeout(() => {
+          navigate("/");
+        }, 1500);
+      }
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -257,7 +252,7 @@ export function Verify() {
           >
             <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-8 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
               {success ? (
-                /* ── Success State ── */
+                /* ── Success / Activation Prompt ── */
                 <div className="text-center py-6">
                   <div className="w-16 h-16 bg-green-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <CheckCircle className="w-8 h-8 text-green-400" />
@@ -272,17 +267,57 @@ export function Verify() {
                   >
                     Email Verified!
                   </h2>
-                  <p
-                    className="text-white/40"
-                    style={{
-                      fontSize: "14px",
-                      fontFamily: "Inter, sans-serif",
-                    }}
-                  >
-                    {pendingMembershipReview
-                      ? "Your email is verified. Your payment proof is pending admin review. Redirecting you now..."
-                      : "Welcome to AUSS. Redirecting you now..."}
-                  </p>
+                  {isInactiveNewUser ? (
+                    <>
+                      <p
+                        className="text-white/50 mb-6"
+                        style={{
+                          fontSize: "14px",
+                          fontFamily: "Inter, sans-serif",
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        Your account is ready. Would you like to activate your
+                        membership now? No pressure — you can always do this
+                        later from your dashboard.
+                      </p>
+                      <div className="space-y-3">
+                        <Link
+                          to="/verify-membership"
+                          className="w-full bg-[#eb7524] text-white py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4691f] transition-all hover:shadow-[0_4px_20px_rgba(235,117,36,0.4)] active:scale-[0.98]"
+                          style={{
+                            fontSize: "15px",
+                            fontWeight: 600,
+                            fontFamily: "Outfit, sans-serif",
+                          }}
+                        >
+                          Activate Now
+                          <ArrowRight className="w-4 h-4" />
+                        </Link>
+                        <Link
+                          to="/"
+                          className="w-full border border-white/10 text-white/60 hover:text-white hover:border-white/20 py-3 rounded-xl flex items-center justify-center gap-2 transition-all"
+                          style={{
+                            fontSize: "15px",
+                            fontWeight: 500,
+                            fontFamily: "Outfit, sans-serif",
+                          }}
+                        >
+                          Maybe Later
+                        </Link>
+                      </div>
+                    </>
+                  ) : (
+                    <p
+                      className="text-white/40"
+                      style={{
+                        fontSize: "14px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
+                    >
+                      Redirecting you now...
+                    </p>
+                  )}
                 </div>
               ) : (
                 /* ── Verify Form ── */
@@ -322,26 +357,6 @@ export function Verify() {
                       {email}
                     </p>
                   </div>
-
-                  {pendingMembershipReview && (
-                    <div className="mb-4 rounded-xl border border-[#eb7524]/20 bg-[#eb7524]/[0.05] px-4 py-3 text-left">
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-[#eb7524]/10 flex items-center justify-center shrink-0">
-                          <ShieldCheck className="w-4.5 h-4.5 text-[#eb7524]" />
-                        </div>
-                        <p
-                          className="text-white/70"
-                          style={{
-                            fontSize: "13px",
-                            fontFamily: "Inter, sans-serif",
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          {pendingMembershipReviewMessage}
-                        </p>
-                      </div>
-                    </div>
-                  )}
 
                   {error && (
                     <div
@@ -460,6 +475,30 @@ export function Verify() {
                     Check your spam folder if you don't see the email. In dev
                     mode, the code is logged in the backend terminal.
                   </p>
+
+                  {/* Already registered hint */}
+                  <div className="mt-5 pt-5 border-t border-white/[0.06] text-center">
+                    <p
+                      className="text-white/40 mb-2"
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
+                    >
+                      Already have an account?
+                    </p>
+                    <Link
+                      to="/login"
+                      className="text-[#eb7524] hover:text-[#eb7524]/80 transition-colors"
+                      style={{
+                        fontSize: "14px",
+                        fontFamily: "Inter, sans-serif",
+                        fontWeight: 500,
+                      }}
+                    >
+                      Sign in instead
+                    </Link>
+                  </div>
                 </>
               )}
             </div>

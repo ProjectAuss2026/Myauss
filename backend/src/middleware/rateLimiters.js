@@ -223,3 +223,10 @@ export const paymentProofUploadIpLimiter = createLimiter({
   max: 20,
   scope: "payment proof upload",
 });
+
+export const submitPaymentLimiter = createLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => `submit-payment:${req.user?.id || "unknown"}`,
+  scope: "membership payment submit",
+});

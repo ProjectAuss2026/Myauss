@@ -34,7 +34,7 @@ async function main() {
     {
       id: "mock-need-review-user-001",
       email: "mock.needreview@example.com",
-      membershipStatus: "NEED_REVIEW",
+      membershipStatus: "IN_REVIEW",
     },
     {
       id: "mock-verified-user-001",

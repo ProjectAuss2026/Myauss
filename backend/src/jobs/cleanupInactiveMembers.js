@@ -106,7 +106,10 @@ export async function warnInactiveMembers(now = new Date()) {
 /**
  * Phase 2 — hard-delete INACTIVE accounts past the retention window that were
  * warned at least `warningDays` ago (so nothing is deleted without a warning and
- * grace period). Child rows are removed by the schema's onDelete cascades.
+ * grace period). Keyed on `membershipStatusUpdatedAt` (not `createdAt`) so a
+ * VERIFIED member later set back to INACTIVE gets a fresh window; IN_REVIEW and
+ * VERIFIED accounts are never touched. Child rows (info, sessions, audit) are
+ * removed by the schema's onDelete cascades.
  *
  * @param {Date} [now] Injectable clock for tests.
  * @returns {Promise<number>} Count of accounts deleted.

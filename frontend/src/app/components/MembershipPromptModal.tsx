@@ -101,7 +101,7 @@ export function MembershipPromptModal({ open, onClose }: MembershipPromptModalPr
 
           <button
             type="button"
-            onClick={() => navigate('/membership/pay')}
+            onClick={() => navigate('/verify-membership')}
             className="w-full py-3.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] hover:shadow-[0_4px_12px_rgba(235,117,36,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2"
             style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
           >

@@ -14,10 +14,6 @@ const password = z
   .max(LIMITS.password, {
     message: `Password must be ${LIMITS.password} characters or fewer`,
   });
-const paymentProofUploadId = z
-  .string()
-  .trim()
-  .uuid({ message: "Each payment proof upload ID must be a valid ID" });
 
 export const registerBodySchema = z
   .object({
@@ -31,38 +27,6 @@ export const registerBodySchema = z
     firstName: requiredTrimmedString("First name", LIMITS.personName),
     lastName: requiredTrimmedString("Last name", LIMITS.personName),
     studentId: requiredTrimmedString("Student ID", LIMITS.studentId),
-    paymentMethod: z.enum(["CASH_BANK_TRANSFER"]).optional(),
-    proofUploadIds: z
-      .array(paymentProofUploadId)
-      .max(10, { message: "You can upload at most 10 payment proof files" })
-      .optional(),
-  })
-  .superRefine((body, ctx) => {
-    const proofUploadIds = body.proofUploadIds ?? [];
-
-    if (
-      body.paymentMethod === "CASH_BANK_TRANSFER" &&
-      proofUploadIds.length === 0
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["proofUploadIds"],
-        message:
-          "At least one payment proof upload is required for Cash / Bank Transfer",
-      });
-    }
-
-    if (
-      body.paymentMethod !== "CASH_BANK_TRANSFER" &&
-      proofUploadIds.length > 0
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["proofUploadIds"],
-        message:
-          "Payment proof uploads can only be submitted with Cash / Bank Transfer",
-      });
-    }
   });
 
 export const loginBodySchema = z.object({
@@ -85,3 +49,12 @@ export const registerSchema = { body: registerBodySchema };
 export const loginSchema = { body: loginBodySchema };
 export const resendCodeSchema = { body: resendCodeBodySchema };
 export const verifySchema = { body: verifyBodySchema };
+
+export const submitPaymentBodySchema = z.object({
+  proofUploadIds: z
+    .array(z.string().trim().uuid({ message: "Each payment proof upload ID must be a valid ID" }))
+    .min(1, { message: "At least one payment proof upload is required" })
+    .max(10, { message: "You can upload at most 10 payment proof files" }),
+});
+
+export const submitPaymentSchema = { body: submitPaymentBodySchema };

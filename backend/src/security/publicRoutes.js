@@ -13,8 +13,6 @@ export const PUBLIC_ROUTES = Object.freeze([
   route("GET", "/api/test"),
   route("GET", "/uploads/*"),
   route("POST", "/api/auth/register"),
-  route("POST", "/api/auth/payment-proofs/pending"),
-  route("DELETE", "/api/auth/payment-proofs/pending/:proofUploadId"),
   route("POST", "/api/auth/resend-code"),
   route("POST", "/api/auth/verify"),
   route("POST", "/api/auth/login"),
@@ -39,6 +37,9 @@ export const PUBLIC_ROUTES = Object.freeze([
 export const AUTHENTICATED_ROUTES = Object.freeze([
   route("GET", "/api/auth/me"),
   route("DELETE", "/api/auth/me/info"),
+  route("POST", "/api/auth/payment-proofs/pending"),
+  route("DELETE", "/api/auth/payment-proofs/pending/:proofUploadId"),
+  route("POST", "/api/auth/membership/submit-payment"),
   route("GET", "/api/auth/admin/users/lookup"),
   route("GET", "/api/auth/admin/users/search"),
   route("POST", "/api/auth/admin/invitations"),
