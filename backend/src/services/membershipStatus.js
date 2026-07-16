@@ -112,6 +112,9 @@ export async function changeMembershipStatus({
       data: {
         membershipStatus: toStatus,
         membershipStatusUpdatedAt: new Date(),
+        // Reset the inactive-deletion warning so each inactive spell re-warns
+        // from scratch (and leaving INACTIVE clears any stale flag).
+        inactiveWarnedAt: null,
       },
       include: { info: true },
     });
