@@ -39,6 +39,138 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   return { ref, inView };
 }
 
+const carouselSlides = [
+  {
+    src: "/photos/club_photo1.jpg",
+    alt: "AUSS members gathered together for a club group photo",
+  },
+  {
+    src: "/photos/club_photo2.jpg",
+    alt: "AUSS members training together during a session",
+  },
+  {
+    src: "/photos/club_photo3.jpg",
+    alt: "AUSS members enjoying a club event",
+  },
+];
+
+const brandHighlights = [
+  { icon: Users, text: "Connect with 200+ active members" },
+  { icon: ShieldCheck, text: "Access exclusive training resources" },
+  { icon: ArrowRight, text: "Stay updated on events & competitions" },
+];
+
+function BrandPanel() {
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (paused) return;
+    const id = setInterval(
+      () => setIndex((i) => (i + 1) % carouselSlides.length),
+      4000,
+    );
+    return () => clearInterval(id);
+  }, [paused]);
+
+  return (
+    <div
+      className="relative overflow-hidden min-h-[240px] lg:min-h-full"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      role="group"
+      aria-roledescription="carousel"
+      aria-label="Photos of the AUSS community"
+    >
+      {/* Carousel background */}
+      {carouselSlides.map((slide, i) => (
+        <img
+          key={slide.src}
+          src={slide.src}
+          alt={slide.alt}
+          loading={i === 0 ? "eager" : "lazy"}
+          decoding="async"
+          aria-hidden={i !== index}
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out"
+          style={{ opacity: i === index ? 1 : 0 }}
+        />
+      ))}
+
+      {/* Dark overlay keeps the branding text legible over the photos */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/40" />
+
+      {/* Content */}
+      <div className="relative h-full flex flex-col justify-between p-8 md:p-10 gap-8">
+        <div>
+          <p
+            className="text-[#eb7524] uppercase tracking-[0.25em] mb-4"
+            style={{ fontSize: "13px", fontFamily: "Inter, sans-serif", fontWeight: 500 }}
+          >
+            Join the Community
+          </p>
+          <h1
+            className="text-white mb-4"
+            style={{
+              fontSize: "clamp(28px, 4vw, 40px)",
+              fontWeight: 700,
+              lineHeight: 1.15,
+              fontFamily: "Outfit, sans-serif",
+              letterSpacing: "-0.02em",
+              textShadow: "0 2px 12px rgba(0,0,0,0.5)",
+            }}
+          >
+            Welcome to <span className="text-[#eb7524]">AUSS</span>
+          </h1>
+          <p
+            className="text-white/70 max-w-sm"
+            style={{ fontSize: "15px", lineHeight: 1.7, fontFamily: "Inter, sans-serif" }}
+          >
+            Access training schedules, events, and connect with Auckland's
+            strongest community.
+          </p>
+        </div>
+
+        <div>
+          {/* Feature highlights */}
+          <div className="space-y-3 mb-6 hidden md:block">
+            {brandHighlights.map((item) => (
+              <div key={item.text} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+                  <item.icon className="w-4 h-4 text-[#eb7524]" />
+                </div>
+                <span
+                  className="text-white/80"
+                  style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+                >
+                  {item.text}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Slide indicators */}
+          <div className="flex gap-2">
+            {carouselSlides.map((slide, i) => (
+              <button
+                key={slide.src}
+                type="button"
+                onClick={() => setIndex(i)}
+                aria-label={`Show photo ${i + 1} of ${carouselSlides.length}`}
+                aria-current={i === index}
+                className={`h-2 rounded-full transition-all cursor-pointer ${
+                  i === index
+                    ? "w-6 bg-[#eb7524]"
+                    : "w-2 bg-white/50 hover:bg-white/80"
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PasswordRule({ met, label, sublabel }: { met: boolean; label: string; sublabel?: string }) {
   return (
     <div className="flex items-start gap-2">
@@ -64,8 +196,9 @@ export function Login() {
   const [view, setView] = useState<AuthView>("login");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
+  const loginRef = useRef<HTMLDivElement>(null);
+  const registerRef = useRef<HTMLDivElement>(null);
 
   // Form states
   const [loginEmail, setLoginEmail] = useState("");
@@ -86,9 +219,17 @@ export function Login() {
   const { showToast } = useToast();
   const navigate = useNavigate();
 
+  // Take the inactive view out of the tab order / a11y tree (it stays in the
+  // DOM so the card is always sized to the taller view).
   useEffect(() => {
-    requestAnimationFrame(() => setMounted(true));
-  }, []);
+    const setInert = (el: HTMLElement | null, inert: boolean) => {
+      if (!el) return;
+      if (inert) el.setAttribute("inert", "");
+      else el.removeAttribute("inert");
+    };
+    setInert(loginRef.current, view !== "login");
+    setInert(registerRef.current, view !== "register");
+  }, [view]);
 
   function validateField(
     name: string,
@@ -236,21 +377,23 @@ export function Login() {
   };
 
   const switchView = (newView: AuthView) => {
-    setMounted(false);
-    setTimeout(() => {
-      setView(newView);
-      setSubmitted(false);
-      requestAnimationFrame(() => setMounted(true));
-    }, 200);
+    setView(newView);
+    setSubmitted(false);
   };
 
   return (
     <div className="bg-black min-h-screen relative overflow-hidden">
-      {/* Background effects */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#eb7524]/8 rounded-full blur-[150px]" />
-        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-[#eb7524]/5 rounded-full blur-[120px]" />
-      </div>
+      {/* Mobile: fade + slide the active auth view in when it becomes visible.
+          Desktop keeps its own opacity crossfade, so scope this to small screens. */}
+      <style>{`
+        @media (max-width: 1023px) {
+          .auth-view { animation: authViewIn 300ms ease both; }
+        }
+        @keyframes authViewIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
       <div
         className="max-w-[1200px] mx-auto px-6 py-12 md:py-20 relative"
@@ -274,102 +417,31 @@ export function Login() {
           </Link>
         </div>
 
-        <div className="flex flex-col lg:flex-row items-center lg:items-start gap-12 lg:gap-20">
-          {/* Left side — Branding */}
-          <div
-            className="flex-1 max-w-md text-center lg:text-left lg:pt-8"
-            style={{
-              opacity: inView ? 1 : 0,
-              transform: inView ? "translateX(0)" : "translateX(-30px)",
-              transition: "opacity 0.7s ease 0.1s, transform 0.7s ease 0.1s",
-            }}
-          >
-            <p
-              className="text-[#eb7524] uppercase tracking-[0.25em] mb-4"
-              style={{
-                fontSize: "13px",
-                fontFamily: "Inter, sans-serif",
-                fontWeight: 500,
-              }}
-            >
-              Join the Community
-            </p>
-            <h1
-              className="text-white mb-4"
-              style={{
-                fontSize: "clamp(28px, 4vw, 42px)",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                fontFamily: "Outfit, sans-serif",
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Welcome to <span className="text-[#eb7524]">AUSS</span>
-            </h1>
-            <p
-              className="text-white/50 mb-8"
-              style={{
-                fontSize: "16px",
-                lineHeight: 1.7,
-                fontFamily: "Inter, sans-serif",
-              }}
-            >
-              Sign in to access training schedules, events, and connect with
-              Auckland's strongest community. New here? Create your account.
-            </p>
+        {/* Unified auth card */}
+        <div
+          className="grid lg:grid-cols-2 rounded-3xl overflow-hidden border border-white/[0.08] bg-[#111] shadow-[0_30px_90px_rgba(0,0,0,0.6)]"
+          style={{
+            opacity: inView ? 1 : 0,
+            transform: inView ? "translateY(0)" : "translateY(24px)",
+            transition: "opacity 0.7s ease 0.1s, transform 0.7s ease 0.1s",
+          }}
+        >
+          {/* Left — Branding / photo panel */}
+          <BrandPanel />
 
-            {/* Feature highlights */}
-            <div className="space-y-4 hidden lg:block">
-              {[
-                { icon: Users, text: "Connect with 200+ active members" },
-                {
-                  icon: ShieldCheck,
-                  text: "Access exclusive training resources",
-                },
-                {
-                  icon: ArrowRight,
-                  text: "Stay updated on events & competitions",
-                },
-              ].map((item, i) => (
-                <div
-                  key={item.text}
-                  className="flex items-center gap-3"
-                  style={{
-                    opacity: inView ? 1 : 0,
-                    transform: inView ? "translateX(0)" : "translateX(-20px)",
-                    transition: `opacity 0.5s ease ${0.4 + i * 0.1}s, transform 0.5s ease ${0.4 + i * 0.1}s`,
-                  }}
-                >
-                  <div className="w-8 h-8 rounded-lg bg-[#eb7524]/10 flex items-center justify-center flex-shrink-0">
-                    <item.icon className="w-4 h-4 text-[#eb7524]" />
-                  </div>
-                  <span
-                    className="text-white/60"
-                    style={{
-                      fontSize: "14px",
-                      fontFamily: "Inter, sans-serif",
-                    }}
-                  >
-                    {item.text}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Right side — Form Card */}
-          <div
-            className="w-full max-w-[440px]"
-            style={{
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? "translateY(0)" : "translateY(20px)",
-              transition: "opacity 0.5s ease, transform 0.5s ease",
-            }}
-          >
-            <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-8 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
-              {/* LOGIN VIEW */}
-              {view === "login" && (
-                <>
+          {/* Right — Form panel. Both views are stacked in one grid cell, so the
+              card is always as tall as the taller (register) view: no resize, no scroll. */}
+          <div className="p-8 md:p-10 lg:grid">
+            {/* LOGIN VIEW */}
+            <div
+              ref={loginRef}
+              aria-hidden={view !== "login"}
+              className={`${view === "login" ? "flex" : "hidden"} lg:flex flex-col justify-center lg:col-start-1 lg:row-start-1 transition-opacity duration-300 auth-view`}
+              style={{
+                opacity: view === "login" ? 1 : 0,
+                pointerEvents: view === "login" ? "auto" : "none",
+              }}
+            >
                   <h2
                     className="text-white mb-1"
                     style={{
@@ -549,12 +621,18 @@ export function Login() {
                       </button>
                     </p>
                   </div>
-                </>
-              )}
+            </div>
 
-              {/* REGISTER VIEW */}
-              {view === "register" && (
-                <>
+            {/* REGISTER VIEW */}
+            <div
+              ref={registerRef}
+              aria-hidden={view !== "register"}
+              className={`${view === "register" ? "flex" : "hidden"} lg:flex flex-col justify-center lg:col-start-1 lg:row-start-1 transition-opacity duration-300 auth-view`}
+              style={{
+                opacity: view === "register" ? 1 : 0,
+                pointerEvents: view === "register" ? "auto" : "none",
+              }}
+            >
                   <button
                     onClick={() => switchView("login")}
                     className="flex items-center gap-1 text-white/40 hover:text-white/70 transition-colors mb-4 cursor-pointer"
@@ -944,8 +1022,6 @@ export function Login() {
                       </button>
                     </p>
                   </div>
-                </>
-              )}
             </div>
           </div>
         </div>
