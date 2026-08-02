@@ -96,15 +96,22 @@ function BrandPanel() {
         />
       ))}
 
-      {/* Dark overlay keeps the branding text legible over the photos */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/40" />
+      {/* Dark overlays keep the branding text legible over the photos:
+          one bottom-heavy for the dots/highlights, one top-heavy behind the heading. */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/15" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/10 to-transparent" />
 
       {/* Content */}
       <div className="relative h-full flex flex-col justify-between p-8 md:p-10 gap-8">
         <div>
           <p
             className="text-[#eb7524] uppercase tracking-[0.25em] mb-4"
-            style={{ fontSize: "13px", fontFamily: "Inter, sans-serif", fontWeight: 500 }}
+            style={{
+              fontSize: "13px",
+              fontFamily: "Inter, sans-serif",
+              fontWeight: 500,
+              textShadow: "0 1px 8px rgba(0,0,0,0.7)",
+            }}
           >
             Join the Community
           </p>
@@ -122,8 +129,13 @@ function BrandPanel() {
             Welcome to <span className="text-[#eb7524]">AUSS</span>
           </h1>
           <p
-            className="text-white/70 max-w-sm"
-            style={{ fontSize: "15px", lineHeight: 1.7, fontFamily: "Inter, sans-serif" }}
+            className="text-white/80 max-w-sm"
+            style={{
+              fontSize: "15px",
+              lineHeight: 1.7,
+              fontFamily: "Inter, sans-serif",
+              textShadow: "0 1px 6px rgba(0,0,0,0.6)",
+            }}
           >
             Access training schedules, events, and connect with Auckland's
             strongest community.
