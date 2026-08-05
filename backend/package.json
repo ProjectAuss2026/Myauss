@@ -12,7 +12,9 @@
     "prisma:studio": "npx prisma studio",
     "prisma:seed": "node prisma/seed.js",
     "test": "node --test",
-    "build": "node scripts/check-syntax.mjs"
+    "check:logging": "node scripts/check-logging.mjs",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "build": "npm run check:logging && npm run check:syntax"
   },
   "keywords": [
     "auss",
@@ -38,6 +40,7 @@
     "nodemailer": "^9.0.3",
     "pg": "^8.11.0",
     "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
     "stripe": "^22.3.0",
     "zod": "^4.4.3",
     "zxcvbn": "^4.4.2"

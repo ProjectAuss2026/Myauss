@@ -350,10 +350,6 @@ async function sendVerificationCode(user) {
   const code = generateVerificationCode();
   const codeHash = hashVerificationCode(code);
 
-  // Always log the code in development so it's usable even if email fails.
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`\n[DEV OTP] Code for ${user.email}: ${code}\n`);
-  }
   const now = Date.now();
   await prisma.otpCode.upsert({
     where: { userId: user.id },
@@ -372,8 +368,10 @@ async function sendVerificationCode(user) {
   });
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(
-      `[OTP DEV] Code for ${user.email}: ${code} (SMTP not configured)`,
+    // Never log the code — it is a credential. Email is the only delivery channel.
+    logger.info(
+      { email: user.email },
+      'OTP dev: verification code generated but SMTP is not configured',
     );
     return { sent: true };
   }
@@ -394,9 +392,10 @@ async function sendVerificationCode(user) {
     `,
     });
   } catch (emailErr) {
-    // Log the code in dev so it's still usable even if SMTP fails.
-    console.log(
-      `[OTP DEV] Code for ${user.email}: ${code} (email send failed: ${emailErr instanceof Error ? emailErr.message : emailErr})`,
+    // Never log the code — it is a credential. Record the delivery failure only.
+    logger.error(
+      { err: emailErr, email: user.email },
+      'OTP verification email delivery failed',
     );
   }
   return { sent: true };
@@ -420,7 +419,11 @@ async function sendPasswordResetEmail(email, token) {
   }
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(`[RESET DEV] Link for ${email}: ${resetUrl}`);
+    // Never log resetUrl — it embeds the raw reset token, which is a credential.
+    logger.warn(
+      { email },
+      'Password reset requested but SMTP is not configured; reset link was not delivered',
+    );
     return;
   }
 
@@ -442,7 +445,10 @@ async function sendPasswordResetEmail(email, token) {
 
 async function sendPasswordResetConfirmationEmail(email) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(`[RESET DEV] Confirmation email skipped for ${email}`);
+    logger.info(
+      { email },
+      'Password reset confirmation email skipped because SMTP is not configured',
+    );
     return;
   }
 
@@ -514,8 +520,9 @@ async function sendPaymentProofDeclinedEmail({ to, name, reason }) {
   }
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(
-      `[PAYMENT PROOF DEV] Decline email skipped for ${email}. SMTP is not configured.`,
+    logger.info(
+      { email },
+      'Payment proof decline email skipped because SMTP is not configured',
     );
     return { sent: false, skipped: true, skipReason: "smtp-not-configured" };
   }
@@ -1254,12 +1261,7 @@ router.post("/refresh", async (req, res) => {
       user: formatUser(user),
     });
   } catch (err) {
-    if (process.env.NODE_ENV === "development") {
-      console.debug(
-        "Refresh token verification failed:",
-        err instanceof Error ? err.message : err,
-      );
-    }
+    logger.debug({ err }, 'Refresh token verification failed');
     clearRefreshCookie(res);
     return res.status(401).json({ error: "Invalid refresh token" });
   }
