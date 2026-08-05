@@ -39,6 +39,20 @@ function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   return { ref, inView };
 }
 
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    onChange();
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
+}
+
 const carouselSlides = [
   {
     src: "/photos/club_photo1.jpg",
@@ -63,36 +77,53 @@ const brandHighlights = [
 function BrandPanel() {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  // The carousel is desktop-only: on mobile we render a single static image so
+  // phones don't pull all three full-size photos (~2MB) over congested campus
+  // wifi — this is the screen students hit after scanning the stall QR.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
+  // Only the desktop carousel auto-advances, and it stops when the user prefers
+  // reduced motion (WCAG 2.2.2). Touch devices — our primary audience — have no
+  // hover to pause, so this preference is their stop mechanism; without it set
+  // they still get the full rotation.
   useEffect(() => {
-    if (paused) return;
+    if (!isDesktop || reduceMotion || paused) return;
     const id = setInterval(
       () => setIndex((i) => (i + 1) % carouselSlides.length),
       4000,
     );
     return () => clearInterval(id);
-  }, [paused]);
+  }, [isDesktop, reduceMotion, paused]);
+
+  // On mobile only the first slide is rendered (and fetched); the full carousel
+  // lives on desktop.
+  const slides = isDesktop ? carouselSlides : carouselSlides.slice(0, 1);
 
   return (
     <div
       className="relative overflow-hidden min-h-[240px] lg:min-h-full"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
-      role="group"
-      aria-roledescription="carousel"
-      aria-label="Photos of the AUSS community"
+      {...(isDesktop
+        ? {
+            role: "group",
+            "aria-roledescription": "carousel",
+            "aria-label": "Photos of the AUSS community",
+          }
+        : {})}
     >
       {/* Carousel background */}
-      {carouselSlides.map((slide, i) => (
+      {slides.map((slide, i) => (
         <img
           key={slide.src}
           src={slide.src}
           alt={slide.alt}
           loading={i === 0 ? "eager" : "lazy"}
           decoding="async"
-          aria-hidden={i !== index}
+          aria-hidden={isDesktop ? i !== index : undefined}
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out"
-          style={{ opacity: i === index ? 1 : 0 }}
+          style={{ opacity: isDesktop ? (i === index ? 1 : 0) : 1 }}
         />
       ))}
 
@@ -160,23 +191,25 @@ function BrandPanel() {
             ))}
           </div>
 
-          {/* Slide indicators */}
-          <div className="flex gap-2">
-            {carouselSlides.map((slide, i) => (
-              <button
-                key={slide.src}
-                type="button"
-                onClick={() => setIndex(i)}
-                aria-label={`Show photo ${i + 1} of ${carouselSlides.length}`}
-                aria-current={i === index}
-                className={`h-2 rounded-full transition-all cursor-pointer ${
-                  i === index
-                    ? "w-6 bg-[#eb7524]"
-                    : "w-2 bg-white/50 hover:bg-white/80"
-                }`}
-              />
-            ))}
-          </div>
+          {/* Slide indicators — desktop-only, matching the carousel */}
+          {isDesktop && (
+            <div className="flex gap-2">
+              {carouselSlides.map((slide, i) => (
+                <button
+                  key={slide.src}
+                  type="button"
+                  onClick={() => setIndex(i)}
+                  aria-label={`Show photo ${i + 1} of ${carouselSlides.length}`}
+                  aria-current={i === index}
+                  className={`h-2 rounded-full transition-all cursor-pointer ${
+                    i === index
+                      ? "w-6 bg-[#eb7524]"
+                      : "w-2 bg-white/50 hover:bg-white/80"
+                  }`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
