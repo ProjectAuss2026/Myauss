@@ -1,0 +1,18 @@
+{
+  "$comment": [
+    "Advisories that are acknowledged but deliberately not fixed, with a reason and an expiry.",
+    "An entry only suppresses the exact advisory id listed. Anything else high/critical still fails CI.",
+    "An expired entry FAILS the build on purpose — it forces a re-review rather than rotting silently.",
+    "Keep this list as short as you can. Prefer upgrading over allowlisting."
+  ],
+  "allow": [
+    {
+      "id": "GHSA-qwww-vcr4-c8h2",
+      "package": "react-router",
+      "reason": "RSC Mode CSRF bypass. Only exploitable via the unstable React Server Components APIs (per the advisory: 'This only affects your application if you are using the unstable RSC APIs'). This app is a client-only Vite SPA using createBrowserRouter + RouterProvider (frontend/src/app/routes.tsx, frontend/src/app/App.tsx) and imports no RSC API, so the vulnerable code path is unreachable.",
+      "noFixAvailable": "There is no patched 7.x release. The fix landed only in react-router 8.3.0, which requires React >=19.2.7; this app is on React 18.3.1, so adopting it means a full React 19 migration. npm's suggested 'fix' is a downgrade to react-router-dom@7.11.0, which would drop seven minor releases of genuine fixes to mitigate a vulnerability that does not apply.",
+      "expires": "2026-11-06",
+      "reviewAction": "Re-evaluate when the frontend moves to React 19 — at that point upgrade to react-router 8.3.0+ and delete this entry."
+    }
+  ]
+}
