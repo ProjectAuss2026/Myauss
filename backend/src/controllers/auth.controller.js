@@ -16,6 +16,7 @@ import {
 } from "../schemas/authSchemas.js";
 import { hashStudentId, isStudentIdHashError } from "../utils/studentIdHash.js";
 import logger from "../utils/logger.js";
+import { isValidEmail } from "../utils/emailValidation.js";
 import {
   forgotPasswordEmailThrottle,
   forgotPasswordIpLimiter,
@@ -74,7 +75,6 @@ const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
 const OTP_MAX_ATTEMPTS = 5;
 const INVITATION_WINDOW_HOURS = 72;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const OTP_RE = /^\d{6}$/;
 const DUMMY_PASSWORD_HASH =
   "$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem";
@@ -1344,7 +1344,7 @@ router.get("/admin/users/lookup", authenticate, async (req, res) => {
   }
 
   const invitedEmail = normaliseEmail(req.query?.email);
-  if (!invitedEmail || !EMAIL_RE.test(invitedEmail)) {
+  if (!invitedEmail || !isValidEmail(invitedEmail)) {
     return res.status(400).json({ error: "A valid invitee email is required" });
   }
 
@@ -1424,7 +1424,7 @@ router.post("/admin/invitations", authenticate, async (req, res) => {
   const hours = parseInviteHours(req.body?.expiresInHours);
   const reason = req.body?.reason ? String(req.body.reason).trim() : null;
 
-  if (!invitedEmail || !EMAIL_RE.test(invitedEmail)) {
+  if (!invitedEmail || !isValidEmail(invitedEmail)) {
     return res.status(400).json({ error: "A valid invitee email is required" });
   }
   if (invitedRole !== "ADMIN") {
