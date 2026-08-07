@@ -1,12 +1,12 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
+import { isValidEmail } from '../utils/emailValidation.js';
 
 function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
 }
 
 const SIMPLE_URL_RE = /^(https?:\/\/.+|data:image\/.+;base64,)/i;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ── Public endpoints ──
 
@@ -94,7 +94,7 @@ function validateExecFields(body, isCreate) {
   if (imageUrl && imageUrl.trim() && !SIMPLE_URL_RE.test(imageUrl.trim())) {
     return 'imageUrl must be a valid URL.';
   }
-  if (email && email.trim() && !EMAIL_RE.test(email.trim())) {
+  if (email && email.trim() && !isValidEmail(email)) {
     return 'email must be a valid email address.';
   }
   return null;

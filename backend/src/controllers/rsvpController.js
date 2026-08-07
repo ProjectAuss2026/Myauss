@@ -1,8 +1,7 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
-
-// Simple RFC-5322-ish email validation. Strict enough for form input.
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { isValidEmail } from '../utils/emailValidation.js';
+import { LIMITS } from '../schemas/commonSchemas.js';
 
 /**
  * POST /api/activities/:id/rsvp — public
@@ -23,14 +22,20 @@ export const createRsvp = async (req, res) => {
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
+  if (String(name).trim().length > LIMITS.personName) {
+    return res.status(400).json({ error: `name must be ${LIMITS.personName} characters or fewer` });
+  }
   if (!email || !String(email).trim()) {
     return res.status(400).json({ error: 'email is required' });
   }
-  if (!EMAIL_REGEX.test(String(email).trim())) {
+  if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'email is not a valid email address' });
   }
   if (!studentId || !String(studentId).trim()) {
     return res.status(400).json({ error: 'studentId is required' });
+  }
+  if (String(studentId).trim().length > LIMITS.studentId) {
+    return res.status(400).json({ error: `studentId must be ${LIMITS.studentId} characters or fewer` });
   }
 
   const cleanName = String(name).trim();
