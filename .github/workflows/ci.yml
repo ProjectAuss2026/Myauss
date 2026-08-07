@@ -32,3 +32,9 @@ jobs:
       # Syntax-check all backend source files.
       - name: Backend build
         run: npm --workspace=backend run build
+
+      # Run the backend test suite (node:test). Tests mock Prisma, so no live
+      # database is required. (KAN-160: previously the suite never ran in CI,
+      # so a green 'Backend checks' did not mean tests passed.)
+      - name: Backend tests
+        run: npm --workspace=backend test
