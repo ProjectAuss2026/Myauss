@@ -6,7 +6,7 @@ import prisma from './prismaClient.js';
 import authController from './controllers/auth.controller.js';
 import getPublicConfigController from './controllers/getPublicConfigController.js';
 import { configureSecurity } from './middleware/security.js';
-import { globalApiLimiter } from './middleware/rateLimiters.js';
+import { globalApiLimiter, staticContentLimiter } from './middleware/rateLimiters.js';
 import configRoutes from './routes/configRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import activityRoutes from './routes/activityRoutes.js';
@@ -208,7 +208,7 @@ export function createApp() {
   app.use(express.static(SPA_DIST_DIR, { index: false, maxAge: '1y', immutable: true }));
   // SPA fallback: any non-API GET returns index.html so client-side routes
   // (e.g. /admin, /verify-membership) resolve on refresh / deep-link.
-  app.get('*', (req, res, next) => {
+  app.get('*', staticContentLimiter, (req, res, next) => {
     // Never answer for API/uploads paths — they keep their JSON/404 behaviour.
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
     // No build present (dev) → leave behaviour unchanged.
