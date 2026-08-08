@@ -49,6 +49,7 @@ import { AttendeesModal } from "../components/AttendeesModal";
 import {
   getSafeImageSrc,
   getSafeLinkHref,
+  getUrlHostname,
   isSafeImageSrc,
   isSafeLinkHref,
 } from "../../lib/safeUrl";
@@ -4857,7 +4858,14 @@ function MediaForm({
   const selectedActivity = activities.find((a) => String(a.id) === activityId);
 
   const resolvePixiesetUrl = async (url: string) => {
-    if (!url.includes("pixieset.com") || !url.includes("pid=")) return;
+    // SECURITY (CodeQL js/incomplete-url-substring-sanitization, KAN-168): match
+    // the parsed hostname, not a substring. `url.includes("pixieset.com")` is
+    // satisfied by any URL merely containing that text (e.g.
+    // https://evil.com/#pixieset.com), which would send an attacker-chosen URL
+    // to the backend resolver.
+    const host = getUrlHostname(url);
+    const isPixiesetPage = host === "pixieset.com" || (host?.endsWith(".pixieset.com") ?? false);
+    if (!isPixiesetPage || !url.includes("pid=")) return;
     setIsResolvingCover(true);
     setCoverResolveError(null);
     try {
@@ -4993,7 +5001,7 @@ function MediaForm({
           {!coverResolveError &&
             overrideCover &&
             !isResolvingCover &&
-            overrideCover.startsWith("https://images.pixieset.com") && (
+            getUrlHostname(overrideCover) === "images.pixieset.com" && (
               <p
                 className="mt-1 text-green-400/70"
                 style={{ fontSize: "12px" }}
