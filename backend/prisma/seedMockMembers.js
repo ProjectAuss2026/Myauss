@@ -13,9 +13,10 @@ async function main() {
   ]);
 
   if (!mockPasswordPolicy.ok) {
-    throw new Error(
-      `Mock member password is invalid: ${mockPasswordPolicy.error}.`,
-    );
+    // SECURITY (CodeQL #5): the policy detail is derived from the password and
+    // must not reach the generic error log below. Fail with a static message
+    // instead of interpolating `mockPasswordPolicy.error`.
+    throw new Error("Mock member password does not meet the password policy");
   }
 
   const mockPasswordHash = await bcrypt.hash(

@@ -395,7 +395,21 @@ export async function resolveCoverUrl(req, res) {
 
   const trimmed = url.trim();
 
-  if (!trimmed.includes('pixieset.com') || !trimmed.includes('pid=')) {
+  // SECURITY (CodeQL #4): match the parsed hostname, not a substring. A check
+  // like `includes('pixieset.com')` is satisfied by any URL merely containing
+  // that text (e.g. https://evil.com/?pid=x#pixieset.com), which would send the
+  // server-side fetch below to an arbitrary host. Non-absolute URLs (e.g.
+  // /uploads/...) throw here and fall through to the direct-image path.
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    return sendAllowedCoverUrl(res, trimmed);
+  }
+
+  const host = parsedUrl.hostname.toLowerCase();
+  const isPixiesetHost = host === 'pixieset.com' || host.endsWith('.pixieset.com');
+  if (!isPixiesetHost || !parsedUrl.searchParams.has('pid')) {
     return sendAllowedCoverUrl(res, trimmed);
   }
 

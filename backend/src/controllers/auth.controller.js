@@ -1210,6 +1210,11 @@ router.post(
 );
 
 // ── POST /auth/refresh ──────────────────────────────────────────────
+// SECURITY: token claims (`sub`/`sid`/`tv`) are only read AFTER
+// verifyRefreshToken() checks the signature, and are further constrained by the
+// stored-session hash, tokenVersion, and revoked/expired checks below. Do not
+// read payload.* before verification, and do not drop those checks — CodeQL
+// alert #8 ("user-controlled bypass") is dismissed on exactly this reasoning.
 router.post("/refresh", async (req, res) => {
   try {
     const refreshToken = getRefreshTokenFromRequest(req);
@@ -1268,6 +1273,10 @@ router.post("/refresh", async (req, res) => {
 });
 
 // ── POST /auth/logout ───────────────────────────────────────────────
+// SECURITY: `payload.sid` is only read AFTER verifyRefreshToken() checks the
+// signature, and the guarded action is session revocation (a de-escalation).
+// Do not read payload.* before verification — CodeQL alert #9
+// ("user-controlled bypass") is dismissed on exactly this reasoning.
 router.post("/logout", async (req, res) => {
   const refreshToken = getRefreshTokenFromRequest(req);
 
