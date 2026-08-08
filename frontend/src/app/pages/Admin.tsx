@@ -49,6 +49,7 @@ import { AttendeesModal } from "../components/AttendeesModal";
 import {
   getSafeImageSrc,
   getSafeLinkHref,
+  getUrlHostname,
   isSafeImageSrc,
   isSafeLinkHref,
 } from "../../lib/safeUrl";
@@ -4856,8 +4857,19 @@ function MediaForm({
 
   const selectedActivity = activities.find((a) => String(a.id) === activityId);
 
-  const resolvePixiesetUrl = async (url: string) => {
-    if (!url.includes("pixieset.com") || !url.includes("pid=")) return;
+  const resolvePixiesetUrl = async (rawUrl: string) => {
+    // Accept protocol-less pastes (e.g. "pixieset.com/a?pid=1") by normalising to
+    // https:// before parsing, so auto-resolve still fires for admins who omit
+    // the scheme (previously such a paste errored at the backend anyway).
+    const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+    // SECURITY (CodeQL js/incomplete-url-substring-sanitization, KAN-168): match
+    // the parsed hostname, not a substring. A check like `includes("pixieset.com")`
+    // is satisfied by any URL merely containing that text (e.g.
+    // https://evil.com/#pixieset.com) — which normalisation does NOT weaken,
+    // since that still parses to host "evil.com" and is rejected below.
+    const host = getUrlHostname(url);
+    const isPixiesetPage = host === "pixieset.com" || (host?.endsWith(".pixieset.com") ?? false);
+    if (!isPixiesetPage || !url.includes("pid=")) return;
     setIsResolvingCover(true);
     setCoverResolveError(null);
     try {
@@ -4993,7 +5005,7 @@ function MediaForm({
           {!coverResolveError &&
             overrideCover &&
             !isResolvingCover &&
-            overrideCover.startsWith("https://images.pixieset.com") && (
+            getUrlHostname(overrideCover) === "images.pixieset.com" && (
               <p
                 className="mt-1 text-green-400/70"
                 style={{ fontSize: "12px" }}

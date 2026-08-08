@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getSafeImageSrc, getSafeLinkHref } from './safeUrl.ts';
+import { getSafeImageSrc, getSafeLinkHref, getUrlHostname } from './safeUrl.ts';
 
 test('getSafeLinkHref rejects private IPv6 and IPv4-mapped IPv6 hosts', () => {
   const blockedUrls = [
@@ -31,4 +31,21 @@ test('getSafeImageSrc applies the same external URL host checks', () => {
     getSafeImageSrc('http://[2001:4860:4860::8888]/image.png'),
     'http://[2001:4860:4860::8888]/image.png'
   );
+});
+
+test('getUrlHostname returns the lowercased host for http(s) URLs, null otherwise', () => {
+  assert.equal(getUrlHostname('https://images.PIXIESET.com/a/b.jpg'), 'images.pixieset.com');
+  assert.equal(getUrlHostname('https://pixieset.com/x?pid=1'), 'pixieset.com');
+  // Substring / prefix spoof attempts must resolve to their REAL host, so an
+  // exact `=== 'pixieset.com'` check correctly rejects them (KAN-168).
+  assert.equal(getUrlHostname('https://evil.com/#pixieset.com'), 'evil.com');
+  assert.equal(
+    getUrlHostname('https://images.pixieset.com.evil.com/x'),
+    'images.pixieset.com.evil.com'
+  );
+  // Non-http(s) and non-URLs.
+  assert.equal(getUrlHostname('javascript:alert(1)'), null);
+  assert.equal(getUrlHostname('not a url'), null);
+  assert.equal(getUrlHostname(''), null);
+  assert.equal(getUrlHostname(null), null);
 });
