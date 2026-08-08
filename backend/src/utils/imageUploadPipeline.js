@@ -129,6 +129,11 @@ export async function validateUploadedImage(file) {
   };
 }
 
+// SECURITY: the filename is entirely server-generated — a random UUID plus an
+// extension resolved from magic-byte detection against ALLOWED_IMAGE_TYPES (SVG
+// rejected) — and `wx` prevents overwriting an existing file. Do not accept a
+// caller-supplied filename/extension or drop the `wx` flag here: CodeQL alert #7
+// ("network data written to file") is dismissed on exactly this reasoning.
 export async function writeBufferToUniqueFile({
   directory,
   buffer,

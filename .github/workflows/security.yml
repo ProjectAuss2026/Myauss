@@ -24,8 +24,13 @@ jobs:
       # Audits the committed package-lock.json (root lockfile covers both
       # workspaces). Includes dev dependencies — postinstall scripts in dev
       # deps are still a supply-chain risk.
+      #
+      # Wrapped rather than calling `npm audit --audit-level=high` directly so a
+      # vulnerability we have assessed as unreachable can be allowlisted with a
+      # written reason and an expiry date, instead of the gate being switched
+      # off wholesale. See scripts/audit-allowlist.json.
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: npm run audit:ci
 
   secret-scan:
     name: gitleaks secret scan

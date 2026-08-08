@@ -16,6 +16,7 @@ import {
 } from "../schemas/authSchemas.js";
 import { hashStudentId, isStudentIdHashError } from "../utils/studentIdHash.js";
 import logger from "../utils/logger.js";
+import { isValidEmail } from "../utils/emailValidation.js";
 import {
   forgotPasswordEmailThrottle,
   forgotPasswordIpLimiter,
@@ -74,7 +75,6 @@ const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
 const OTP_MAX_ATTEMPTS = 5;
 const INVITATION_WINDOW_HOURS = 72;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const OTP_RE = /^\d{6}$/;
 const DUMMY_PASSWORD_HASH =
   "$2b$10$/xqJwWT1Q9PUG36E3VFDaeaEj38BottPAIiqzxB22NLIrCGpnFLem";
@@ -350,10 +350,6 @@ async function sendVerificationCode(user) {
   const code = generateVerificationCode();
   const codeHash = hashVerificationCode(code);
 
-  // Always log the code in development so it's usable even if email fails.
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`\n[DEV OTP] Code for ${user.email}: ${code}\n`);
-  }
   const now = Date.now();
   await prisma.otpCode.upsert({
     where: { userId: user.id },
@@ -372,8 +368,10 @@ async function sendVerificationCode(user) {
   });
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(
-      `[OTP DEV] Code for ${user.email}: ${code} (SMTP not configured)`,
+    // Never log the code — it is a credential. Email is the only delivery channel.
+    logger.info(
+      { email: user.email },
+      'OTP dev: verification code generated but SMTP is not configured',
     );
     return { sent: true };
   }
@@ -394,9 +392,10 @@ async function sendVerificationCode(user) {
     `,
     });
   } catch (emailErr) {
-    // Log the code in dev so it's still usable even if SMTP fails.
-    console.log(
-      `[OTP DEV] Code for ${user.email}: ${code} (email send failed: ${emailErr instanceof Error ? emailErr.message : emailErr})`,
+    // Never log the code — it is a credential. Record the delivery failure only.
+    logger.error(
+      { err: emailErr, email: user.email },
+      'OTP verification email delivery failed',
     );
   }
   return { sent: true };
@@ -420,7 +419,11 @@ async function sendPasswordResetEmail(email, token) {
   }
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(`[RESET DEV] Link for ${email}: ${resetUrl}`);
+    // Never log resetUrl — it embeds the raw reset token, which is a credential.
+    logger.warn(
+      { email },
+      'Password reset requested but SMTP is not configured; reset link was not delivered',
+    );
     return;
   }
 
@@ -442,7 +445,10 @@ async function sendPasswordResetEmail(email, token) {
 
 async function sendPasswordResetConfirmationEmail(email) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(`[RESET DEV] Confirmation email skipped for ${email}`);
+    logger.info(
+      { email },
+      'Password reset confirmation email skipped because SMTP is not configured',
+    );
     return;
   }
 
@@ -514,8 +520,9 @@ async function sendPaymentProofDeclinedEmail({ to, name, reason }) {
   }
 
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(
-      `[PAYMENT PROOF DEV] Decline email skipped for ${email}. SMTP is not configured.`,
+    logger.info(
+      { email },
+      'Payment proof decline email skipped because SMTP is not configured',
     );
     return { sent: false, skipped: true, skipReason: "smtp-not-configured" };
   }
@@ -1203,6 +1210,11 @@ router.post(
 );
 
 // ── POST /auth/refresh ──────────────────────────────────────────────
+// SECURITY: token claims (`sub`/`sid`/`tv`) are only read AFTER
+// verifyRefreshToken() checks the signature, and are further constrained by the
+// stored-session hash, tokenVersion, and revoked/expired checks below. Do not
+// read payload.* before verification, and do not drop those checks — CodeQL
+// alert #8 ("user-controlled bypass") is dismissed on exactly this reasoning.
 router.post("/refresh", async (req, res) => {
   try {
     const refreshToken = getRefreshTokenFromRequest(req);
@@ -1254,18 +1266,17 @@ router.post("/refresh", async (req, res) => {
       user: formatUser(user),
     });
   } catch (err) {
-    if (process.env.NODE_ENV === "development") {
-      console.debug(
-        "Refresh token verification failed:",
-        err instanceof Error ? err.message : err,
-      );
-    }
+    logger.debug({ err }, 'Refresh token verification failed');
     clearRefreshCookie(res);
     return res.status(401).json({ error: "Invalid refresh token" });
   }
 });
 
 // ── POST /auth/logout ───────────────────────────────────────────────
+// SECURITY: `payload.sid` is only read AFTER verifyRefreshToken() checks the
+// signature, and the guarded action is session revocation (a de-escalation).
+// Do not read payload.* before verification — CodeQL alert #9
+// ("user-controlled bypass") is dismissed on exactly this reasoning.
 router.post("/logout", async (req, res) => {
   const refreshToken = getRefreshTokenFromRequest(req);
 
@@ -1342,7 +1353,7 @@ router.get("/admin/users/lookup", authenticate, async (req, res) => {
   }
 
   const invitedEmail = normaliseEmail(req.query?.email);
-  if (!invitedEmail || !EMAIL_RE.test(invitedEmail)) {
+  if (!invitedEmail || !isValidEmail(invitedEmail)) {
     return res.status(400).json({ error: "A valid invitee email is required" });
   }
 
@@ -1422,7 +1433,7 @@ router.post("/admin/invitations", authenticate, async (req, res) => {
   const hours = parseInviteHours(req.body?.expiresInHours);
   const reason = req.body?.reason ? String(req.body.reason).trim() : null;
 
-  if (!invitedEmail || !EMAIL_RE.test(invitedEmail)) {
+  if (!invitedEmail || !isValidEmail(invitedEmail)) {
     return res.status(400).json({ error: "A valid invitee email is required" });
   }
   if (invitedRole !== "ADMIN") {

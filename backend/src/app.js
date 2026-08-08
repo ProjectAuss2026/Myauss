@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import pinoHttp from 'pino-http';
 import prisma from './prismaClient.js';
 import authController from './controllers/auth.controller.js';
 import getPublicConfigController from './controllers/getPublicConfigController.js';
@@ -93,6 +94,22 @@ function createCorsMiddleware() {
   });
 }
 
+// Structured HTTP request logging. Bodies are never logged; sensitive headers
+// (Authorization, Cookie) are redacted via the shared logger's redact rules.
+// Health/readiness probes are skipped to keep logs signal-rich.
+const HEALTH_PROBE_PATHS = new Set(['/healthz', '/api/health', '/readyz']);
+
+function createHttpLogger() {
+  return pinoHttp({
+    logger,
+    autoLogging: {
+      // req.url can carry a query string (e.g. /healthz?full=1); compare the
+      // pathname only so probes are still skipped when params are present.
+      ignore: (req) => HEALTH_PROBE_PATHS.has((req.url || '').split('?')[0]),
+    },
+  });
+}
+
 function handleCorsErrors(error, _req, res, next) {
   if (error.message === 'Not allowed by CORS') {
     return res.status(error.status || 403).json({ error: 'Not allowed by CORS' });
@@ -111,6 +128,7 @@ export function createApp() {
     next();
   });
   app.use(createCorsMiddleware());
+  app.use(createHttpLogger());
 
   // Stripe webhook must see the raw body to verify the signature, so it is
   // registered before the JSON body parser.
