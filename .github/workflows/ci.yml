@@ -32,3 +32,19 @@ jobs:
       # Syntax-check all backend source files.
       - name: Backend build
         run: npm --workspace=backend run build
+
+      # The test suite imports the Prisma client, which only exists after
+      # `prisma generate` (there is no postinstall to run it). generate reads
+      # the schema only — no DB connection — so a dummy DATABASE_URL suffices.
+      - name: Generate Prisma client
+        run: npm --workspace=backend exec -- prisma generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      # Run the backend test suite (node:test). Tests mock Prisma, so no live
+      # database is required. (KAN-160: previously the suite never ran in CI,
+      # so a green 'Backend checks' did not mean tests passed.)
+      - name: Backend tests
+        run: npm --workspace=backend test
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
