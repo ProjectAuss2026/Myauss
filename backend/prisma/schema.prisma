@@ -54,6 +54,7 @@ model User {
   membershipChangesReceived MembershipStatusAudit[] @relation("MembershipChangeTarget")
   passwordResets            PasswordReset[]
   paymentProofUploads       PaymentProofUpload[]
+  uploadedImages            UploadedImage[]
   payments                  Payment[]
 
   @@index([membershipStatus, membershipStatusUpdatedAt])
@@ -116,6 +117,24 @@ model PaymentProofUpload {
 
   @@index([userId, createdAt])
   @@index([status, expiresAt])
+}
+
+// Uploaded image files are stored in the database (like PaymentProofUpload)
+// so they survive ephemeral-filesystem redeploys on Railway. The uploaded bytes
+// are publicly retrievable by URL (no auth required for display in <img> tags)
+// and unlinked uploads may be cleaned up by a future retention job.
+model UploadedImage {
+  id               String   @id @default(uuid())
+  userId           String?
+  originalFilename String?
+  fileBytes        Bytes
+  mimeType         String
+  sizeBytes        Int
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
 }
 
 model UserInfo {

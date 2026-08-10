@@ -15,6 +15,7 @@ export const PUBLIC_ROUTES = Object.freeze([
   // SPA fallback (backend/src/app.js): serves the built frontend index.html for
   // any non-API GET so client-side routes resolve on refresh/deep-link. Public
   // by design — loading the web app requires no auth.
+  route("GET", "/api/upload/:id"),
   route("GET", "/*"),
   route("POST", "/api/auth/register"),
   route("POST", "/api/auth/resend-code"),
