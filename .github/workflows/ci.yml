@@ -48,3 +48,35 @@ jobs:
         run: npm --workspace=backend test
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+  frontend-checks:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # TypeScript type checking (tsc --noEmit). Catches missing props, type
+      # mismatches, and broken imports before they land on dev.
+      - name: Typecheck
+        run: npm --workspace=frontend run typecheck
+
+      # Production build (vite build). Verifies the SPA compiles correctly —
+      # a broken build would prevent serving the site in prod.
+      - name: Build
+        run: npm --workspace=frontend run build
+
+      # Run the frontend node:test suite (safeUrl utility tests). The vitest
+      # suite (test:ui) is skipped here — it needs DOM stubs (localStorage)
+      # that are not wired up in Node; that's a separate task.
+      - name: Tests (node)
+        run: npm --workspace=frontend run test:node
