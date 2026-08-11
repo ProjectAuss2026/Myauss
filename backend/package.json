@@ -37,7 +37,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^9.0.5",
     "pg": "^8.11.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
