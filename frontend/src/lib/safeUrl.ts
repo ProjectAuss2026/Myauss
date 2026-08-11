@@ -173,7 +173,12 @@ export function getSafeImageSrc(value: unknown): string | null {
   if (isBlank(value) || typeof value !== 'string') return null;
 
   const trimmed = value.trim();
-  if (trimmed.startsWith('/uploads/')) {
+
+  // Relative URLs (/uploads/*, /sponsors/*, /api/upload/*, etc.) — allow any
+  // safe relative path (no backslash, no path traversal). Previously only
+  // /uploads/ was let through, which broke all other relative image URLs like
+  // sponsor hero images served from the SPA build.
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
     return trimmed.includes('\\') || hasPathTraversal(trimmed) ? null : trimmed;
   }
 
