@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { Router } from "express";
 import bcrypt from "bcrypt";
-import nodemailer from "nodemailer";
+import { isEmailConfigured, sendProviderEmail } from "../utils/emailProvider.js";
 import "../env.js";
 import prisma from "../prismaClient.js";
 import { authenticate } from "../middleware/authMiddleware.js";
@@ -210,17 +210,8 @@ function setPrivateFileHeaders(res, mimeType, originalFilename) {
   );
 }
 
-// ── Email transporter (Nodemailer + Gmail SMTP) ─────────────────────
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
-
+// ── Email delivery (Brevo HTTPS API in prod — Railway blocks SMTP — with
+// SMTP fallback for local dev). See utils/emailProvider.js. ─────────────
 async function deliverEmail(message) {
   const testHooks = getAuthTestHooks();
   if (testHooks?.sendMail) {
@@ -229,9 +220,9 @@ async function deliverEmail(message) {
   }
 
   try {
-    await transporter.sendMail(message);
+    await sendProviderEmail(message);
   } catch (err) {
-    // SMTP failures must not crash the server.
+    // Email failures must not crash the server.
     logger.error({ err }, "Email delivery failed:");
     throw err;
   }
@@ -367,11 +358,11 @@ async function sendVerificationCode(user) {
     },
   });
 
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  if (!isEmailConfigured()) {
     // Never log the code — it is a credential. Email is the only delivery channel.
     logger.info(
       { email: user.email },
-      'OTP dev: verification code generated but SMTP is not configured',
+      'OTP dev: verification code generated but email is not configured',
     );
     return { sent: true };
   }
@@ -418,11 +409,11 @@ async function sendPasswordResetEmail(email, token) {
     return;
   }
 
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  if (!isEmailConfigured()) {
     // Never log resetUrl — it embeds the raw reset token, which is a credential.
     logger.warn(
       { email },
-      'Password reset requested but SMTP is not configured; reset link was not delivered',
+      'Password reset requested but email is not configured; reset link was not delivered',
     );
     return;
   }
@@ -444,10 +435,10 @@ async function sendPasswordResetEmail(email, token) {
 }
 
 async function sendPasswordResetConfirmationEmail(email) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  if (!isEmailConfigured()) {
     logger.info(
       { email },
-      'Password reset confirmation email skipped because SMTP is not configured',
+      'Password reset confirmation email skipped because email is not configured',
     );
     return;
   }
@@ -519,10 +510,10 @@ async function sendPaymentProofDeclinedEmail({ to, name, reason }) {
     return { sent: true, skipped: false, via: "test-hook" };
   }
 
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  if (!isEmailConfigured()) {
     logger.info(
       { email },
-      'Payment proof decline email skipped because SMTP is not configured',
+      'Payment proof decline email skipped because email is not configured',
     );
     return { sent: false, skipped: true, skipReason: "smtp-not-configured" };
   }
@@ -534,7 +525,7 @@ async function sendPaymentProofDeclinedEmail({ to, name, reason }) {
     text: content.text,
     html: content.html,
   });
-  return { sent: true, skipped: false, via: "smtp" };
+  return { sent: true, skipped: false, via: "email-provider" };
 }
 
 function formatUser(user) {
