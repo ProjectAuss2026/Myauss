@@ -10,8 +10,9 @@ import nodemailer from "nodemailer";
 //
 // Priority: BREVO_API_KEY set → Brevo HTTPS API; else SMTP_* → SMTP.
 const BREVO_API_ENDPOINT = "https://api.brevo.com/v3/smtp/email";
+const BREVO_TIMEOUT_MS = 10_000;
 
-function parseFrom(fromValue) {
+export function parseFrom(fromValue) {
   // Accept "AUSS <email@x>" or a bare "email@x".
   const trimmed = String(fromValue || "").trim();
   const match = trimmed.match(/^(.*?)\s*<([^>]+)>$/);
@@ -22,14 +23,26 @@ function parseFrom(fromValue) {
 }
 
 /**
+ * Pure provider selection: "brevo" | "smtp" | "none". Exported for tests and
+ * used by isEmailConfigured()/sendProviderEmail() so the routing logic has
+ * exactly one source of truth.
+ */
+export function pickEmailProvider({ brevoApiKey, smtpUser, smtpPass }) {
+  if (brevoApiKey) return "brevo";
+  if (smtpUser && smtpPass) return "smtp";
+  return "none";
+}
+
+/**
  * True when at least one email provider is configured (Brevo API key or
  * SMTP credentials). Callers use this to skip/flag sends in local dev.
  */
 export function isEmailConfigured() {
-  return Boolean(
-    process.env.BREVO_API_KEY ||
-      (process.env.SMTP_USER && process.env.SMTP_PASS),
-  );
+  return pickEmailProvider({
+    brevoApiKey: process.env.BREVO_API_KEY,
+    smtpUser: process.env.SMTP_USER,
+    smtpPass: process.env.SMTP_PASS,
+  }) !== "none";
 }
 
 let smtpTransporter = null;
@@ -45,10 +58,19 @@ function getSmtpTransporter() {
   return smtpTransporter;
 }
 
-async function sendViaBrevo({ from, to, subject, text, html }) {
+async function sendViaBrevo({ from, to, subject, text, html }, fetchImpl = fetch) {
   const sender = parseFrom(
-    from || process.env.BREVO_SENDER_EMAIL || "AUSS <auss@example.com>",
+    from || process.env.BREVO_SENDER_EMAIL || "",
   );
+
+  // Fail fast with a clear config error instead of letting Brevo reject an
+  // unverified/placeholder sender with an opaque API error at runtime.
+  if (!sender.email || sender.email.endsWith("@example.com")) {
+    throw new Error(
+      "Brevo sender is not configured: set BREVO_SENDER_EMAIL (verified in Brevo) or pass `from`.",
+    );
+  }
+
   const payload = {
     sender: { name: sender.name, email: sender.email },
     to: [{ email: String(to || "").trim() }],
@@ -57,7 +79,7 @@ async function sendViaBrevo({ from, to, subject, text, html }) {
   if (text) payload.textContent = String(text);
   if (html) payload.htmlContent = String(html);
 
-  const response = await fetch(BREVO_API_ENDPOINT, {
+  const response = await fetchImpl(BREVO_API_ENDPOINT, {
     method: "POST",
     headers: {
       "api-key": process.env.BREVO_API_KEY,
@@ -65,11 +87,23 @@ async function sendViaBrevo({ from, to, subject, text, html }) {
       Accept: "application/json",
     },
     body: JSON.stringify(payload),
+    // fetch() has no default timeout in Node; without this a hung Brevo
+    // connection would hang the registration request / cron job with it.
+    signal: AbortSignal.timeout(BREVO_TIMEOUT_MS),
   });
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Brevo API error ${response.status}: ${body.slice(0, 300)}`);
+    // Use Brevo's own structured `message` field only — never embed the raw
+    // response body, which could carry fields that pino's redaction (path
+    // matching, not free-text) would not censor (KAN-99).
+    let reason = "";
+    try {
+      const body = await response.json();
+      if (body?.message) reason = `: ${String(body.message).slice(0, 200)}`;
+    } catch {
+      // Non-JSON error body — omit details.
+    }
+    throw new Error(`Brevo API error ${response.status}${reason}`);
   }
 }
 
@@ -78,13 +112,18 @@ async function sendViaBrevo({ from, to, subject, text, html }) {
  * SMTP fallback). `message` mirrors nodemailer's shape:
  * { from, to, subject, text?, html? }. Throws on delivery failure.
  */
-export async function sendProviderEmail({ from, to, subject, text, html }) {
+export async function sendProviderEmail(
+  { from, to, subject, text, html },
+  _deps = {},
+) {
   if (process.env.BREVO_API_KEY) {
-    await sendViaBrevo({ from, to, subject, text, html });
+    await sendViaBrevo({ from, to, subject, text, html }, _deps.fetchImpl || fetch);
     return;
   }
 
-  await getSmtpTransporter().sendMail({
+  const sendMail =
+    _deps.smtpSendMail || getSmtpTransporter().sendMail.bind(getSmtpTransporter());
+  await sendMail({
     from: from || process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
     subject,
