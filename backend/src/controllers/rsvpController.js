@@ -61,10 +61,25 @@ export const createRsvp = async (req, res) => {
         }
       }
 
+      // Link the RSVP to a member account (KAN-171). A signed-in member is
+      // authoritative; otherwise fall back to matching the submitted email,
+      // which mirrors the migration's backfill so logged-out members still get
+      // linked. Stays null when neither resolves — supported for legacy/public
+      // bookings until the members-only gate lands (KAN-178).
+      let linkedUserId = req.user?.id ?? null;
+      if (!linkedUserId) {
+        const matched = await tx.user.findUnique({
+          where: { email: cleanEmail },
+          select: { id: true },
+        });
+        linkedUserId = matched?.id ?? null;
+      }
+
       try {
         const rsvp = await tx.rsvp.create({
           data: {
             activityId,
+            userId: linkedUserId,
             name: cleanName,
             email: cleanEmail,
             studentId: cleanStudentId,

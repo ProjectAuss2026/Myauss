@@ -56,6 +56,7 @@ model User {
   paymentProofUploads       PaymentProofUpload[]
   uploadedImages            UploadedImage[]
   payments                  Payment[]
+  rsvps                     Rsvp[]
 
   @@index([membershipStatus, membershipStatusUpdatedAt])
 }
@@ -292,6 +293,14 @@ model Rsvp {
   id         Int      @id @default(autoincrement())
   activityId Int
   activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  // Best-effort link to the member account behind this RSVP (KAN-171). Nullable
+  // because legacy rows predate the members-only gate (KAN-178) and were created
+  // through the old public, unauthenticated RSVP route with no account behind
+  // them. SetNull — NOT Cascade — so deleting a user (including via the KAN-134
+  // inactive-account retention job) clears the link but preserves the RSVP row;
+  // cascading would silently erase historical attendance and event headcounts.
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   name       String
   email      String
   studentId  String // Plaintext is currently used for admin attendee display/export; confirm privacy policy or encryption-at-rest requirements.
@@ -299,6 +308,7 @@ model Rsvp {
 
   @@unique([activityId, email])
   @@index([activityId])
+  @@index([userId, createdAt])
 }
 
 // --- EXEC COMMITTEE ---

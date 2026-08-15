@@ -49,6 +49,28 @@ export async function authenticate(req, res, next) {
 authenticate.authType = 'authenticate';
 
 /**
+ * Optional auth for PUBLIC routes (KAN-171). Attaches req.user when a valid
+ * Bearer token is present, and silently continues when it is missing or invalid
+ * — it never rejects the request. Used by the public RSVP route so a signed-in
+ * member's booking can be linked to their account without making auth required.
+ *
+ * Deliberately does NOT set `authType`, so routes using it remain classified as
+ * public in the route-security assertions (src/security/authRoutes.test.js).
+ */
+export async function attachUserIfPresent(req, _res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) return next();
+
+  try {
+    const user = await decodeAndAttachUser(authHeader.split(' ')[1]);
+    req.user = { id: user.id, role: user.role };
+  } catch {
+    // Invalid/expired token on a public route is not an error — proceed anonymously.
+  }
+  return next();
+}
+
+/**
  * Middleware that restricts access to specific roles.
  * Usage: authorise('ADMIN')  or  authorise('ADMIN', 'USER')
  */
