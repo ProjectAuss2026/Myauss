@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, authorise } from '../middleware/authMiddleware.js';
+import { authenticate, attachUserIfPresent, authorise } from '../middleware/authMiddleware.js';
 import validate from '../middleware/validate.js';
 import { getActivities, getAllActivitiesAdmin, createActivity, updateActivity, deleteActivity } from '../controllers/activityController.js';
 import { createActivitySchema, deleteActivitySchema, updateActivitySchema } from '../schemas/activitySchemas.js';
@@ -29,8 +29,10 @@ router.patch('/:id', authenticate, authorise('ADMIN'), validate(updateActivitySc
 router.delete('/:id', authenticate, authorise('ADMIN'), validate(deleteActivitySchema), deleteActivity);
 
 // --- RSVP routes ---
-// POST /api/activities/:id/rsvp — public (submit RSVP)
-router.post('/:id/rsvp', createRsvp);
+// POST /api/activities/:id/rsvp — public (submit RSVP).
+// `attachUserIfPresent` is optional auth: it links the RSVP to the member's
+// account when they are signed in, without making auth required (KAN-171).
+router.post('/:id/rsvp', attachUserIfPresent, createRsvp);
 
 // GET /api/activities/:id/rsvp/count — public (count + sold-out flag)
 router.get('/:id/rsvp/count', getRsvpCount);
