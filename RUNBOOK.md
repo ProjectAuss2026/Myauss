@@ -38,8 +38,11 @@ marks a push-triggered deploy as SKIPPED (its watch-path matching). Symptoms:
 the deployment list shows the new commit with status SKIPPED and prod still
 serves the old bundle. Two fixes:
 
-1. **Dashboard:** service → Settings → the GitHub repo connection → set
-   **Watch Paths** to `/` (this has drifted at least twice).
+1. **Dashboard:** service → Settings → deploy section → **clear Watch Paths
+   completely (leave the field EMPTY)**. Empty = deploy on ANY change.
+   ⚠️ Do NOT put `/` or `/**` — both are literal filters and neither matches
+   everything (`/` missed nested files, `/**` missed root-level files —
+   confirmed empirically 2026-08-15). This has drifted at least three times.
 2. **Manual deploy via API** (works without the dashboard):
    ```bash
    TOKEN=$(grep '^RAILWAY_API_TOKEN=' .env.railway | cut -d= -f2)
