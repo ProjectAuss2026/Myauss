@@ -339,12 +339,25 @@ export function ActivateMembership() {
     const [paying, setPaying] = useState(false);
     const [payMsg, setPayMsg] = useState<string | null>(null);
     const [paid, setPaid] = useState(false);
+    // The submit button must stay disabled until the PaymentElement has fully
+    // mounted — calling confirmPayment before the 'ready' event throws
+    // "could not retrieve data from the specified Element".
+    const [elementReady, setElementReady] = useState(false);
 
     const handlePay = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!stripe || !elements) return;
+      if (!stripe || !elements || !elementReady) return;
       setPaying(true);
       setPayMsg(null);
+
+      // Surface any client-side validation errors (e.g. incomplete card)
+      // before we ask Stripe to confirm.
+      const submitResult = await elements.submit();
+      if (submitResult.error) {
+        setPayMsg(submitResult.error.message ?? "Please check your payment details.");
+        setPaying(false);
+        return;
+      }
 
       const { error: stripeErr } = await stripe.confirmPayment({
         elements,
@@ -407,6 +420,7 @@ export function ActivateMembership() {
           options={{
             layout: "tabs",
           }}
+          onReady={() => setElementReady(true)}
         />
         {payMsg && (
           <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-500/8 border border-red-500/20 px-4 py-3">
@@ -418,7 +432,7 @@ export function ActivateMembership() {
         )}
         <button
           type="submit"
-          disabled={!stripe || paying}
+          disabled={!stripe || !elementReady || paying}
           className="w-full mt-4 bg-green-600 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-green-500 transition-all disabled:opacity-60 cursor-pointer"
           style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
         >
