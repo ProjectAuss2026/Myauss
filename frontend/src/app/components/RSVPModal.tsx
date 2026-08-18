@@ -23,7 +23,6 @@ interface RSVPModalProps {
 interface FieldErrors {
   name?: string;
   email?: string;
-  studentId?: string;
 }
 
 export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess }: RSVPModalProps) {
@@ -75,7 +74,6 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
     if (!name.trim()) errs.name = 'Name is required';
     if (!email.trim()) errs.email = 'Email is required';
     else if (!EMAIL_REGEX.test(email.trim())) errs.email = 'Please enter a valid email address';
-    if (!studentId.trim()) errs.studentId = 'Student ID is required';
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -93,7 +91,7 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim(),
-          studentId: studentId.trim(),
+          studentId: studentId.trim() || null,
         }),
       });
 
@@ -220,10 +218,11 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
               </div>
 
               <div>
-                <label className="block text-white/60 mb-1.5" style={labelStyle}>
-                  Student ID
+                <label htmlFor="rsvp-student-id" className="block text-white/60 mb-1.5" style={labelStyle}>
+                  Student ID (optional)
                 </label>
                 <input
+                  id="rsvp-student-id"
                   type="text"
                   value={studentId}
                   onChange={(e) => setStudentId(e.target.value)}
@@ -231,15 +230,11 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
                   className={inputCls}
                   style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
                   disabled={submitting}
+                  aria-describedby="rsvp-student-id-help"
                 />
-                <p className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
-                  Used to confirm Auckland Uni eligibility and manage event attendance. It is protected, not shown publicly, and may be visible to authorised organisers; contact auss@auckland.ac.nz for correction or removal. Final privacy wording should be confirmed by AUSS.
+                <p id="rsvp-student-id-help" className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                  Non-UoA members can leave this blank. If provided, it may be visible to authorised event organisers.
                 </p>
-                {fieldErrors.studentId && (
-                  <p className="mt-1.5 text-red-400" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
-                    {fieldErrors.studentId}
-                  </p>
-                )}
               </div>
 
               {apiError && (

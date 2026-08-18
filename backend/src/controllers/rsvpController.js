@@ -5,7 +5,7 @@ import { LIMITS } from '../schemas/commonSchemas.js';
 
 /**
  * POST /api/activities/:id/rsvp — public
- * Body: { name, email, studentId }
+ * Body: { name, email, studentId? }
  * Creates an RSVP linked to the activity.
  * - 400 invalid input
  * - 404 activity not found / unpublished
@@ -31,16 +31,16 @@ export const createRsvp = async (req, res) => {
   if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'email is not a valid email address' });
   }
-  if (!studentId || !String(studentId).trim()) {
-    return res.status(400).json({ error: 'studentId is required' });
-  }
-  if (String(studentId).trim().length > LIMITS.studentId) {
+  if (studentId != null && String(studentId).trim().length > LIMITS.studentId) {
     return res.status(400).json({ error: `studentId must be ${LIMITS.studentId} characters or fewer` });
   }
 
   const cleanName = String(name).trim();
   const cleanEmail = String(email).trim().toLowerCase();
-  const cleanStudentId = String(studentId).trim();
+  const cleanStudentId =
+    studentId === null || studentId === undefined
+      ? null
+      : String(studentId).trim() || null;
 
   try {
     // Atomic capacity-check + insert in a single transaction

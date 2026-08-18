@@ -32,7 +32,8 @@ export function requiredTrimmedString(fieldName, maxLength) {
 
 export function optionalTrimmedString(fieldName, maxLength) {
   return z.preprocess(
-    (value) => (value === '' ? null : value),
+    (value) =>
+      typeof value === 'string' && value.trim() === '' ? null : value,
     z
       .string()
       .trim()

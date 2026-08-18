@@ -26,7 +26,7 @@ export const registerBodySchema = z
     ),
     firstName: requiredTrimmedString("First name", LIMITS.personName),
     lastName: requiredTrimmedString("Last name", LIMITS.personName),
-    studentId: requiredTrimmedString("Student ID", LIMITS.studentId),
+    studentId: optionalTrimmedString("Student ID", LIMITS.studentId),
   });
 
 export const loginBodySchema = z.object({

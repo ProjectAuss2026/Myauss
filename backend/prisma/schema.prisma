@@ -142,7 +142,7 @@ model UserInfo {
   id        String @id @default(uuid())
   firstName String
   lastName  String
-  studentId String // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER; field name retained to avoid a risky data migration.
+  studentId String? // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER when provided; field name retained to avoid a risky data migration.
   userId    String @unique
   user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -303,7 +303,7 @@ model Rsvp {
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   name       String
   email      String
-  studentId  String // Plaintext is currently used for admin attendee display/export; confirm privacy policy or encryption-at-rest requirements.
+  studentId  String? // Plaintext is currently used for admin attendee display/export when provided; confirm privacy policy or encryption-at-rest requirements.
   createdAt  DateTime @default(now())
 
   @@unique([activityId, email])

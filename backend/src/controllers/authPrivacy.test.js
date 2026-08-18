@@ -287,6 +287,46 @@ test("register stores a hashed student ID instead of plaintext", async () => {
   assert.notEqual(storedStudentId, " 123456789 ");
 });
 
+test("register stores null when student ID is omitted", async () => {
+  resetState();
+  delete process.env.STUDENT_ID_PEPPER;
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      email: "non-uoa-member@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Alex",
+      lastName: "Member",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const createCall = calls.find((call) => call.name === "user.create");
+  assert.equal(createCall.args.data.info.create.studentId, null);
+});
+
+test("register normalises a whitespace-only student ID to null", async () => {
+  resetState();
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      email: "blank-id@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Sam",
+      lastName: "Member",
+      studentId: "   ",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const createCall = calls.find((call) => call.name === "user.create");
+  assert.equal(createCall.args.data.info.create.studentId, null);
+});
+
 test("register fails safely when STUDENT_ID_PEPPER is missing", async () => {
   resetState();
   delete process.env.STUDENT_ID_PEPPER;

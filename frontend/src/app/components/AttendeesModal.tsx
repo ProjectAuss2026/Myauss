@@ -9,7 +9,7 @@ interface RsvpRow {
   id: number;
   name: string;
   email: string;
-  studentId: string;
+  studentId: string | null;
   createdAt: string;
 }
 
@@ -17,8 +17,8 @@ interface RawRsvp {
   id: number;
   name: string;
   email: string;
-  studentID?: string;
-  studentId?: string;
+  studentID?: string | null;
+  studentId?: string | null;
   createdAt: string;
 }
 
@@ -45,7 +45,7 @@ function normaliseRsvp(r: RawRsvp): RsvpRow {
     id: r.id,
     name: r.name,
     email: r.email,
-    studentId: r.studentId ?? r.studentID ?? '',
+    studentId: r.studentId ?? r.studentID ?? null,
     createdAt: r.createdAt,
   };
 }

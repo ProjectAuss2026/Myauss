@@ -663,7 +663,7 @@ router.post(
       if (!passwordPolicy.ok) {
         return res.status(400).json({ error: passwordPolicy.error });
       }
-      const studentIdHash = hashStudentId(studentId);
+      const studentIdHash = studentId ? hashStudentId(studentId) : null;
 
       const existing = await prisma.user.findUnique({
         where: { email: normalisedEmail },
