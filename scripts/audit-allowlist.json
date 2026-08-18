@@ -13,6 +13,14 @@
       "noFixAvailable": "There is no patched 7.x release. The fix landed only in react-router 8.3.0, which requires React >=19.2.7; this app is on React 18.3.1, so adopting it means a full React 19 migration. npm's suggested 'fix' is a downgrade to react-router-dom@7.11.0, which would drop seven minor releases of genuine fixes to mitigate a vulnerability that does not apply.",
       "expires": "2026-11-06",
       "reviewAction": "Re-evaluate when the frontend moves to React 19 — at that point upgrade to react-router 8.3.0+ and delete this entry."
+    },
+    {
+      "id": "GHSA-ggr8-5vv4-36mx",
+      "package": "deepmerge-ts (transitive via @prisma/config)",
+      "reason": "Stack exhaustion (uncontrolled recursion) that only triggers when deepmerge-ts merges an attacker-controlled, deeply-recursive object graph. deepmerge-ts is a build/dev-time transitive of @prisma/config (the Prisma CLI / migration tooling), not part of the running Express app, and is never invoked on runtime request data. The vulnerable code path is therefore unreachable in production — it can at most affect a developer's own machine during prisma generate / migrate.",
+      "noFixAvailable": "No published @prisma/config release yet depends on a patched deepmerge-ts, so there is no non-breaking upgrade. `npm audit fix --force` would downgrade Prisma's tooling and risk breaking migrations/generation.",
+      "expires": "2026-11-18",
+      "reviewAction": "Remove when @prisma/config ships a build that pulls a patched deepmerge-ts (run `npm audit` to confirm the advisory is gone), then delete this entry."
     }
   ]
 }
