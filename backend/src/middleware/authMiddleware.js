@@ -71,6 +71,56 @@ export async function attachUserIfPresent(req, _res, next) {
 }
 
 /**
+ * Middleware that requires an active (VERIFIED) membership. Must run AFTER
+ * `authenticate`, which supplies req.user (KAN-178).
+ *
+ * Deliberately generic — it makes no assumptions about the resource being
+ * guarded — so gated-content routes (KAN-167) can reuse it unchanged rather
+ * than reimplementing the check.
+ *
+ * On rejection it returns 403 with a stable machine-readable `code` plus the
+ * caller's current status, so the frontend can render the right call-to-action
+ * (e.g. link to /verify-membership) without string-matching an error message.
+ * ADMIN/OWNER are exempt: staff manage events and must not be locked out of
+ * member-facing routes by their own membership state.
+ */
+export async function requireVerifiedMembership(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  if (req.user.role === 'ADMIN' || req.user.role === 'OWNER') {
+    return next();
+  }
+
+  try {
+    const account = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { membershipStatus: true },
+    });
+
+    if (!account) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    if (account.membershipStatus !== 'VERIFIED') {
+      return res.status(403).json({
+        error: 'An active AUSS membership is required.',
+        code: 'MEMBERSHIP_REQUIRED',
+        membershipStatus: account.membershipStatus,
+      });
+    }
+
+    req.user.membershipStatus = account.membershipStatus;
+    return next();
+  } catch {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+requireVerifiedMembership.authType = 'requireVerifiedMembership';
+
+/**
  * Middleware that restricts access to specific roles.
  * Usage: authorise('ADMIN')  or  authorise('ADMIN', 'USER')
  */

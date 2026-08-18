@@ -4,30 +4,33 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL ||= 'postgresql://user:pass@localhost:5432/test';
 
-// KAN-171: the RSVP route is public, so a booking is linked to a member account
-// two ways — an authenticated submitter (authoritative), else a normalised email
-// match (mirrors the migration backfill so logged-out members still link).
+// KAN-178: events are members-only. The route is authenticated and gated on an
+// active membership upstream, so createRsvp always has req.user and takes the
+// attendee's details from the account rather than the request body.
 
-const usersByEmail = new Map();
+const ACCOUNT = {
+  email: 'member@example.test',
+  info: { firstName: 'Ada', lastName: 'Lovelace' },
+};
+
+let account = ACCOUNT;
+let activity = { id: 1, isPublished: true, capacity: null };
+let rsvpCount = 0;
+let createShouldConflict = false;
 const createdRsvps = [];
-
-const ACTIVITY = { id: 1, isPublished: true, capacity: null };
 
 globalThis.prisma = {
   $transaction: async (fn) => fn(globalThis.prisma),
-  activity: {
-    findUnique: async () => ACTIVITY,
-  },
-  user: {
-    findUnique: async (args) => {
-      const email = args?.where?.email;
-      const user = email ? usersByEmail.get(email) || null : null;
-      return user ? { id: user.id } : null;
-    },
-  },
+  activity: { findUnique: async () => activity },
+  user: { findUnique: async () => account },
   rsvp: {
-    count: async () => 0,
+    count: async () => rsvpCount,
     create: async (args) => {
+      if (createShouldConflict) {
+        const err = new Error('Unique constraint failed');
+        err.code = 'P2002';
+        throw err;
+      }
       const rsvp = { id: createdRsvps.length + 1, ...args.data };
       createdRsvps.push(rsvp);
       return rsvp;
@@ -46,53 +49,70 @@ function mockRes() {
   };
 }
 
-async function submitRsvp({ email, user }) {
+async function submitRsvp({ user = { id: 'user-1' }, body = undefined } = {}) {
   const res = mockRes();
-  await createRsvp(
-    {
-      params: { id: '1' },
-      body: { name: 'Test Member', email, studentId: '123456789' },
-      user, // set by attachUserIfPresent when a valid token was supplied
-    },
-    res,
-  );
+  await createRsvp({ params: { id: '1' }, body, user }, res);
   return res;
 }
 
 test.beforeEach(() => {
-  usersByEmail.clear();
+  account = ACCOUNT;
+  activity = { id: 1, isPublished: true, capacity: null };
+  rsvpCount = 0;
+  createShouldConflict = false;
   createdRsvps.length = 0;
 });
 
-test('links to the authenticated member when one is signed in', async () => {
-  const res = await submitRsvp({ email: 'member@example.test', user: { id: 'user-1' } });
+test('books using the authenticated account, not the request body', async () => {
+  const res = await submitRsvp();
   assert.equal(res.code, 201);
   assert.equal(createdRsvps[0].userId, 'user-1');
+  assert.equal(createdRsvps[0].email, 'member@example.test');
+  assert.equal(createdRsvps[0].name, 'Ada Lovelace');
 });
 
-test('authenticated identity wins over the submitted email', async () => {
-  // Signed in as user-1 but typing someone else's address must not link to them.
-  usersByEmail.set('someone.else@example.test', { id: 'user-2' });
-  await submitRsvp({ email: 'someone.else@example.test', user: { id: 'user-1' } });
-  assert.equal(createdRsvps[0].userId, 'user-1');
-});
-
-test('falls back to an email match when the submitter is anonymous', async () => {
-  usersByEmail.set('member@example.test', { id: 'user-9' });
-  const res = await submitRsvp({ email: 'member@example.test', user: undefined });
-  assert.equal(res.code, 201);
-  assert.equal(createdRsvps[0].userId, 'user-9');
-});
-
-test('email match is normalised (trimmed + lowercased) like the backfill', async () => {
-  usersByEmail.set('member@example.test', { id: 'user-9' });
-  await submitRsvp({ email: '  MEMBER@Example.TEST  ', user: undefined });
-  assert.equal(createdRsvps[0].userId, 'user-9');
+test('client-supplied name/email are ignored — details cannot be spoofed', async () => {
+  await submitRsvp({
+    body: { name: 'Someone Else', email: 'attacker@example.test', studentId: '999' },
+  });
+  assert.equal(createdRsvps[0].name, 'Ada Lovelace');
   assert.equal(createdRsvps[0].email, 'member@example.test');
 });
 
-test('stays null for a non-member RSVP — public bookings are still supported', async () => {
-  const res = await submitRsvp({ email: 'stranger@example.test', user: undefined });
-  assert.equal(res.code, 201);
-  assert.equal(createdRsvps[0].userId, null);
+test('no studentId is stored — the field is no longer collected (KAN-185)', async () => {
+  await submitRsvp({ body: { studentId: '1234567' } });
+  assert.ok(!('studentId' in createdRsvps[0]));
+});
+
+test('falls back to the account email when the profile has no name', async () => {
+  account = { email: 'noname@example.test', info: null };
+  await submitRsvp();
+  assert.equal(createdRsvps[0].name, 'noname@example.test');
+});
+
+test('a duplicate booking for the same activity is rejected as 409', async () => {
+  createShouldConflict = true;
+  const res = await submitRsvp();
+  assert.equal(res.code, 409);
+  assert.match(res.body.error, /already registered/i);
+});
+
+test('sold-out activities are still rejected (capacity unchanged)', async () => {
+  activity = { id: 1, isPublished: true, capacity: 5 };
+  rsvpCount = 5;
+  const res = await submitRsvp();
+  assert.equal(res.code, 409);
+  assert.match(res.body.error, /sold out/i);
+});
+
+test('unpublished or missing activity returns 404', async () => {
+  activity = null;
+  const res = await submitRsvp();
+  assert.equal(res.code, 404);
+});
+
+test('returns 401 when the authenticated account no longer exists', async () => {
+  account = null;
+  const res = await submitRsvp();
+  assert.equal(res.code, 401);
 });
