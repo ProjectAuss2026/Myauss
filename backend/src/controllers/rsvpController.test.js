@@ -12,6 +12,9 @@ globalThis.prisma = {
   activity: {
     findUnique: async () => ({ id: 1, isPublished: true, capacity: null }),
   },
+  user: {
+    findUnique: async () => null,
+  },
   rsvp: {
     count: async () => 0,
     create: async ({ data }) => {
@@ -62,6 +65,7 @@ test('RSVP accepts an omitted student ID and stores null', async () => {
   assert.equal(response.statusCode, 201);
   assert.deepEqual(createdData, {
     activityId: 1,
+    userId: null,
     name: 'Alex Member',
     email: 'alex@example.com',
     studentId: null,
@@ -86,6 +90,27 @@ test('RSVP trims a supplied student ID', async () => {
 
   assert.equal(response.statusCode, 201);
   assert.equal(createdData.studentId, '123456789');
+});
+
+test('RSVP rejects an overlong supplied student ID', async () => {
+  createdData = null;
+  const response = responseMock();
+
+  await createRsvp(
+    {
+      params: { id: '1' },
+      body: {
+        name: 'Alex Member',
+        email: 'alex@example.com',
+        studentId: '1'.repeat(41),
+      },
+    },
+    response,
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'studentId must be 40 characters or fewer');
+  assert.equal(createdData, null);
 });
 
 test('RSVP CSV export renders a missing student ID as an empty cell', async () => {

@@ -151,11 +151,34 @@ export function getSafeLinkHref(value: unknown): string | null {
   }
 }
 
+/**
+ * Returns the lowercased hostname of an http(s) URL, or null if `value` is not
+ * a parseable http/https URL. Use this for EXACT host checks instead of
+ * substring / startsWith matching — e.g. `getUrlHostname(u) === 'pixieset.com'`
+ * rather than `u.includes('pixieset.com')`, which is satisfied by
+ * `https://evil.com/#pixieset.com` (CodeQL js/incomplete-url-substring-sanitization).
+ */
+export function getUrlHostname(value: unknown): string | null {
+  if (isBlank(value) || typeof value !== 'string') return null;
+  try {
+    const parsed = new URL(value.trim());
+    if (!SAFE_LINK_PROTOCOLS.has(parsed.protocol)) return null;
+    return parsed.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 export function getSafeImageSrc(value: unknown): string | null {
   if (isBlank(value) || typeof value !== 'string') return null;
 
   const trimmed = value.trim();
-  if (trimmed.startsWith('/uploads/')) {
+
+  // Relative URLs (/uploads/*, /sponsors/*, /api/upload/*, etc.) — allow any
+  // safe relative path (no backslash, no path traversal). Previously only
+  // /uploads/ was let through, which broke all other relative image URLs like
+  // sponsor hero images served from the SPA build.
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
     return trimmed.includes('\\') || hasPathTraversal(trimmed) ? null : trimmed;
   }
 

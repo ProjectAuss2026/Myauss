@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, Dumbbell, Calendar, Trophy, ArrowRight, ChevronDown } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -104,6 +105,13 @@ export function Home() {
   const { ref: heroRef, inView: heroInView } = useInViewCustom({ once: true });
   const [bounceY, setBounceY] = useState(0);
 
+  // Reflect auth state in the primary CTAs: a signed-in member should never be
+  // told to "Join AUSS" — send them to their dashboard instead.
+  const { isAuthenticated, user } = useAuth();
+  const ctaTo = isAuthenticated ? '/dashboard' : '/login';
+  const ctaLabel = isAuthenticated ? 'Go to Dashboard' : 'Join AUSS';
+  const firstName = user?.firstName?.trim();
+
   useEffect(() => {
     let frame: number;
     const animate = () => {
@@ -168,12 +176,12 @@ export function Home() {
                 transition: 'opacity 0.6s ease 0.55s, transform 0.6s ease 0.55s',
               }}
             >
-              <Link to="/login">
+              <Link to={ctaTo}>
                 <div
                   className="bg-black text-white px-8 py-3.5 rounded-xl flex items-center gap-2 shadow-[0_8px_30px_rgba(0,0,0,0.2)] hover:shadow-[0_12px_40px_rgba(0,0,0,0.3)] transition-all hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
                   style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
                 >
-                  Join AUSS
+                  {ctaLabel}
                   <ArrowRight className="w-4 h-4" />
                 </div>
               </Link>
@@ -303,17 +311,21 @@ export function Home() {
               className="text-white mb-6"
               style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
             >
-              Ready to Join Auckland's Strongest Community?
+              {isAuthenticated
+                ? `Welcome back${firstName ? `, ${firstName}` : ''}!`
+                : "Ready to Join Auckland's Strongest Community?"}
             </h2>
             <p className="text-white/50 mb-10 max-w-lg mx-auto" style={{ fontSize: '17px', lineHeight: '1.7', fontFamily: 'Inter, sans-serif' }}>
-              Whether you're a complete beginner or an experienced lifter, there's a place for you at AUSS. Come train with us.
+              {isAuthenticated
+                ? 'Head to your dashboard to manage your membership, RSVP to events, and stay connected with the community.'
+                : "Whether you're a complete beginner or an experienced lifter, there's a place for you at AUSS. Come train with us."}
             </p>
-            <Link to="/login">
+            <Link to={ctaTo}>
               <div
                 className="inline-flex items-center gap-2 bg-[#eb7524] text-white px-10 py-4 rounded-xl shadow-[0_8px_30px_rgba(235,117,36,0.3)] hover:shadow-[0_12px_50px_rgba(235,117,36,0.4)] transition-all hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
                 style={{ fontSize: '17px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
               >
-                Join AUSS Today
+                {isAuthenticated ? 'Go to Dashboard' : 'Join AUSS Today'}
                 <ArrowRight className="w-5 h-5" />
               </div>
             </Link>

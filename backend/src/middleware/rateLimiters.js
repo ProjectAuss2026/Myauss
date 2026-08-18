@@ -136,6 +136,19 @@ export const globalApiLimiter = createLimiter({
   scope: "the API",
 });
 
+// Generous limiter for the public SPA entry point (the index.html fallback in
+// app.js). It only needs to cap egregious floods of the HTML document: a full
+// page load fetches index.html once (client-side routing does not re-fetch it),
+// and the hashed static assets are served separately and unthrottled. The high
+// ceiling avoids throttling shared-IP traffic (e.g. many phones on campus wifi
+// at the expo, KAN-156) while still satisfying the no-unrate-limited-file-access
+// requirement (CodeQL js/missing-rate-limiting).
+export const staticContentLimiter = createLimiter({
+  windowMs: 60 * 1000,
+  max: 600,
+  scope: "static content",
+});
+
 export const loginIpLimiter = createLimiter({
   windowMs: 60 * 1000,
   max: 5,

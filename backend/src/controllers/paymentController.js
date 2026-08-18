@@ -155,8 +155,9 @@ export async function createMembershipPaymentIntent(req, res) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: MEMBERSHIP_PRICE_CENTS,
       currency: MEMBERSHIP_CURRENCY,
-      // Lets Stripe enable cards + Apple Pay / Google Pay wallets automatically.
-      automatic_payment_methods: { enabled: true },
+      // Card-only: no redirect-based methods, no wallet/klarna activation
+      // warnings, and a single clean flow at the expo.
+      payment_method_types: ['card'],
       metadata: { purpose: PAYMENT_PURPOSE, userId: req.user.id },
     });
 

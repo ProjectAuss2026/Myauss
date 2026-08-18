@@ -1,8 +1,7 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
-
-// Simple RFC-5322-ish email validation. Strict enough for form input.
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { isValidEmail } from '../utils/emailValidation.js';
+import { LIMITS } from '../schemas/commonSchemas.js';
 
 /**
  * POST /api/activities/:id/rsvp — public
@@ -23,12 +22,19 @@ export const createRsvp = async (req, res) => {
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
+  if (String(name).trim().length > LIMITS.personName) {
+    return res.status(400).json({ error: `name must be ${LIMITS.personName} characters or fewer` });
+  }
   if (!email || !String(email).trim()) {
     return res.status(400).json({ error: 'email is required' });
   }
-  if (!EMAIL_REGEX.test(String(email).trim())) {
+  if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'email is not a valid email address' });
   }
+  if (studentId != null && String(studentId).trim().length > LIMITS.studentId) {
+    return res.status(400).json({ error: `studentId must be ${LIMITS.studentId} characters or fewer` });
+  }
+
   const cleanName = String(name).trim();
   const cleanEmail = String(email).trim().toLowerCase();
   const cleanStudentId =
@@ -55,10 +61,25 @@ export const createRsvp = async (req, res) => {
         }
       }
 
+      // Link the RSVP to a member account (KAN-171). A signed-in member is
+      // authoritative; otherwise fall back to matching the submitted email,
+      // which mirrors the migration's backfill so logged-out members still get
+      // linked. Stays null when neither resolves — supported for legacy/public
+      // bookings until the members-only gate lands (KAN-178).
+      let linkedUserId = req.user?.id ?? null;
+      if (!linkedUserId) {
+        const matched = await tx.user.findUnique({
+          where: { email: cleanEmail },
+          select: { id: true },
+        });
+        linkedUserId = matched?.id ?? null;
+      }
+
       try {
         const rsvp = await tx.rsvp.create({
           data: {
             activityId,
+            userId: linkedUserId,
             name: cleanName,
             email: cleanEmail,
             studentId: cleanStudentId,

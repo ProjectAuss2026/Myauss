@@ -296,7 +296,13 @@ async function main() {
   if (bootstrapEmail && bootstrapPassword) {
     const passwordPolicy = validatePasswordPolicy(bootstrapPassword, [bootstrapEmail, 'owner', 'admin']);
     if (!passwordPolicy.ok) {
-      throw new Error(`OWNER_BOOTSTRAP_PASSWORD is invalid: ${passwordPolicy.error}.`);
+      // SECURITY (CodeQL #6): the policy detail is derived from the password and
+      // must not reach the generic error log below. Fail with static, actionable
+      // guidance instead of interpolating `passwordPolicy.error`.
+      console.error(
+        '[seed] OWNER_BOOTSTRAP_PASSWORD does not meet the password policy. Update it and re-run.',
+      );
+      throw new Error('OWNER_BOOTSTRAP_PASSWORD is invalid');
     }
 
     const passwordHash = await bcrypt.hash(passwordPolicy.normalizedPassword, 10);

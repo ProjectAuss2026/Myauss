@@ -1,27 +1,14 @@
-import nodemailer from 'nodemailer';
 import logger from './logger.js';
+import { isEmailConfigured, sendProviderEmail } from './emailProvider.js';
 
 // Shared transactional mailer for background jobs (retention warnings, expiry
-// notices). The auth controller keeps its own inline transporter for the OTP /
-// password-reset / proof-review flows; this mirrors that config so the two
-// behave identically. When SMTP is unconfigured (local dev) we log and skip
-// instead of throwing, matching the controller's `[... DEV]` fallback.
-
-let transporter = null;
-function getTransporter() {
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    });
-  }
-  return transporter;
-}
+// notices). Delivery is routed through utils/emailProvider.js, which prefers
+// the Brevo HTTPS API (Railway blocks outbound SMTP on Hobby) and falls back
+// to SMTP for local dev. When neither provider is configured (local dev) we
+// log and skip instead of throwing.
 
 export function isSmtpConfigured() {
-  return Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  return isEmailConfigured();
 }
 
 export function escapeHtml(value) {
@@ -51,13 +38,13 @@ export async function sendMail({ to, subject, text, html }, context = 'MAIL') {
     return { sent: false, skipped: true, reason: 'missing-recipient' };
   }
 
-  if (!isSmtpConfigured()) {
-    logger.info({ to: recipient, context }, `[${context} DEV] Email skipped — SMTP not configured`);
-    return { sent: false, skipped: true, reason: 'smtp-not-configured' };
+  if (!isEmailConfigured()) {
+    logger.info({ to: recipient, context }, `[${context} DEV] Email skipped — email not configured`);
+    return { sent: false, skipped: true, reason: 'email-not-configured' };
   }
 
-  await getTransporter().sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+  await sendProviderEmail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL,
     to: recipient,
     subject,
     text,

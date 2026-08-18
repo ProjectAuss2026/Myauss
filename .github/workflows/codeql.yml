@@ -3,10 +3,13 @@
 name: CodeQL
 
 on:
+  # KAN-160: scan dev too, not just main. main is stale (no workflows dir), so
+  # main-only meant CodeQL effectively never ran on a branch. Matches ci.yml /
+  # security.yml, which already gate [main, dev].
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   schedule:
     - cron: "17 3 * * 1" # weekly Monday scan
 
