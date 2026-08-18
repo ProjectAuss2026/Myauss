@@ -6,7 +6,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * POST /api/activities/:id/rsvp — public
- * Body: { name, email, studentId }
+ * Body: { name, email, studentId? }
  * Creates an RSVP linked to the activity.
  * - 400 invalid input
  * - 404 activity not found / unpublished
@@ -29,13 +29,12 @@ export const createRsvp = async (req, res) => {
   if (!EMAIL_REGEX.test(String(email).trim())) {
     return res.status(400).json({ error: 'email is not a valid email address' });
   }
-  if (!studentId || !String(studentId).trim()) {
-    return res.status(400).json({ error: 'studentId is required' });
-  }
-
   const cleanName = String(name).trim();
   const cleanEmail = String(email).trim().toLowerCase();
-  const cleanStudentId = String(studentId).trim();
+  const cleanStudentId =
+    studentId === null || studentId === undefined
+      ? null
+      : String(studentId).trim() || null;
 
   try {
     // Atomic capacity-check + insert in a single transaction
