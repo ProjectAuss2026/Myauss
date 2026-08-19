@@ -261,6 +261,62 @@ function authToken(user) {
   );
 }
 
+test("register rejects a missing membership agreement", async () => {
+  resetState();
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      email: "member@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Ava",
+      lastName: "Member",
+      privacyPolicyAccepted: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json.details, [
+    {
+      path: "body.membershipAgreementAccepted",
+      message: "Membership agreement must be accepted",
+    },
+  ]);
+  assert.equal(
+    calls.some((call) => call.name === "user.create"),
+    false,
+  );
+});
+
+test("register rejects missing Privacy Policy acceptance", async () => {
+  resetState();
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      email: "member@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Ava",
+      lastName: "Member",
+      membershipAgreementAccepted: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json.details, [
+    {
+      path: "body.privacyPolicyAccepted",
+      message: "Privacy Policy must be accepted",
+    },
+  ]);
+  assert.equal(
+    calls.some((call) => call.name === "user.create"),
+    false,
+  );
+});
+
 test("register stores a hashed student ID instead of plaintext", async () => {
   resetState();
 
@@ -273,6 +329,8 @@ test("register stores a hashed student ID instead of plaintext", async () => {
       firstName: "Ava",
       lastName: "Member",
       studentId: " 123456789 ",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
     },
   });
 
@@ -285,6 +343,15 @@ test("register stores a hashed student ID instead of plaintext", async () => {
   );
   assert.notEqual(storedStudentId, "123456789");
   assert.notEqual(storedStudentId, " 123456789 ");
+  assert.equal(createCall.args.data.privacyPolicyVersion, "2026-08-19");
+  assert.ok(createCall.args.data.privacyPolicyAcceptedAt instanceof Date);
+  assert.equal(
+    createCall.args.data.membershipAgreementVersion,
+    "2026-08-19",
+  );
+  assert.ok(
+    createCall.args.data.membershipAgreementAcceptedAt instanceof Date,
+  );
 });
 
 test("register stores null when student ID is omitted", async () => {
@@ -299,6 +366,8 @@ test("register stores null when student ID is omitted", async () => {
       password: STRONG_TEST_PASSWORD,
       firstName: "Alex",
       lastName: "Member",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
     },
   });
 
@@ -319,6 +388,8 @@ test("register normalises a whitespace-only student ID to null", async () => {
       firstName: "Sam",
       lastName: "Member",
       studentId: "   ",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
     },
   });
 
@@ -340,6 +411,8 @@ test("register fails safely when STUDENT_ID_PEPPER is missing", async () => {
       firstName: "Ava",
       lastName: "Member",
       studentId: "123456789",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
     },
   });
 

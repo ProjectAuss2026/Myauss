@@ -642,6 +642,9 @@ router.delete(
 );
 
 // ── POST /auth/register ─────────────────────────────────────────────
+const PRIVACY_POLICY_VERSION = "2026-08-19";
+const MEMBERSHIP_AGREEMENT_VERSION = "2026-08-19";
+
 router.post(
   "/register",
   registerIpLimiter,
@@ -649,8 +652,7 @@ router.post(
   validate(registerSchema),
   async (req, res) => {
     try {
-      const { email, password, firstName, lastName, studentId } =
-        req.body;
+      const { email, password, firstName, lastName, studentId } = req.body;
       const now = new Date();
       const normalisedEmail = normaliseEmail(email);
 
@@ -692,6 +694,10 @@ router.post(
           data: {
             passwordHash,
             role: "USER",
+            privacyPolicyAcceptedAt: now,
+            privacyPolicyVersion: PRIVACY_POLICY_VERSION,
+            membershipAgreementAcceptedAt: now,
+            membershipAgreementVersion: MEMBERSHIP_AGREEMENT_VERSION,
             lastCodeSentAt: now,
             verificationExpiresAt: new Date(
               now.getTime() + VERIFICATION_WINDOW_MS,
@@ -723,6 +729,10 @@ router.post(
           passwordHash,
           role: "USER",
           isVerified: false,
+          privacyPolicyAcceptedAt: now,
+          privacyPolicyVersion: PRIVACY_POLICY_VERSION,
+          membershipAgreementAcceptedAt: now,
+          membershipAgreementVersion: MEMBERSHIP_AGREEMENT_VERSION,
           lastCodeSentAt: now,
           verificationExpiresAt: new Date(
             now.getTime() + VERIFICATION_WINDOW_MS,

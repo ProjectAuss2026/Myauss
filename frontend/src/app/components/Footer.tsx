@@ -112,6 +112,16 @@ export function Footer() {
               })}
         </div>
 
+        <div className="mb-4 text-center">
+          <Link
+            to="/privacy"
+            className="text-xs text-white/30 transition-colors hover:text-white/60"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            Privacy Policy
+          </Link>
+        </div>
+
         {/* Copyright */}
         <div className="text-center text-white/20 text-xs" style={{ fontFamily: 'Inter, sans-serif' }}>
           &copy; {new Date().getFullYear()} Auckland University Strength Society. All rights reserved.

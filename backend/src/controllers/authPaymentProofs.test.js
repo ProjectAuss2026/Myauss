@@ -637,6 +637,8 @@ test("registration with Cash / Bank Transfer paymentMethod is ignored (decoupled
       firstName: "Cash",
       lastName: "Member",
       studentId: "123456789",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
       paymentMethod: "CASH_BANK_TRANSFER",
     },
   });
@@ -658,6 +660,8 @@ test("registration with proofUploadIds does not link them (payment is now post-r
       firstName: "Cash",
       lastName: "Member",
       studentId: "123456789",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
       paymentMethod: "CASH_BANK_TRANSFER",
       proofUploadIds: [VALID_PROOF_UPLOAD_ID],
     },
@@ -684,6 +688,8 @@ test("registration with Cash / Bank Transfer creates user as INACTIVE (not IN_RE
       firstName: "Cash",
       lastName: "Member",
       studentId: "123456789",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
       paymentMethod: "CASH_BANK_TRANSFER",
       proofUploadIds: [VALID_PROOF_UPLOAD_ID],
     },
@@ -706,6 +712,8 @@ test("normal registration path still works", async () => {
       firstName: "Normal",
       lastName: "Member",
       studentId: "123456789",
+      privacyPolicyAccepted: true,
+      membershipAgreementAccepted: true,
     },
   });
   const createdUser = usersByEmail.get("member@example.com");

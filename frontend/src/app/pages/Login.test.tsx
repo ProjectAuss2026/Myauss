@@ -151,7 +151,14 @@ function fillRegisterFields() {
   fireEvent.change(screen.getByPlaceholderText("Confirm your password"), {
     target: { value: "CorrectHorseBatteryStaple!2026" },
   });
-  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: /I agree to the AUSS/i }),
+  );
+  fireEvent.click(
+    screen.getByRole("checkbox", {
+      name: /I agree, by entering my name/i,
+    }),
+  );
 }
 
 function createProofFile(name = "receipt.jpg", type = "image/jpeg") {
@@ -167,6 +174,19 @@ beforeEach(() => {
     setUserFromToken: vi.fn(),
   };
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
   vi.stubGlobal(
     "IntersectionObserver",
     class {

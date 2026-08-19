@@ -31,32 +31,36 @@ enum PaymentProofUploadStatus {
 }
 
 model User {
-  id                    String            @id @default(uuid())
-  email                 String            @unique
-  passwordHash          String
-  role                      Role                    @default(USER)
-  tokenVersion              Int                     @default(0)
-  isVerified                Boolean                 @default(false)
-  membershipStatus          MembershipStatus        @default(INACTIVE)
-  membershipStatusUpdatedAt DateTime                @default(now())
-  inactiveWarnedAt          DateTime?
-  lastCodeSentAt            DateTime                @default(now())
-  verificationExpiresAt     DateTime
-  createdAt                 DateTime                @default(now())
-  info                      UserInfo?
-  sessions                  AuthSession[]
-  otpCode                   OtpCode?
-  invitationsSent           AdminInvitation[]       @relation("InvitationSender")
-  invitationsAccepted       AdminInvitation[]       @relation("InvitationAccepter")
-  roleChangesMade           RoleChangeAudit[]       @relation("RoleChangeActor")
-  roleChangesReceived       RoleChangeAudit[]       @relation("RoleChangeTarget")
-  membershipChangesMade     MembershipStatusAudit[] @relation("MembershipChangeActor")
-  membershipChangesReceived MembershipStatusAudit[] @relation("MembershipChangeTarget")
-  passwordResets            PasswordReset[]
-  paymentProofUploads       PaymentProofUpload[]
-  uploadedImages            UploadedImage[]
-  payments                  Payment[]
-  rsvps                     Rsvp[]
+  id                            String                  @id @default(uuid())
+  email                         String                  @unique
+  passwordHash                  String
+  role                          Role                    @default(USER)
+  tokenVersion                  Int                     @default(0)
+  isVerified                    Boolean                 @default(false)
+  membershipStatus              MembershipStatus        @default(INACTIVE)
+  membershipStatusUpdatedAt     DateTime                @default(now())
+  privacyPolicyAcceptedAt        DateTime?
+  privacyPolicyVersion           String?                 @db.VarChar(20)
+  membershipAgreementAcceptedAt DateTime?
+  membershipAgreementVersion    String?                 @db.VarChar(20)
+  inactiveWarnedAt              DateTime?
+  lastCodeSentAt                DateTime                @default(now())
+  verificationExpiresAt         DateTime
+  createdAt                     DateTime                @default(now())
+  info                          UserInfo?
+  sessions                      AuthSession[]
+  otpCode                       OtpCode?
+  invitationsSent               AdminInvitation[]       @relation("InvitationSender")
+  invitationsAccepted           AdminInvitation[]       @relation("InvitationAccepter")
+  roleChangesMade               RoleChangeAudit[]       @relation("RoleChangeActor")
+  roleChangesReceived           RoleChangeAudit[]       @relation("RoleChangeTarget")
+  membershipChangesMade         MembershipStatusAudit[] @relation("MembershipChangeActor")
+  membershipChangesReceived     MembershipStatusAudit[] @relation("MembershipChangeTarget")
+  passwordResets                PasswordReset[]
+  paymentProofUploads           PaymentProofUpload[]
+  uploadedImages                UploadedImage[]
+  payments                      Payment[]
+  rsvps                         Rsvp[]
 
   @@index([membershipStatus, membershipStatusUpdatedAt])
 }
@@ -125,26 +129,26 @@ model PaymentProofUpload {
 // are publicly retrievable by URL (no auth required for display in <img> tags)
 // and unlinked uploads may be cleaned up by a future retention job.
 model UploadedImage {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   userId           String?
   originalFilename String?
   fileBytes        Bytes
   mimeType         String
   sizeBytes        Int
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
   expiresAt        DateTime?
-  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
 }
 
 model UserInfo {
-  id        String @id @default(uuid())
+  id        String  @id @default(uuid())
   firstName String
   lastName  String
   studentId String? // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER when provided; field name retained to avoid a risky data migration.
-  userId    String @unique
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String  @unique
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AuthSession {
