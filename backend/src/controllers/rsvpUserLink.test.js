@@ -14,6 +14,7 @@ const ACCOUNT = {
 };
 
 let account = ACCOUNT;
+let userFetchCount = 0;
 let activity = { id: 1, isPublished: true, capacity: null };
 let rsvpCount = 0;
 let createShouldConflict = false;
@@ -22,7 +23,12 @@ const createdRsvps = [];
 globalThis.prisma = {
   $transaction: async (fn) => fn(globalThis.prisma),
   activity: { findUnique: async () => activity },
-  user: { findUnique: async () => account },
+  user: {
+    findUnique: async () => {
+      userFetchCount += 1;
+      return account;
+    },
+  },
   rsvp: {
     count: async () => rsvpCount,
     create: async (args) => {
@@ -57,6 +63,7 @@ async function submitRsvp({ user = { id: 'user-1' }, body = undefined } = {}) {
 
 test.beforeEach(() => {
   account = ACCOUNT;
+  userFetchCount = 0;
   activity = { id: 1, isPublished: true, capacity: null };
   rsvpCount = 0;
   createShouldConflict = false;
@@ -115,4 +122,22 @@ test('returns 401 when the authenticated account no longer exists', async () => 
   account = null;
   const res = await submitRsvp();
   assert.equal(res.code, 401);
+});
+
+test('reuses the account stashed by requireVerifiedMembership — no second lookup', async () => {
+  const res = mockRes();
+  await createRsvp(
+    { params: { id: '1' }, body: undefined, user: { id: 'user-1', account: ACCOUNT } },
+    res,
+  );
+  assert.equal(res.code, 201);
+  assert.equal(userFetchCount, 0, 'controller should not re-fetch a stashed account');
+  assert.equal(createdRsvps[0].email, 'member@example.test');
+});
+
+test('falls back to fetching when no account was stashed', async () => {
+  // Keeps the handler correct if it is ever used without the middleware.
+  const res = await submitRsvp();
+  assert.equal(res.code, 201);
+  assert.equal(userFetchCount, 1);
 });

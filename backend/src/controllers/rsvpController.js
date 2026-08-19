@@ -18,10 +18,14 @@ export const createRsvp = async (req, res) => {
   try {
     // Attendee details are snapshotted from the account, never read from the
     // request body — any name/email a client sends is deliberately ignored.
-    const account = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: { email: true, info: { select: { firstName: true, lastName: true } } },
-    });
+    // requireVerifiedMembership already loaded this row, so reuse it and avoid a
+    // second lookup; the fallback keeps this handler correct on its own.
+    const account =
+      req.user.account ??
+      (await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { email: true, info: { select: { firstName: true, lastName: true } } },
+      }));
 
     if (!account) {
       return res.status(401).json({ error: 'Not authenticated' });

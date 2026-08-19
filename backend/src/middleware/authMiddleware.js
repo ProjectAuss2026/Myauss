@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 import { verifyAccessToken } from '../utils/authTokens.js';
 
 function hasRoleAccess(userRole, allowedRoles) {
@@ -89,18 +90,30 @@ export async function requireVerifiedMembership(req, res, next) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  if (req.user.role === 'ADMIN' || req.user.role === 'OWNER') {
-    return next();
-  }
-
   try {
+    // Fetched for every caller, including staff, so the account is always
+    // stashed on req.user for downstream handlers. Selecting these few extra
+    // columns is free — it is the same row either way — and saves the consumer
+    // a second lookup of the user it already needs.
     const account = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { membershipStatus: true },
+      select: {
+        email: true,
+        membershipStatus: true,
+        info: { select: { firstName: true, lastName: true } },
+      },
     });
 
     if (!account) {
       return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    req.user.membershipStatus = account.membershipStatus;
+    req.user.account = account;
+
+    // Staff run events and must not be locked out by their own membership state.
+    if (req.user.role === 'ADMIN' || req.user.role === 'OWNER') {
+      return next();
     }
 
     if (account.membershipStatus !== 'VERIFIED') {
@@ -111,9 +124,12 @@ export async function requireVerifiedMembership(req, res, next) {
       });
     }
 
-    req.user.membershipStatus = account.membershipStatus;
     return next();
-  } catch {
+  } catch (err) {
+    logger.error(
+      { err, userId: req.user.id },
+      'requireVerifiedMembership: membership lookup failed',
+    );
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
