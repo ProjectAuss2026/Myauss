@@ -142,7 +142,7 @@ model UserInfo {
   id        String @id @default(uuid())
   firstName String
   lastName  String
-  studentId String // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER; field name retained to avoid a risky data migration.
+  studentId String? // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER when provided; field name retained to avoid a risky data migration.
   userId    String @unique
   user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

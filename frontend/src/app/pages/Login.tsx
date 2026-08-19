@@ -282,6 +282,7 @@ export function Login() {
     confirmValue?: string,
   ): string {
     const trimmed = value.trim();
+    if (name === "regStudentId" && !trimmed) return "";
     if (!trimmed) return "This field is required";
     if (name === "loginEmail" || name === "regEmail") {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) {
@@ -387,7 +388,7 @@ export function Login() {
         password: regPassword,
         firstName: regFirstName,
         lastName: regLastName,
-        studentId: regStudentId,
+        studentId: regStudentId.trim() || null,
       };
 
       const res = await fetch("/api/auth/register", {
@@ -817,7 +818,7 @@ export function Login() {
                           fontFamily: "Inter, sans-serif",
                         }}
                       >
-                        University Email
+                        Email
                         <span className="text-red-400 ml-0.5" aria-hidden="true">
                           *
                         </span>
@@ -830,9 +831,9 @@ export function Login() {
                           value={regEmail}
                           onChange={(e) => { setRegEmail(e.target.value); if (fieldErrors.regEmail) handleBlur('regEmail', e.target.value); }}
                           onBlur={(e) => handleBlur('regEmail', e.target.value)}
-                          placeholder="you@auckland.ac.nz"
+                          placeholder="you@example.com"
                           aria-required="true"
-                          aria-describedby={fieldErrors.regEmail && touched.regEmail ? 'regEmail-error' : undefined}
+                          aria-describedby={`regEmail-help${fieldErrors.regEmail && touched.regEmail ? ' regEmail-error' : ''}`}
                           aria-invalid={!!fieldErrors.regEmail && !!touched.regEmail}
                           className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regEmail && touched.regEmail ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                           style={{
@@ -844,6 +845,9 @@ export function Login() {
                       {fieldErrors.regEmail && touched.regEmail && (
                         <p id="regEmail-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regEmail}</p>
                       )}
+                      <p id="regEmail-help" className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                        University email preferred.
+                      </p>
                     </div>
 
                     <div>
@@ -855,10 +859,7 @@ export function Login() {
                           fontFamily: "Inter, sans-serif",
                         }}
                       >
-                        Student ID
-                        <span className="text-red-400 ml-0.5" aria-hidden="true">
-                          *
-                        </span>
+                        Student ID (optional)
                       </label>
                       <input
                         id="regStudentId"
@@ -867,8 +868,7 @@ export function Login() {
                         onChange={(e) => { setRegStudentId(e.target.value); if (fieldErrors.regStudentId) handleBlur('regStudentId', e.target.value); }}
                         onBlur={(e) => handleBlur('regStudentId', e.target.value)}
                         placeholder="e.g. 123456789"
-                        aria-required="true"
-                        aria-describedby={fieldErrors.regStudentId && touched.regStudentId ? 'regStudentId-error' : undefined}
+                        aria-describedby={`regStudentId-help${fieldErrors.regStudentId && touched.regStudentId ? ' regStudentId-error' : ''}`}
                         aria-invalid={!!fieldErrors.regStudentId && !!touched.regStudentId}
                         className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regStudentId && touched.regStudentId ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                         style={{
@@ -880,6 +880,7 @@ export function Login() {
                         <p id="regStudentId-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regStudentId}</p>
                       )}
                       <p
+                        id="regStudentId-help"
                         className="mt-2 text-white/35"
                         style={{
                           fontSize: "12px",
@@ -887,10 +888,8 @@ export function Login() {
                           lineHeight: 1.5,
                         }}
                       >
-                        Used to confirm Auckland Uni membership eligibility. It
-                        is protected, not displayed publicly, and removal or
-                        correction requests can be sent to auss@auckland.ac.nz.
-                        Final privacy wording should be confirmed by AUSS.
+                        If you have a University of Auckland Student ID, you can
+                        provide it here. Non-UoA members can leave this blank.
                       </p>
                     </div>
 
