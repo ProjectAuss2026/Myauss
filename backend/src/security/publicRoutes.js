@@ -28,7 +28,6 @@ export const PUBLIC_ROUTES = Object.freeze([
   route("GET", "/api/config"),
   route("GET", "/api/public-config"),
   route("GET", "/api/activities"),
-  route("POST", "/api/activities/:id/rsvp"),
   route("GET", "/api/activities/:id/rsvp/count"),
   route("GET", "/api/sponsorship"),
   route("GET", "/api/faq"),
@@ -40,6 +39,9 @@ export const PUBLIC_ROUTES = Object.freeze([
 ]);
 
 export const AUTHENTICATED_ROUTES = Object.freeze([
+  // Members-only with an active-membership gate (KAN-178). Moved out of
+  // PUBLIC_ROUTES — events are no longer open to non-members or walk-ins.
+  route("POST", "/api/activities/:id/rsvp"),
   route("GET", "/api/auth/me"),
   route("DELETE", "/api/auth/me/info"),
   route("POST", "/api/auth/payment-proofs/pending"),

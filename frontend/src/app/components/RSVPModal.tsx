@@ -1,16 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-
-const inputCls =
-  'w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all';
+import { useNavigate } from 'react-router';
+import { X, Loader2, CheckCircle2, AlertCircle, Lock } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { fetchWithAuth } from '../lib/authFetch';
 
 const labelStyle: React.CSSProperties = {
   fontSize: '13px',
   fontFamily: 'Inter, sans-serif',
   fontWeight: 500,
 };
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface RSVPModalProps {
   open: boolean;
@@ -20,27 +18,25 @@ interface RSVPModalProps {
   onSuccess?: () => void;
 }
 
-interface FieldErrors {
-  name?: string;
-  email?: string;
-}
-
 export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess }: RSVPModalProps) {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [studentId, setStudentId] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const { user, isAdmin } = useAuth();
+  const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Events are members-only (KAN-178): RSVP requires sign-in plus an active
+  // membership, and the booking is taken from the account rather than typed in.
+  const isSignedIn = Boolean(user);
+  // Mirror the server-side rule in requireVerifiedMembership: ADMIN/OWNER are
+  // exempt from the membership requirement, since staff run events and must not
+  // be blocked by their own membership state. Keep these two in step.
+  const canBook = isAdmin || user?.membershipStatus === 'VERIFIED';
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+
   // Reset state whenever the modal is opened/closed
   useEffect(() => {
     if (open) {
-      setName('');
-      setEmail('');
-      setStudentId('');
-      setFieldErrors({});
       setApiError(null);
       setSuccess(false);
       setSubmitting(false);
@@ -69,30 +65,14 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
 
   if (!open) return null;
 
-  const validate = (): boolean => {
-    const errs: FieldErrors = {};
-    if (!name.trim()) errs.name = 'Name is required';
-    if (!email.trim()) errs.email = 'Email is required';
-    else if (!EMAIL_REGEX.test(email.trim())) errs.email = 'Please enter a valid email address';
-    setFieldErrors(errs);
-    return Object.keys(errs).length === 0;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setApiError(null);
-    if (!validate()) return;
-
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/activities/${activityId}/rsvp`, {
+      // No body: the server takes the attendee's details from the account.
+      const res = await fetchWithAuth(`/api/activities/${activityId}/rsvp`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          studentId: studentId.trim() || null,
-        }),
       });
 
       if (res.ok) {
@@ -102,9 +82,20 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
       }
 
       let message = 'Something went wrong. Please try again.';
-      if (res.status === 400) message = 'Please check the entered details.';
-      else if (res.status === 404) message = 'This activity is no longer available.';
-      else if (res.status === 409) message = 'This event is sold out or this email has already registered.';
+      if (res.status === 401) {
+        message = 'Your session has expired. Please sign in again.';
+      } else if (res.status === 403) {
+        // Machine-readable code rather than string-matching the message.
+        const body = await res.json().catch(() => null);
+        message =
+          body?.code === 'MEMBERSHIP_REQUIRED'
+            ? 'An active AUSS membership is required to register for events.'
+            : 'You do not have permission to register for this event.';
+      } else if (res.status === 404) {
+        message = 'This activity is no longer available.';
+      } else if (res.status === 409) {
+        message = 'This event is sold out, or you are already registered for it.';
+      }
       setApiError(message);
     } catch (err) {
       console.error('RSVP submit error:', err);
@@ -174,67 +165,90 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
                 Done
               </button>
             </div>
+          ) : !isSignedIn ? (
+            <div className="py-2">
+              <div className="w-14 h-14 rounded-full bg-white/[0.06] flex items-center justify-center mx-auto mb-4">
+                <Lock className="w-6 h-6 text-white/50" />
+              </div>
+              <p
+                className="text-white/70 text-center mb-6"
+                style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}
+              >
+                Events are for AUSS members. Sign in to register — we&rsquo;ll use the details on your account.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white transition-all cursor-pointer"
+                  style={{ fontSize: '14px', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/login')}
+                  className="flex-1 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+                  style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Sign in
+                </button>
+              </div>
+            </div>
+          ) : !canBook ? (
+            <div className="py-2">
+              <div className="w-14 h-14 rounded-full bg-[#eb7524]/15 flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-6 h-6 text-[#eb7524]" />
+              </div>
+              <p
+                className="text-white/70 text-center mb-6"
+                style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}
+              >
+                You need an active AUSS membership to register for events. Activate yours to book a place.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white transition-all cursor-pointer"
+                  style={{ fontSize: '14px', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/verify-membership')}
+                  className="flex-1 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+                  style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  Activate membership
+                </button>
+              </div>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-              <div>
-                <label className="block text-white/60 mb-1.5" style={labelStyle}>
-                  Name
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your full name"
-                  className={inputCls}
-                  style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                  disabled={submitting}
-                  autoFocus
-                />
-                {fieldErrors.name && (
-                  <p className="mt-1.5 text-red-400" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
-                    {fieldErrors.name}
-                  </p>
-                )}
-              </div>
+              <p
+                className="text-white/50"
+                style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}
+              >
+                You&rsquo;re registering with the details on your AUSS account.
+              </p>
 
-              <div>
-                <label className="block text-white/60 mb-1.5" style={labelStyle}>
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className={inputCls}
-                  style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                  disabled={submitting}
-                />
-                {fieldErrors.email && (
-                  <p className="mt-1.5 text-red-400" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
-                    {fieldErrors.email}
-                  </p>
+              <div className="rounded-xl bg-white/[0.04] border border-white/10 p-4 space-y-2">
+                {displayName && (
+                  <div>
+                    <span className="block text-white/40" style={labelStyle}>Name</span>
+                    <span className="text-white" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+                      {displayName}
+                    </span>
+                  </div>
                 )}
-              </div>
-
-              <div>
-                <label htmlFor="rsvp-student-id" className="block text-white/60 mb-1.5" style={labelStyle}>
-                  Student ID (optional)
-                </label>
-                <input
-                  id="rsvp-student-id"
-                  type="text"
-                  value={studentId}
-                  onChange={(e) => setStudentId(e.target.value)}
-                  placeholder="e.g. z1234567"
-                  className={inputCls}
-                  style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}
-                  disabled={submitting}
-                  aria-describedby="rsvp-student-id-help"
-                />
-                <p id="rsvp-student-id-help" className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
-                  Non-UoA members can leave this blank. If provided, it may be visible to authorised event organisers.
-                </p>
+                <div>
+                  <span className="block text-white/40" style={labelStyle}>Email</span>
+                  <span className="text-white" style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif' }}>
+                    {user?.email}
+                  </span>
+                </div>
               </div>
 
               {apiError && (
@@ -269,7 +283,7 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
                   style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
                 >
                   {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {submitting ? 'Submitting...' : 'Submit RSVP'}
+                  {submitting ? 'Registering...' : 'Confirm RSVP'}
                 </button>
               </div>
             </form>

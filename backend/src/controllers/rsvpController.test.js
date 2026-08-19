@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL ||= 'postgresql://user:pass@localhost:5432/test';
 
-let createdData = null;
+// Originally added in #59 to pin the optional-student-ID behaviour. KAN-178
+// removed the field from RSVP entirely (it can't be sourced from the account —
+// UserInfo stores a one-way hash — and KAN-185 makes it optional at
+// registration), so these now pin the exact export output under the new schema.
+
 let exportRows = [];
 
 globalThis.prisma = {
@@ -12,115 +16,33 @@ globalThis.prisma = {
   activity: {
     findUnique: async () => ({ id: 1, isPublished: true, capacity: null }),
   },
-  user: {
-    findUnique: async () => null,
-  },
   rsvp: {
     count: async () => 0,
-    create: async ({ data }) => {
-      createdData = data;
-      return { id: 1, ...data, createdAt: new Date('2026-08-18T00:00:00.000Z') };
-    },
     findMany: async () => exportRows,
   },
 };
 
-const { createRsvp, exportRsvpsCsv } = await import('./rsvpController.js');
+const { exportRsvpsCsv } = await import('./rsvpController.js');
 
 function responseMock() {
   return {
     statusCode: 200,
     body: undefined,
     headers: {},
-    status(code) {
-      this.statusCode = code;
-      return this;
-    },
-    json(body) {
-      this.body = body;
-      return this;
-    },
-    send(body) {
-      this.body = body;
-      return this;
-    },
-    setHeader(name, value) {
-      this.headers[name] = value;
-    },
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    send(body) { this.body = body; return this; },
+    setHeader(name, value) { this.headers[name] = value; },
   };
 }
 
-test('RSVP accepts an omitted student ID and stores null', async () => {
-  createdData = null;
-  const response = responseMock();
-
-  await createRsvp(
-    {
-      params: { id: '1' },
-      body: { name: ' Alex Member ', email: ' ALEX@example.com ' },
-    },
-    response,
-  );
-
-  assert.equal(response.statusCode, 201);
-  assert.deepEqual(createdData, {
-    activityId: 1,
-    userId: null,
-    name: 'Alex Member',
-    email: 'alex@example.com',
-    studentId: null,
-  });
-});
-
-test('RSVP trims a supplied student ID', async () => {
-  createdData = null;
-  const response = responseMock();
-
-  await createRsvp(
-    {
-      params: { id: '1' },
-      body: {
-        name: 'Alex Member',
-        email: 'alex@example.com',
-        studentId: ' 123456789 ',
-      },
-    },
-    response,
-  );
-
-  assert.equal(response.statusCode, 201);
-  assert.equal(createdData.studentId, '123456789');
-});
-
-test('RSVP rejects an overlong supplied student ID', async () => {
-  createdData = null;
-  const response = responseMock();
-
-  await createRsvp(
-    {
-      params: { id: '1' },
-      body: {
-        name: 'Alex Member',
-        email: 'alex@example.com',
-        studentId: '1'.repeat(41),
-      },
-    },
-    response,
-  );
-
-  assert.equal(response.statusCode, 400);
-  assert.equal(response.body.error, 'studentId must be 40 characters or fewer');
-  assert.equal(createdData, null);
-});
-
-test('RSVP CSV export renders a missing student ID as an empty cell', async () => {
+test('RSVP CSV export has no Student ID column (KAN-178)', async () => {
   exportRows = [
     {
       id: 1,
       activityId: 1,
       name: 'Alex Member',
       email: 'alex@example.com',
-      studentId: null,
       createdAt: new Date('2026-08-18T00:00:00.000Z'),
     },
   ];
@@ -131,9 +53,38 @@ test('RSVP CSV export renders a missing student ID as an empty cell', async () =
   assert.equal(response.statusCode, 200);
   assert.equal(
     response.body,
-    'Name,Email,Student ID,Registration Date\r\n' +
-      'Alex Member,alex@example.com,,2026-08-18T00:00:00.000Z\r\n',
+    'Name,Email,Registration Date\r\n' +
+      'Alex Member,alex@example.com,2026-08-18T00:00:00.000Z\r\n',
   );
+  // Carried over from #59: no placeholder text should leak into the file.
   assert.equal(response.body.includes('null'), false);
   assert.equal(response.body.includes('undefined'), false);
+  assert.equal(response.body.includes('Student ID'), false);
+});
+
+test('RSVP CSV export escapes values containing commas and quotes', async () => {
+  exportRows = [
+    {
+      id: 2,
+      activityId: 1,
+      name: 'Member, Awkward "Quoted"',
+      email: 'awkward@example.com',
+      createdAt: new Date('2026-08-18T00:00:00.000Z'),
+    },
+  ];
+  const response = responseMock();
+
+  await exportRsvpsCsv({ params: { id: '1' } }, response);
+
+  assert.match(response.body, /"Member, Awkward ""Quoted"""/);
+});
+
+test('RSVP CSV export sets download headers', async () => {
+  exportRows = [];
+  const response = responseMock();
+
+  await exportRsvpsCsv({ params: { id: '1' } }, response);
+
+  assert.match(response.headers['Content-Type'], /text\/csv/);
+  assert.match(response.headers['Content-Disposition'], /attachment; filename="rsvps-1\.csv"/);
 });

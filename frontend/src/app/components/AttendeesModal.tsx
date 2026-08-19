@@ -9,7 +9,6 @@ interface RsvpRow {
   id: number;
   name: string;
   email: string;
-  studentId: string | null;
   createdAt: string;
 }
 
@@ -17,8 +16,6 @@ interface RawRsvp {
   id: number;
   name: string;
   email: string;
-  studentID?: string | null;
-  studentId?: string | null;
   createdAt: string;
 }
 
@@ -45,7 +42,6 @@ function normaliseRsvp(r: RawRsvp): RsvpRow {
     id: r.id,
     name: r.name,
     email: r.email,
-    studentId: r.studentId ?? r.studentID ?? null,
     createdAt: r.createdAt,
   };
 }
@@ -266,7 +262,6 @@ export function AttendeesModal({ activityId, activityTitle, onClose }: Attendees
                     <tr>
                       <th className="px-4 py-3 font-medium">Name</th>
                       <th className="px-4 py-3 font-medium">Email</th>
-                      <th className="px-4 py-3 font-medium">Student ID</th>
                       <th className="px-4 py-3 font-medium">Registration Date</th>
                       <th className="px-4 py-3 font-medium text-right">Action</th>
                     </tr>
@@ -286,7 +281,6 @@ export function AttendeesModal({ activityId, activityTitle, onClose }: Attendees
                               {r.email}
                             </a>
                           </td>
-                          <td className="px-4 py-3 align-top text-white/70">{r.studentId || '—'}</td>
                           <td className="px-4 py-3 align-top text-white/60 whitespace-nowrap">
                             <span className="inline-flex items-center gap-1.5">
                               <Calendar className="w-3.5 h-3.5 shrink-0" />
