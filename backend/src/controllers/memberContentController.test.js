@@ -22,7 +22,7 @@ globalThis.prisma = {
   },
 };
 
-const { getMemberContent } = await import('./memberContentController.js');
+const { getMemberContent, getAnnouncements } = await import('./memberContentController.js');
 
 function mockRes() {
   return {
@@ -36,6 +36,12 @@ function mockRes() {
 async function run() {
   const res = mockRes();
   await getMemberContent({}, res);
+  return res;
+}
+
+async function runAnnouncements() {
+  const res = mockRes();
+  await getAnnouncements({}, res);
   return res;
 }
 
@@ -94,6 +100,40 @@ test('tolerates missing metadata and unknown types without leaking them', async 
 test('returns 500 when the query fails, without throwing', async () => {
   findManyShouldThrow = true;
   const res = await run();
+  assert.equal(res.code, 500);
+  assert.equal(res.body.error, 'Internal server error');
+});
+
+// ── getAnnouncements — PUBLIC, ungated club updates ────────────────────────
+
+test('announcements query only PUBLIC, active ANNOUNCEMENT rows — never members-only perks', async () => {
+  await runAnnouncements();
+  assert.deepEqual(findManyArgs.where, {
+    type: 'ANNOUNCEMENT',
+    visibility: 'PUBLIC',
+    isActive: true,
+  });
+});
+
+test('maps announcement rows, deriving isNew from metadata and exposing publishedAt', async () => {
+  const publishedAt = new Date('2026-05-10T00:00:00.000Z');
+  rows = [
+    { id: 11, type: 'ANNOUNCEMENT', title: 'Schedule', body: 'New times', metadata: { isNew: true }, publishedAt },
+    { id: 13, type: 'ANNOUNCEMENT', title: 'AGM', body: 'Notes', metadata: { isNew: false }, publishedAt },
+    { id: 14, type: 'ANNOUNCEMENT', title: 'Legacy', body: 'No meta', metadata: null, publishedAt },
+  ];
+  const res = await runAnnouncements();
+  assert.equal(res.code, 200);
+  assert.deepEqual(res.body, [
+    { id: 11, title: 'Schedule', content: 'New times', publishedAt, isNew: true },
+    { id: 13, title: 'AGM', content: 'Notes', publishedAt, isNew: false },
+    { id: 14, title: 'Legacy', content: 'No meta', publishedAt, isNew: false },
+  ]);
+});
+
+test('announcements return 500 when the query fails, without throwing', async () => {
+  findManyShouldThrow = true;
+  const res = await runAnnouncements();
   assert.equal(res.code, 500);
   assert.equal(res.body.error, 'Internal server error');
 });

@@ -206,6 +206,16 @@ interface MemberContent {
   privateLinks: PrivateLink[];
 }
 
+// Public club announcements — fetched from GET /api/announcements. These are NOT
+// gated (every dashboard visitor sees them); they were previously hardcoded here.
+interface Announcement {
+  id: number;
+  title: string;
+  content: string;
+  publishedAt: string;
+  isNew: boolean;
+}
+
 // Non-sensitive placeholders shown (blurred) to non-members so the locked
 // sections still convey what's behind them. Deliberately fake: no real sponsor
 // code appears here, so grepping the built bundle for a live code finds nothing.
@@ -349,6 +359,11 @@ export function MemberDashboard() {
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
 
+  // Public announcements — served ungated from GET /api/announcements.
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
+
   // Executive invitation state
   const [inviteToken, setInviteToken] = useState('');
   const [acceptingInvite, setAcceptingInvite] = useState(false);
@@ -389,6 +404,30 @@ export function MemberDashboard() {
       }
     };
     loadActivities();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Announcements are public and ungated, so (like activities) they load for
+  // every visitor regardless of membership status — no auth header needed.
+  useEffect(() => {
+    let cancelled = false;
+    const loadAnnouncements = async () => {
+      try {
+        setAnnouncementsLoading(true);
+        setAnnouncementsError(null);
+        const res = await fetch('/api/announcements');
+        if (!res.ok) throw new Error('Failed to load announcements');
+        const data = await res.json();
+        if (!cancelled) setAnnouncements(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!cancelled) setAnnouncementsError(err instanceof Error ? err.message : 'Failed to load announcements');
+      } finally {
+        if (!cancelled) setAnnouncementsLoading(false);
+      }
+    };
+    loadAnnouncements();
     return () => {
       cancelled = true;
     };
@@ -506,6 +545,9 @@ export function MemberDashboard() {
   const upcomingEvents = activities
     .filter((a) => new Date(a.endTime).getTime() > now)
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+  // "New Updates" stat — derived from announcements flagged new (was hardcoded 3).
+  const newUpdatesCount = announcements.filter((a) => a.isNew).length;
 
   // Render the body of a gated section. For non-members we show blurred, fake
   // placeholders (the CollapsibleSection blur overlay hides them). For members
@@ -930,7 +972,7 @@ export function MemberDashboard() {
                  <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 sm:p-4">
                    <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-[#eb7524] mb-2" />
                    <p className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
-                     3
+                     {announcementsLoading ? '—' : newUpdatesCount}
                    </p>
                    <p className="text-white/40" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
                      New Updates
@@ -1076,63 +1118,52 @@ export function MemberDashboard() {
             )}
           </CollapsibleSection>
 
-          {/* Announcements */}
+          {/* Announcements (public, server-driven) */}
           <CollapsibleSection title="Announcements" icon={Bell} defaultOpen={true}>
-            <div className="space-y-3">
-              {[
-                {
-                  title: 'New Training Schedule Released',
-                  date: 'May 10, 2026',
-                  content: 'Check out our updated training times for Semester 2. Now with extra Saturday sessions!',
-                  isNew: true,
-                },
-                {
-                  title: 'Competition Registration Open',
-                  date: 'May 8, 2026',
-                  content: 'Sign up for the Auckland University Strength Championship. Early bird pricing ends May 20th.',
-                  isNew: true,
-                },
-                {
-                  title: 'AGM Summary',
-                  date: 'May 1, 2026',
-                  content: 'Thank you to everyone who attended! View the meeting notes and upcoming initiatives.',
-                  isNew: false,
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
-                >
-                  <div className="flex items-start gap-3">
-                    {item.isNew && (
-                      <div className="w-2 h-2 bg-[#eb7524] rounded-full mt-2 flex-shrink-0" />
-                    )}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4
-                          className="text-white"
-                          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+            {announcementsLoading ? (
+              <SectionLoadingRow />
+            ) : announcementsError ? (
+              <SectionErrorRow message={announcementsError} />
+            ) : announcements.length === 0 ? (
+              <SectionEmptyRow icon={Bell} label="No announcements right now. Check back soon!" />
+            ) : (
+              <div className="space-y-3">
+                {announcements.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
+                  >
+                    <div className="flex items-start gap-3">
+                      {item.isNew && (
+                        <div className="w-2 h-2 bg-[#eb7524] rounded-full mt-2 flex-shrink-0" />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4
+                            className="text-white"
+                            style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                          >
+                            {item.title}
+                          </h4>
+                        </div>
+                        <p
+                          className="text-white/30 mb-2"
+                          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
                         >
-                          {item.title}
-                        </h4>
+                          {formatEventDate(item.publishedAt)}
+                        </p>
+                        <p
+                          className="text-white/50"
+                          style={{ fontSize: '14px', lineHeight: 1.5, fontFamily: 'Inter, sans-serif' }}
+                        >
+                          {item.content}
+                        </p>
                       </div>
-                      <p
-                        className="text-white/30 mb-2"
-                        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.date}
-                      </p>
-                      <p
-                        className="text-white/50"
-                        style={{ fontSize: '14px', lineHeight: 1.5, fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.content}
-                      </p>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CollapsibleSection>
 
           {/* Exclusive Content (server-gated — KAN-167) */}

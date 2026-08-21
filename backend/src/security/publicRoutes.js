@@ -30,6 +30,10 @@ export const PUBLIC_ROUTES = Object.freeze([
   route("GET", "/api/activities"),
   route("GET", "/api/activities/:id/rsvp/count"),
   route("GET", "/api/sponsorship"),
+  // Non-sensitive club announcements shown on the member dashboard to every
+  // visitor (verified or not). Members-only perks stay on the authenticated
+  // /api/member/content route; this only serves visibility=PUBLIC rows.
+  route("GET", "/api/announcements"),
   route("GET", "/api/faq"),
   route("GET", "/api/executives"),
   route("GET", "/api/media-entries"),

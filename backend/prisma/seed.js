@@ -383,14 +383,50 @@ async function main() {
       url: 'https://canvas.auckland.ac.nz',
       displayOrder: 4,
     },
+    // ── Announcements (PUBLIC — shown to every dashboard visitor) ────────────
+    // Previously hardcoded in MemberDashboard.tsx. Unlike the perks above these
+    // are non-sensitive and ungated, so they carry visibility: 'PUBLIC' and are
+    // served by GET /api/announcements. `publishedAt` is a real timestamp the
+    // client formats; `metadata.isNew` drives the "New Updates" badge/count.
+    {
+      id: 11,
+      type: 'ANNOUNCEMENT',
+      title: 'New Training Schedule Released',
+      body: 'Check out our updated training times for Semester 2. Now with extra Saturday sessions!',
+      metadata: { isNew: true },
+      visibility: 'PUBLIC',
+      publishedAt: new Date('2026-05-10T00:00:00.000Z'),
+      displayOrder: 1,
+    },
+    {
+      id: 12,
+      type: 'ANNOUNCEMENT',
+      title: 'Competition Registration Open',
+      body: 'Sign up for the Auckland University Strength Championship. Early bird pricing ends May 20th.',
+      metadata: { isNew: true },
+      visibility: 'PUBLIC',
+      publishedAt: new Date('2026-05-08T00:00:00.000Z'),
+      displayOrder: 2,
+    },
+    {
+      id: 13,
+      type: 'ANNOUNCEMENT',
+      title: 'AGM Summary',
+      body: 'Thank you to everyone who attended! View the meeting notes and upcoming initiatives.',
+      metadata: { isNew: false },
+      visibility: 'PUBLIC',
+      publishedAt: new Date('2026-05-01T00:00:00.000Z'),
+      displayOrder: 3,
+    },
   ];
 
   for (const item of memberContentSeed) {
-    const { id, ...rest } = item;
+    // Perks default to MEMBERS visibility; announcements set PUBLIC explicitly.
+    const { id, visibility = 'MEMBERS', ...rest } = item;
     await prisma.memberContent.upsert({
       where: { id },
-      update: { ...rest, visibility: 'MEMBERS', isActive: true },
-      create: { id, ...rest, visibility: 'MEMBERS', isActive: true },
+      update: { ...rest, visibility, isActive: true },
+      create: { id, ...rest, visibility, isActive: true },
     });
   }
 

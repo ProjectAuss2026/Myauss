@@ -53,6 +53,19 @@ function toPrivateLink(row) {
   };
 }
 
+function toAnnouncement(row) {
+  const meta = metaOf(row);
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.body,
+    // Real timestamp column so the client can format/relative-date it; the old
+    // hardcoded version shipped a pre-formatted string.
+    publishedAt: row.publishedAt,
+    isNew: meta.isNew === true,
+  };
+}
+
 /**
  * GET /api/member/content — VERIFIED members only.
  *
@@ -96,6 +109,33 @@ export const getMemberContent = async (req, res) => {
     return res.json(grouped);
   } catch (err) {
     logger.error({ err }, 'getMemberContent error:');
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * GET /api/announcements — PUBLIC dashboard announcements.
+ *
+ * Announcements are non-sensitive club updates shown to every dashboard visitor
+ * (verified or not), so unlike getMemberContent this handler is intentionally
+ * NOT gated behind `requireVerifiedMembership` — it is a public route. The
+ * `visibility = PUBLIC` filter in the query guarantees no members-only row is
+ * ever served here, mirroring the members-only filter on getMemberContent.
+ */
+export const getAnnouncements = async (_req, res) => {
+  try {
+    const rows = await prisma.memberContent.findMany({
+      where: {
+        type: MEMBER_CONTENT_TYPE.ANNOUNCEMENT,
+        visibility: 'PUBLIC',
+        isActive: true,
+      },
+      orderBy: [{ displayOrder: 'asc' }, { publishedAt: 'desc' }],
+    });
+
+    return res.json(rows.map(toAnnouncement));
+  } catch (err) {
+    logger.error({ err }, 'getAnnouncements error:');
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
