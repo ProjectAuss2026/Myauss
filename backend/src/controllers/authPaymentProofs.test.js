@@ -15,6 +15,10 @@ delete process.env.SMTP_USER;
 delete process.env.SMTP_PASS;
 
 const STRONG_TEST_PASSWORD = "CorrectHorseBatteryStaple!2026";
+const REQUIRED_CONSENTS = {
+  privacyPolicyConsent: true,
+  membershipAgreementConsent: true,
+};
 const VALID_PROOF_UPLOAD_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 const JPEG_BYTES = Buffer.from([
@@ -632,6 +636,7 @@ test("registration with Cash / Bank Transfer paymentMethod is ignored (decoupled
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "cash@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Cash",
@@ -653,6 +658,7 @@ test("registration with proofUploadIds does not link them (payment is now post-r
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "cash@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Cash",
@@ -679,6 +685,7 @@ test("registration with Cash / Bank Transfer creates user as INACTIVE (not IN_RE
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "cash@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Cash",
@@ -701,6 +708,7 @@ test("normal registration path still works", async () => {
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "member@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Normal",

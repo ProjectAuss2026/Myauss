@@ -151,7 +151,9 @@ function fillRegisterFields() {
   fireEvent.change(screen.getByPlaceholderText("Confirm your password"), {
     target: { value: "CorrectHorseBatteryStaple!2026" },
   });
-  fireEvent.click(screen.getByRole("checkbox"));
+  screen.getAllByRole("checkbox").forEach((checkbox) => {
+    fireEvent.click(checkbox);
+  });
 }
 
 function createProofFile(name = "receipt.jpg", type = "image/jpeg") {

@@ -17,6 +17,7 @@ import { Activities } from './pages/Activities';
 import { ActivityDetails } from './pages/ActivityDetails';
 import { ActivateMembership } from './pages/ActivateMembership';
 import { MediaGallery } from './pages/MediaGallery';
+import { Privacy } from './pages/Privacy';
 
 export const router = createBrowserRouter([
   {
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
       { path: 'activities', Component: Activities },
       { path: 'activities/:id', Component: ActivityDetails },
       { path: 'media', Component: MediaGallery },
+      { path: 'privacy', Component: Privacy },
       { path: 'verify-membership', Component: ActivateMembership },
       { path: 'membership/pay', Component: () => <Navigate to="/verify-membership" replace /> },
       { path: 'manage', Component: ManageLinks },

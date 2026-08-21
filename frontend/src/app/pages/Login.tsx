@@ -254,6 +254,8 @@ export function Login() {
   const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
   const [regStudentId, setRegStudentId] = useState("");
+  const [regPrivacyConsent, setRegPrivacyConsent] = useState(false);
+  const [regMembershipConsent, setRegMembershipConsent] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
@@ -389,6 +391,8 @@ export function Login() {
         firstName: regFirstName,
         lastName: regLastName,
         studentId: regStudentId.trim() || null,
+        privacyPolicyConsent: regPrivacyConsent,
+        membershipAgreementConsent: regMembershipConsent,
       };
 
       const res = await fetch("/api/auth/register", {
@@ -1004,14 +1008,18 @@ export function Login() {
 
                     <div className="flex items-start gap-2 pt-1">
                       <input
-                        id="regTos"
+                        id="regPrivacyConsent"
                         type="checkbox"
+                        checked={regPrivacyConsent}
+                        onChange={(event) =>
+                          setRegPrivacyConsent(event.target.checked)
+                        }
                         className="w-4 h-4 rounded bg-white/5 border-white/10 accent-[#eb7524] mt-0.5"
+                        aria-label="I agree to the AUSS Privacy Policy"
                         aria-required="true"
                         required
                       />
-                      <label
-                        htmlFor="regTos"
+                      <p
                         className="text-white/40"
                         style={{
                           fontSize: "13px",
@@ -1022,14 +1030,48 @@ export function Login() {
                         <span className="text-red-400 mr-0.5" aria-hidden="true">
                           *
                         </span>
-                        I agree to the AUSS{" "}
-                        <span className="text-[#eb7524]/70 hover:text-[#eb7524] cursor-pointer transition-colors">
-                          Terms of Service
-                        </span>{" "}
-                        and{" "}
-                        <span className="text-[#eb7524]/70 hover:text-[#eb7524] cursor-pointer transition-colors">
+                        <label htmlFor="regPrivacyConsent">
+                          I agree to the AUSS{" "}
+                        </label>
+                        <a
+                          href="/privacy"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#eb7524]/70 hover:text-[#eb7524] underline underline-offset-2 transition-colors"
+                        >
                           Privacy Policy
+                        </a>
+                        .
+                      </p>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <input
+                        id="regMembershipConsent"
+                        type="checkbox"
+                        checked={regMembershipConsent}
+                        onChange={(event) =>
+                          setRegMembershipConsent(event.target.checked)
+                        }
+                        className="w-4 h-4 rounded bg-white/5 border-white/10 accent-[#eb7524] mt-0.5"
+                        aria-required="true"
+                        required
+                      />
+                      <label
+                        htmlFor="regMembershipConsent"
+                        className="text-white/40"
+                        style={{
+                          fontSize: "13px",
+                          fontFamily: "Inter, sans-serif",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <span className="text-red-400 mr-0.5" aria-hidden="true">
+                          *
                         </span>
+                        I agree, by entering my name, to be a member of Auckland
+                        University Strength Society Incorporated and to be
+                        subject to the Society's constitution and by-laws.
                       </label>
                     </div>
 
