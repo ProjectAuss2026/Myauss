@@ -43,6 +43,9 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   // PUBLIC_ROUTES — events are no longer open to non-members or walk-ins.
   route("POST", "/api/activities/:id/rsvp"),
   route("GET", "/api/auth/me"),
+  // Member event pass (KAN-180) — the member's own QR value and its reset.
+  route("GET", "/api/auth/me/pass"),
+  route("POST", "/api/auth/me/pass/reset"),
   route("DELETE", "/api/auth/me/info"),
   route("POST", "/api/auth/payment-proofs/pending"),
   route("DELETE", "/api/auth/payment-proofs/pending/:proofUploadId"),
@@ -75,6 +78,9 @@ export const ADMIN_ROUTES = Object.freeze([
   route("GET", "/api/activities/:id/rsvps"),
   route("GET", "/api/activities/:id/rsvps/export"),
   route("DELETE", "/api/activities/:id/rsvps/:rsvpId"),
+  // Event check-in (KAN-180) — exec-facing, admin-gated server-side.
+  route("POST", "/api/activities/:id/check-in"),
+  route("GET", "/api/activities/:id/check-in/attendees"),
   route("PATCH", "/api/sponsorship"),
   route("POST", "/api/sponsors"),
   route("PATCH", "/api/sponsors/:id"),

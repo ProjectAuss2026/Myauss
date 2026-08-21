@@ -17,6 +17,7 @@ import { Activities } from './pages/Activities';
 import { ActivityDetails } from './pages/ActivityDetails';
 import { ActivateMembership } from './pages/ActivateMembership';
 import { MediaGallery } from './pages/MediaGallery';
+import { CheckIn } from './pages/CheckIn';
 
 export const router = createBrowserRouter([
   {
@@ -40,6 +41,9 @@ export const router = createBrowserRouter([
       { path: 'membership/pay', Component: () => <Navigate to="/verify-membership" replace /> },
       { path: 'manage', Component: ManageLinks },
       { path: 'admin', Component: Admin },
+      // Exec-facing event check-in scanner (KAN-180). Admin-gated server-side;
+      // the route guard only keeps it out of members' way.
+      { path: 'admin/check-in', Component: CheckIn },
       { path: '*', Component: NotFound },
     ],
   },

@@ -32,6 +32,7 @@ import {
   Camera,
   ExternalLink,
   LogOut,
+  ScanLine,
   Shield,
   Image as ImageIcon,
   Loader2,
@@ -1650,14 +1651,27 @@ export function Admin() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all cursor-pointer"
-              style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
-            >
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Event check-in (KAN-180). A separate full-screen route rather
+                  than a tab — it's used one-handed at the door, not alongside
+                  the admin panels. */}
+              <button
+                onClick={() => navigate("/admin/check-in")}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+                style={{ fontSize: "14px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}
+              >
+                <ScanLine className="w-4 h-4" />
+                Event Check-In
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all cursor-pointer"
+                style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}
