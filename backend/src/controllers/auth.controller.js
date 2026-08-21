@@ -17,6 +17,7 @@ import {
 import { hashStudentId, isStudentIdHashError } from "../utils/studentIdHash.js";
 import logger from "../utils/logger.js";
 import { isValidEmail } from "../utils/emailValidation.js";
+import { buildMemberPass, isMemberPassError } from "../utils/memberPass.js";
 import {
   forgotPasswordEmailThrottle,
   forgotPasswordIpLimiter,
@@ -1290,6 +1291,53 @@ router.post("/logout", async (req, res) => {
 });
 
 // ── GET /auth/me ────────────────────────────────────────────────────
+// ── GET /auth/me/pass ───────────────────────────────────────────────
+// The member's event pass QR value (KAN-180). Derived, not stored: the server
+// signs it on request, so there is no secret at rest per member and nothing to
+// migrate. Stable until the member resets it, so a screenshot still scans at a
+// venue with no signal.
+router.get("/me/pass", authenticate, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, qrVersion: true },
+    });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    return res.status(200).json({ pass: buildMemberPass(user) });
+  } catch (err) {
+    if (isMemberPassError(err)) {
+      logger.error({ err }, "Member pass configuration error:");
+      return res.status(500).json({ error: "Member passes are not configured" });
+    }
+    logger.error({ err }, "Member pass error:");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /auth/me/pass/reset ────────────────────────────────────────
+// Revokes the member's current pass by bumping qrVersion. Instant, scoped to
+// this member only, and never touches User.id (19 tables foreign-key to it).
+router.post("/me/pass/reset", authenticate, async (req, res) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { qrVersion: { increment: 1 } },
+      select: { id: true, qrVersion: true },
+    });
+    logger.info({ userId: user.id, qrVersion: user.qrVersion }, "Member pass reset");
+    return res.status(200).json({ pass: buildMemberPass(user) });
+  } catch (err) {
+    if (isMemberPassError(err)) {
+      logger.error({ err }, "Member pass configuration error:");
+      return res.status(500).json({ error: "Member passes are not configured" });
+    }
+    logger.error({ err }, "Member pass reset error:");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/me", authenticate, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({

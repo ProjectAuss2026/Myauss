@@ -17,7 +17,10 @@ const createSecurityHeaders = ({
 }) => ({
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  // camera=(self): the exec check-in scanner (KAN-180) needs getUserMedia on our
+  // own origin. camera=() denied it to everyone including us. Microphone and
+  // geolocation stay fully denied, and no third-party origin is granted access.
+  "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
   "X-Frame-Options": "DENY",
   "Content-Security-Policy": createContentSecurityPolicy({
     env,
