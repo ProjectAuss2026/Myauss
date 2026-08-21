@@ -24,6 +24,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { RSVPModal } from '../components/RSVPModal';
 import { MembershipPromptModal } from '../components/MembershipPromptModal';
+import { fetchWithAuth } from '../lib/authFetch';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -176,6 +177,94 @@ interface Activity {
   capacity: number | null;
 }
 
+// Gated member perks (KAN-167). These are fetched from the authenticated,
+// VERIFIED-membership endpoint GET /api/member/content — they are NOT bundled
+// with the app, so the real sponsor codes never ship to non-members.
+interface DiscountCode {
+  id: number;
+  sponsor: string;
+  code: string;
+  discount: string;
+  tier: string | null;
+}
+interface ExclusiveItem {
+  id: number;
+  title: string;
+  description: string;
+  tag: string | null;
+  url: string | null;
+}
+interface PrivateLink {
+  id: number;
+  title: string;
+  description: string | null;
+  url: string;
+}
+interface MemberContent {
+  discountCodes: DiscountCode[];
+  exclusiveContent: ExclusiveItem[];
+  privateLinks: PrivateLink[];
+}
+
+// Public club announcements — fetched from GET /api/announcements. These are NOT
+// gated (every dashboard visitor sees them); they were previously hardcoded here.
+interface Announcement {
+  id: number;
+  title: string;
+  content: string;
+  publishedAt: string;
+  isNew: boolean;
+}
+
+// Non-sensitive placeholders shown (blurred) to non-members so the locked
+// sections still convey what's behind them. Deliberately fake: no real sponsor
+// code appears here, so grepping the built bundle for a live code finds nothing.
+const PLACEHOLDER_DISCOUNTS: DiscountCode[] = [
+  { id: -1, sponsor: 'Sponsor Partner', code: '••••••', discount: 'Members-only discount', tier: 'Platinum' },
+  { id: -2, sponsor: 'Sponsor Partner', code: '••••••', discount: 'Members-only offer', tier: 'Gold' },
+  { id: -3, sponsor: 'Sponsor Partner', code: '••••••', discount: 'Members-only perk', tier: 'Silver' },
+];
+const PLACEHOLDER_EXCLUSIVE: ExclusiveItem[] = [
+  { id: -1, title: 'Members-only guide', description: 'Unlock to view', tag: 'New', url: null },
+  { id: -2, title: 'Members-only program', description: 'Unlock to view', tag: 'Popular', url: null },
+  { id: -3, title: 'Members-only handbook', description: 'Unlock to view', tag: null, url: null },
+];
+const PLACEHOLDER_LINKS: PrivateLink[] = [
+  { id: -1, title: 'Members-only community', description: null, url: '••••••••••' },
+  { id: -2, title: 'Members-only drive', description: null, url: '••••••••••' },
+  { id: -3, title: 'Members-only chat', description: null, url: '••••••••••' },
+];
+
+function SectionLoadingRow() {
+  return (
+    <div className="flex items-center justify-center py-10">
+      <Loader2 className="w-6 h-6 text-[#eb7524] animate-spin" />
+    </div>
+  );
+}
+
+function SectionErrorRow({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center text-center py-8 gap-2">
+      <AlertCircle className="w-8 h-8 text-red-400/70" />
+      <p className="text-white/50" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+        {message}
+      </p>
+    </div>
+  );
+}
+
+function SectionEmptyRow({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+  return (
+    <div className="flex flex-col items-center text-center py-8 gap-2">
+      <Icon className="w-8 h-8 text-white/15" />
+      <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
 function getRoleLabel(role: string) {
   if (role === 'OWNER') return 'Owner';
   if (role === 'ADMIN') return 'Executive';
@@ -265,6 +354,16 @@ export function MemberDashboard() {
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [rsvpActivity, setRsvpActivity] = useState<Activity | null>(null);
 
+  // Gated member perks — fetched from the server (KAN-167), never bundled.
+  const [memberContent, setMemberContent] = useState<MemberContent | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+
+  // Public announcements — served ungated from GET /api/announcements.
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
+
   // Executive invitation state
   const [inviteToken, setInviteToken] = useState('');
   const [acceptingInvite, setAcceptingInvite] = useState(false);
@@ -309,6 +408,61 @@ export function MemberDashboard() {
       cancelled = true;
     };
   }, []);
+
+  // Announcements are public and ungated, so (like activities) they load for
+  // every visitor regardless of membership status — no auth header needed.
+  useEffect(() => {
+    let cancelled = false;
+    const loadAnnouncements = async () => {
+      try {
+        setAnnouncementsLoading(true);
+        setAnnouncementsError(null);
+        const res = await fetch('/api/announcements');
+        if (!res.ok) throw new Error('Failed to load announcements');
+        const data = await res.json();
+        if (!cancelled) setAnnouncements(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!cancelled) setAnnouncementsError(err instanceof Error ? err.message : 'Failed to load announcements');
+      } finally {
+        if (!cancelled) setAnnouncementsLoading(false);
+      }
+    };
+    loadAnnouncements();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch gated perks from the members-only endpoint. Only VERIFIED members (and
+  // staff) are entitled to them, so non-members never even make the request —
+  // they see the blurred placeholders instead. The endpoint enforces this
+  // server-side regardless (401/403), so this guard is purely to avoid a request
+  // that would be rejected.
+  useEffect(() => {
+    const hasStaffAccess = user?.role === 'ADMIN' || user?.role === 'OWNER';
+    const canAccess = hasStaffAccess || user?.membershipStatus === 'VERIFIED';
+    if (!canAccess) return;
+
+    let cancelled = false;
+    const loadContent = async () => {
+      try {
+        setContentLoading(true);
+        setContentError(null);
+        const res = await fetchWithAuth('/api/member/content');
+        if (!res.ok) throw new Error('Failed to load member content');
+        const data = await res.json();
+        if (!cancelled) setMemberContent(data);
+      } catch (err) {
+        if (!cancelled) setContentError(err instanceof Error ? err.message : 'Failed to load member content');
+      } finally {
+        if (!cancelled) setContentLoading(false);
+      }
+    };
+    loadContent();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.role, user?.membershipStatus]);
 
   const handleLogout = async () => {
     await logout();
@@ -391,6 +545,172 @@ export function MemberDashboard() {
   const upcomingEvents = activities
     .filter((a) => new Date(a.endTime).getTime() > now)
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+  // "New Updates" stat — derived from announcements flagged new (was hardcoded 3).
+  const newUpdatesCount = announcements.filter((a) => a.isNew).length;
+
+  // Render the body of a gated section. For non-members we show blurred, fake
+  // placeholders (the CollapsibleSection blur overlay hides them). For members
+  // we show the server-fetched content, with loading / error / empty states.
+  function gatedSection<T extends { id: number }>(
+    liveItems: T[],
+    placeholders: T[],
+    renderList: (items: T[]) => React.ReactNode,
+    emptyIcon: React.ElementType,
+    emptyLabel: string,
+  ): React.ReactNode {
+    if (membershipLocked) return renderList(placeholders);
+    if (contentError) return <SectionErrorRow message={contentError} />;
+    // memberContent is null until the fetch resolves (covers both the pre-effect
+    // first paint and the in-flight request), so members never flash an empty state.
+    if (contentLoading || !memberContent) return <SectionLoadingRow />;
+    if (liveItems.length === 0) return <SectionEmptyRow icon={emptyIcon} label={emptyLabel} />;
+    return renderList(liveItems);
+  }
+
+  const renderDiscountCodes = (items: DiscountCode[]) => (
+    <div className="space-y-3">
+      <p
+        className="text-white/60 mb-4"
+        style={{ fontSize: '14px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
+      >
+        Exclusive discounts from our sponsors — available only to AUSS members.
+      </p>
+      {items.map((item) => (
+        <div
+          key={item.id}
+          className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
+        >
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <div>
+              <h4
+                className="text-white mb-1"
+                style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+              >
+                {item.sponsor}
+              </h4>
+              <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                {item.discount}
+              </p>
+            </div>
+            {item.tier && (
+              <span
+                className={`px-2.5 py-1 rounded-lg text-[11px] ${
+                  item.tier === 'Platinum'
+                    ? 'bg-purple-500/20 text-purple-300'
+                    : item.tier === 'Gold'
+                    ? 'bg-yellow-500/20 text-yellow-300'
+                    : 'bg-gray-500/20 text-gray-300'
+                }`}
+                style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+              >
+                {item.tier}
+              </span>
+            )}
+          </div>
+          <div className="bg-black/40 border border-[#eb7524]/20 rounded-lg px-3 py-2 flex items-center justify-between">
+            <code
+              className="text-[#eb7524]"
+              style={{ fontSize: '14px', fontFamily: 'monospace', fontWeight: 600 }}
+            >
+              {item.code}
+            </code>
+            <button
+              onClick={() => navigator.clipboard.writeText(item.code)}
+              className="text-white/40 hover:text-white/70 transition-colors text-[12px] cursor-pointer"
+              style={{ fontFamily: 'Inter, sans-serif' }}
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderExclusiveContent = (items: ExclusiveItem[]) => (
+    <div className="space-y-3">
+      <p
+        className="text-white/60 mb-4"
+        style={{ fontSize: '14px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
+      >
+        Access member-only training guides, workout programs, and nutrition resources.
+      </p>
+      {items.map((item) => (
+        <div
+          key={item.id}
+          className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all group cursor-pointer"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h4
+                  className="text-white group-hover:text-[#eb7524] transition-colors"
+                  style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  {item.title}
+                </h4>
+                {item.tag && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] ${
+                      item.tag === 'New' ? 'bg-[#eb7524]/20 text-[#eb7524]' : 'bg-white/10 text-white/60'
+                    }`}
+                    style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+                  >
+                    {item.tag}
+                  </span>
+                )}
+              </div>
+              <p className="text-white/40" style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}>
+                {item.description}
+              </p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-white/20 group-hover:text-[#eb7524] group-hover:translate-x-1 transition-all flex-shrink-0" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderPrivateLinks = (items: PrivateLink[]) => (
+    <div className="space-y-3">
+      <p
+        className="text-white/60 mb-4"
+        style={{ fontSize: '14px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
+      >
+        Quick access to member-only platforms and resources.
+      </p>
+      {items.map((item) => (
+        <a
+          key={item.id}
+          href={membershipLocked ? undefined : item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-[#eb7524]/20 transition-all group cursor-pointer"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-1">
+              <div className="w-8 h-8 bg-[#eb7524]/10 rounded-lg flex items-center justify-center group-hover:bg-[#eb7524]/20 transition-colors">
+                <Link2 className="w-4 h-4 text-[#eb7524]" />
+              </div>
+              <div className="flex-1">
+                <h4
+                  className="text-white group-hover:text-[#eb7524] transition-colors"
+                  style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                >
+                  {item.title}
+                </h4>
+                <p className="text-white/30" style={{ fontSize: '12px', fontFamily: 'monospace' }}>
+                  {item.url}
+                </p>
+              </div>
+            </div>
+            <ExternalLink className="w-4 h-4 text-white/20 group-hover:text-[#eb7524] transition-colors flex-shrink-0" />
+          </div>
+        </a>
+      ))}
+    </div>
+  );
 
   return (
     <div className="bg-black min-h-screen relative overflow-hidden">
@@ -652,7 +972,7 @@ export function MemberDashboard() {
                  <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 sm:p-4">
                    <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-[#eb7524] mb-2" />
                    <p className="text-white" style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
-                     3
+                     {announcementsLoading ? '—' : newUpdatesCount}
                    </p>
                    <p className="text-white/40" style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}>
                      New Updates
@@ -798,254 +1118,85 @@ export function MemberDashboard() {
             )}
           </CollapsibleSection>
 
-          {/* Announcements */}
+          {/* Announcements (public, server-driven) */}
           <CollapsibleSection title="Announcements" icon={Bell} defaultOpen={true}>
-            <div className="space-y-3">
-              {[
-                {
-                  title: 'New Training Schedule Released',
-                  date: 'May 10, 2026',
-                  content: 'Check out our updated training times for Semester 2. Now with extra Saturday sessions!',
-                  isNew: true,
-                },
-                {
-                  title: 'Competition Registration Open',
-                  date: 'May 8, 2026',
-                  content: 'Sign up for the Auckland University Strength Championship. Early bird pricing ends May 20th.',
-                  isNew: true,
-                },
-                {
-                  title: 'AGM Summary',
-                  date: 'May 1, 2026',
-                  content: 'Thank you to everyone who attended! View the meeting notes and upcoming initiatives.',
-                  isNew: false,
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
-                >
-                  <div className="flex items-start gap-3">
-                    {item.isNew && (
-                      <div className="w-2 h-2 bg-[#eb7524] rounded-full mt-2 flex-shrink-0" />
-                    )}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4
-                          className="text-white"
-                          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                        >
-                          {item.title}
-                        </h4>
-                      </div>
-                      <p
-                        className="text-white/30 mb-2"
-                        style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.date}
-                      </p>
-                      <p
-                        className="text-white/50"
-                        style={{ fontSize: '14px', lineHeight: 1.5, fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.content}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CollapsibleSection>
-
-          {/* Exclusive Content */}
-          <CollapsibleSection title="Exclusive Content" icon={Lock} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
-            <div className="space-y-3">
-              <p
-                className="text-white/60 mb-4"
-                style={{ fontSize: '14px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
-              >
-                Access member-only training guides, workout programs, and nutrition resources.
-              </p>
-              {[
-                {
-                  title: 'Advanced Powerlifting Program',
-                  description: '12-week periodized strength training plan',
-                  tag: 'New',
-                },
-                {
-                  title: 'Nutrition Guide for Athletes',
-                  description: 'Evidence-based meal planning and macros',
-                  tag: 'Popular',
-                },
-                {
-                  title: 'Competition Prep Handbook',
-                  description: 'Everything you need for your first meet',
-                  tag: null,
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all group cursor-pointer"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4
-                          className="text-white group-hover:text-[#eb7524] transition-colors"
-                          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                        >
-                          {item.title}
-                        </h4>
-                        {item.tag && (
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[11px] ${
-                              item.tag === 'New' ? 'bg-[#eb7524]/20 text-[#eb7524]' : 'bg-white/10 text-white/60'
-                            }`}
-                            style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-                          >
-                            {item.tag}
-                          </span>
-                        )}
-                      </div>
-                      <p
-                        className="text-white/40"
-                        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.description}
-                      </p>
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-white/20 group-hover:text-[#eb7524] group-hover:translate-x-1 transition-all flex-shrink-0" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CollapsibleSection>
-
-          {/* Sponsor Discount Codes */}
-          <CollapsibleSection title="Sponsor Discount Codes" icon={Tag} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
-            <div className="space-y-3">
-              <p
-                className="text-white/60 mb-4"
-                style={{ fontSize: '14px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
-              >
-                Exclusive discounts from our sponsors — available only to AUSS members.
-              </p>
-              {[
-                {
-                  sponsor: 'FitNutrition',
-                  code: 'AUSS20',
-                  discount: '20% off supplements',
-                  tier: 'Platinum',
-                },
-                {
-                  sponsor: 'IronWorks Gym',
-                  code: 'AUSSFIT',
-                  discount: 'Free week pass',
-                  tier: 'Gold',
-                },
-                {
-                  sponsor: 'Athletic Apparel Co',
-                  code: 'STRENGTH15',
-                  discount: '15% off all gear',
-                  tier: 'Silver',
-                },
-              ].map((item) => (
-                <div
-                  key={item.sponsor}
-                  className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
-                >
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div>
-                      <h4
-                        className="text-white mb-1"
-                        style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                      >
-                        {item.sponsor}
-                      </h4>
-                      <p
-                        className="text-white/40"
-                        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
-                      >
-                        {item.discount}
-                      </p>
-                    </div>
-                    <span
-                      className={`px-2.5 py-1 rounded-lg text-[11px] ${
-                        item.tier === 'Platinum'
-                          ? 'bg-purple-500/20 text-purple-300'
-                          : item.tier === 'Gold'
-                          ? 'bg-yellow-500/20 text-yellow-300'
-                          : 'bg-gray-500/20 text-gray-300'
-                      }`}
-                      style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-                    >
-                      {item.tier}
-                    </span>
-                  </div>
-                  <div className="bg-black/40 border border-[#eb7524]/20 rounded-lg px-3 py-2 flex items-center justify-between">
-                    <code
-                      className="text-[#eb7524]"
-                      style={{ fontSize: '14px', fontFamily: 'monospace', fontWeight: 600 }}
-                    >
-                      {item.code}
-                    </code>
-                    <button
-                      onClick={() => navigator.clipboard.writeText(item.code)}
-                      className="text-white/40 hover:text-white/70 transition-colors text-[12px] cursor-pointer"
-                      style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CollapsibleSection>
-
-          {/* Private Links */}
-          <CollapsibleSection title="Private Links" icon={Link2} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
-            <div className="space-y-3">
-              <p
-                className="text-white/60 mb-4"
-                style={{ fontSize: '14px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
-              >
-                Quick access to member-only platforms and resources.
-              </p>
-              {[
-                { title: 'Members Discord Server', url: 'discord.gg/auss-members', icon: Sparkles },
-                { title: 'Training Drive (Google Drive)', url: 'drive.google.com/auss', icon: Lock },
-                { title: 'WhatsApp Community', url: 'chat.whatsapp.com/auss', icon: Bell },
-                { title: 'Member Portal (Canvas)', url: 'canvas.auckland.ac.nz', icon: ExternalLink },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-[#eb7524]/20 transition-all group cursor-pointer"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="w-8 h-8 bg-[#eb7524]/10 rounded-lg flex items-center justify-center group-hover:bg-[#eb7524]/20 transition-colors">
-                        <item.icon className="w-4 h-4 text-[#eb7524]" />
-                      </div>
+            {announcementsLoading ? (
+              <SectionLoadingRow />
+            ) : announcementsError ? (
+              <SectionErrorRow message={announcementsError} />
+            ) : announcements.length === 0 ? (
+              <SectionEmptyRow icon={Bell} label="No announcements right now. Check back soon!" />
+            ) : (
+              <div className="space-y-3">
+                {announcements.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/10 transition-all"
+                  >
+                    <div className="flex items-start gap-3">
+                      {item.isNew && (
+                        <div className="w-2 h-2 bg-[#eb7524] rounded-full mt-2 flex-shrink-0" />
+                      )}
                       <div className="flex-1">
-                        <h4
-                          className="text-white group-hover:text-[#eb7524] transition-colors"
-                          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-                        >
-                          {item.title}
-                        </h4>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4
+                            className="text-white"
+                            style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+                          >
+                            {item.title}
+                          </h4>
+                        </div>
                         <p
-                          className="text-white/30"
-                          style={{ fontSize: '12px', fontFamily: 'monospace' }}
+                          className="text-white/30 mb-2"
+                          style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
                         >
-                          {item.url}
+                          {formatEventDate(item.publishedAt)}
+                        </p>
+                        <p
+                          className="text-white/50"
+                          style={{ fontSize: '14px', lineHeight: 1.5, fontFamily: 'Inter, sans-serif' }}
+                        >
+                          {item.content}
                         </p>
                       </div>
                     </div>
-                    <ExternalLink className="w-4 h-4 text-white/20 group-hover:text-[#eb7524] transition-colors flex-shrink-0" />
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* Exclusive Content (server-gated — KAN-167) */}
+          <CollapsibleSection title="Exclusive Content" icon={Lock} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
+            {gatedSection(
+              memberContent?.exclusiveContent ?? [],
+              PLACEHOLDER_EXCLUSIVE,
+              renderExclusiveContent,
+              Lock,
+              'No exclusive content published yet.',
+            )}
+          </CollapsibleSection>
+
+          {/* Sponsor Discount Codes (server-gated — KAN-167) */}
+          <CollapsibleSection title="Sponsor Discount Codes" icon={Tag} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
+            {gatedSection(
+              memberContent?.discountCodes ?? [],
+              PLACEHOLDER_DISCOUNTS,
+              renderDiscountCodes,
+              Tag,
+              'No sponsor codes available yet.',
+            )}
+          </CollapsibleSection>
+
+          {/* Private Links (server-gated — KAN-167) */}
+          <CollapsibleSection title="Private Links" icon={Link2} locked={membershipLocked} pendingReview={isPendingReview} onUnlock={goToMembership}>
+            {gatedSection(
+              memberContent?.privateLinks ?? [],
+              PLACEHOLDER_LINKS,
+              renderPrivateLinks,
+              Link2,
+              'No private links available yet.',
+            )}
           </CollapsibleSection>
 
           {!hasAdminAccess && (
