@@ -864,6 +864,8 @@ export function Login() {
                       <input
                         id="regStudentId"
                         type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
                         value={regStudentId}
                         onChange={(e) => { setRegStudentId(e.target.value); if (fieldErrors.regStudentId) handleBlur('regStudentId', e.target.value); }}
                         onBlur={(e) => handleBlur('regStudentId', e.target.value)}
