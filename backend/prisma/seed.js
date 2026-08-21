@@ -289,6 +289,111 @@ async function main() {
     });
   }
 
+  // ── Member content (gated dashboard perks — KAN-167) ─────────────────────
+  // These rows back the members-only sections of the dashboard. They previously
+  // lived hardcoded in frontend/src/app/pages/MemberDashboard.tsx and were only
+  // CSS-blurred, so anyone could read them from the JS bundle. They now live
+  // here and are served only by the authenticated, VERIFIED-membership endpoint
+  // GET /api/member/content.
+  //
+  // NOTE FOR THE COMMITTEE: the discount codes below are the sample values that
+  // shipped in the old frontend. Confirm whether they are live sponsor codes or
+  // placeholders and replace them here (they are no longer public either way).
+  const memberContentSeed = [
+    {
+      id: 1,
+      type: 'DISCOUNT_CODE',
+      title: 'FitNutrition',
+      body: '20% off supplements',
+      code: 'AUSS20',
+      metadata: { tier: 'Platinum' },
+      displayOrder: 1,
+    },
+    {
+      id: 2,
+      type: 'DISCOUNT_CODE',
+      title: 'IronWorks Gym',
+      body: 'Free week pass',
+      code: 'AUSSFIT',
+      metadata: { tier: 'Gold' },
+      displayOrder: 2,
+    },
+    {
+      id: 3,
+      type: 'DISCOUNT_CODE',
+      title: 'Athletic Apparel Co',
+      body: '15% off all gear',
+      code: 'STRENGTH15',
+      metadata: { tier: 'Silver' },
+      displayOrder: 3,
+    },
+    {
+      id: 4,
+      type: 'EXCLUSIVE_CONTENT',
+      title: 'Advanced Powerlifting Program',
+      body: '12-week periodized strength training plan',
+      metadata: { tag: 'New' },
+      displayOrder: 1,
+    },
+    {
+      id: 5,
+      type: 'EXCLUSIVE_CONTENT',
+      title: 'Nutrition Guide for Athletes',
+      body: 'Evidence-based meal planning and macros',
+      metadata: { tag: 'Popular' },
+      displayOrder: 2,
+    },
+    {
+      id: 6,
+      type: 'EXCLUSIVE_CONTENT',
+      title: 'Competition Prep Handbook',
+      body: 'Everything you need for your first meet',
+      metadata: {},
+      displayOrder: 3,
+    },
+    {
+      id: 7,
+      type: 'PRIVATE_LINK',
+      title: 'Members Discord Server',
+      body: '',
+      url: 'https://discord.gg/auss-members',
+      displayOrder: 1,
+    },
+    {
+      id: 8,
+      type: 'PRIVATE_LINK',
+      title: 'Training Drive (Google Drive)',
+      body: '',
+      url: 'https://drive.google.com/auss',
+      displayOrder: 2,
+    },
+    {
+      id: 9,
+      type: 'PRIVATE_LINK',
+      title: 'WhatsApp Community',
+      body: '',
+      url: 'https://chat.whatsapp.com/auss',
+      displayOrder: 3,
+    },
+    {
+      id: 10,
+      type: 'PRIVATE_LINK',
+      title: 'Member Portal (Canvas)',
+      body: '',
+      url: 'https://canvas.auckland.ac.nz',
+      displayOrder: 4,
+    },
+  ];
+
+  for (const item of memberContentSeed) {
+    const { id, ...rest } = item;
+    await prisma.memberContent.upsert({
+      where: { id },
+      update: { ...rest, visibility: 'MEMBERS', isActive: true },
+      create: { id, ...rest, visibility: 'MEMBERS', isActive: true },
+    });
+  }
+
   // ── Optional secure owner bootstrap ──────────────────────────────────────
   const bootstrapEmail = String(process.env.OWNER_BOOTSTRAP_EMAIL || '').trim().toLowerCase();
   const bootstrapPassword = process.env.OWNER_BOOTSTRAP_PASSWORD;

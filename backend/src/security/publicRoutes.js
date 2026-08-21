@@ -42,6 +42,10 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   // Members-only with an active-membership gate (KAN-178). Moved out of
   // PUBLIC_ROUTES — events are no longer open to non-members or walk-ins.
   route("POST", "/api/activities/:id/rsvp"),
+  // Gated dashboard perks (KAN-167): authenticate + requireVerifiedMembership.
+  // 401 without a token, 403 for non-VERIFIED members; the members-only rows
+  // are never exposed on a public route.
+  route("GET", "/api/member/content"),
   route("GET", "/api/auth/me"),
   route("DELETE", "/api/auth/me/info"),
   route("POST", "/api/auth/payment-proofs/pending"),

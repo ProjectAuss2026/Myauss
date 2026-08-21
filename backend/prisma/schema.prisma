@@ -30,6 +30,15 @@ enum PaymentProofUploadStatus {
   LINKED
 }
 
+// Content visibility gate (KAN-167 / KAN-112). PUBLIC rows may be served on
+// unauthenticated routes; MEMBERS rows are returned ONLY by the authenticated,
+// membership-checked member endpoint. The filter is enforced in the query, not
+// just the UI — a blur/lock overlay in the browser is defence-in-depth only.
+enum Visibility {
+  PUBLIC
+  MEMBERS
+}
+
 model User {
   id                    String            @id @default(uuid())
   email                 String            @unique
@@ -236,6 +245,35 @@ model CommunicationLink {
   description String?  @db.VarChar(150) // Short description shown on the social card
   isActive    Boolean  @default(true) // Allows admins to temporarily hide a link
   updatedAt   DateTime @updatedAt
+}
+
+// --- MEMBER CONTENT ---
+// Gated dashboard perks — sponsor discount codes, exclusive content and private
+// links (KAN-167). Before this model these lived hardcoded in the frontend
+// bundle and were merely blurred with CSS, so anyone could read them from
+// devtools without paying. They now live server-side and are served only by the
+// authenticated, VERIFIED-membership endpoint (GET /api/member/content), with
+// the `visibility = MEMBERS` filter applied in the query itself.
+//
+// Deliberately generic (`type` + `title`/`body`/`url` + `metadata`) so new perk
+// kinds can be added without a schema change; `code` is broken out as a first-
+// class column because it is the sensitive value the whole story exists to gate.
+model MemberContent {
+  id           Int        @id @default(autoincrement())
+  type         String // 'DISCOUNT_CODE' | 'EXCLUSIVE_CONTENT' | 'PRIVATE_LINK' | 'ANNOUNCEMENT'
+  title        String
+  body         String     @db.Text
+  url          String? // for PRIVATE_LINK / EXCLUSIVE_CONTENT resources
+  code         String? // sponsor discount code — the gated secret (DISCOUNT_CODE)
+  metadata     Json? // type-specific extras, e.g. { tier, tag, discount }
+  visibility   Visibility @default(MEMBERS)
+  isActive     Boolean    @default(true)
+  displayOrder Int        @default(0)
+  publishedAt  DateTime   @default(now())
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([visibility, isActive])
 }
 
 // --- MEDIA CONFIG ---
