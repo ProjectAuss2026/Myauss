@@ -4,7 +4,10 @@ import http from "node:http";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { hashStudentId } from "../utils/studentIdHash.js";
-import { CURRENT_PRIVACY_POLICY_VERSION } from "../constants/consent.js";
+import {
+  CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
+  CURRENT_PRIVACY_POLICY_VERSION,
+} from "../constants/consent.js";
 
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL ||= "postgresql://user:pass@localhost:5432/test";
@@ -319,7 +322,7 @@ test("register rejects false membership agreement consent", async () => {
   assert.equal(calls.some((call) => call.name === "user.create"), false);
 });
 
-test("register stores both consent timestamps and the current privacy version", async () => {
+test("register stores both consent timestamps and current consent versions", async () => {
   resetState();
 
   const response = await requestApp(createApp(), {
@@ -340,6 +343,10 @@ test("register stores both consent timestamps and the current privacy version", 
     createCall.args.data.privacyPolicyVersion,
     CURRENT_PRIVACY_POLICY_VERSION,
   );
+  assert.equal(
+    createCall.args.data.membershipAgreementVersion,
+    CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
+  );
   assert.equal(createCall.args.data.privacyPolicyAcceptedAt instanceof Date, true);
   assert.equal(
     createCall.args.data.membershipAgreementAcceptedAt instanceof Date,
@@ -348,6 +355,51 @@ test("register stores both consent timestamps and the current privacy version", 
   assert.equal(
     createCall.args.data.privacyPolicyAcceptedAt,
     createCall.args.data.membershipAgreementAcceptedAt,
+  );
+});
+
+test("re-registration stores both consent timestamps and current consent versions", async () => {
+  resetState();
+  storeUser(
+    makeUser({
+      email: "unverified-member@example.com",
+      isVerified: false,
+    }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      ...REQUIRED_CONSENTS,
+      email: "unverified-member@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Ava",
+      lastName: "Member",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const updateCall = calls.find((call) => call.name === "user.update");
+  assert.equal(
+    updateCall.args.data.privacyPolicyVersion,
+    CURRENT_PRIVACY_POLICY_VERSION,
+  );
+  assert.equal(
+    updateCall.args.data.membershipAgreementVersion,
+    CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
+  );
+  assert.equal(
+    updateCall.args.data.privacyPolicyAcceptedAt instanceof Date,
+    true,
+  );
+  assert.equal(
+    updateCall.args.data.membershipAgreementAcceptedAt instanceof Date,
+    true,
+  );
+  assert.equal(
+    updateCall.args.data.privacyPolicyAcceptedAt,
+    updateCall.args.data.membershipAgreementAcceptedAt,
   );
 });
 

@@ -43,6 +43,7 @@ model User {
   privacyPolicyAcceptedAt   DateTime?
   privacyPolicyVersion      String?                 @db.VarChar(20)
   membershipAgreementAcceptedAt DateTime?
+  membershipAgreementVersion String?                 @db.VarChar(20)
   lastCodeSentAt            DateTime                @default(now())
   verificationExpiresAt     DateTime
   createdAt                 DateTime                @default(now())
