@@ -160,7 +160,7 @@ export function buildSocialCards(comms: PublicConfigCommunications): SocialCardM
       brandColor: meta.brandColor,
       cta: meta.cta,
     };
-  });
+  }).filter((card) => card.href);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
