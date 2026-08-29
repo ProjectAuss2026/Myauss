@@ -69,9 +69,9 @@ const carouselSlides = [
 ];
 
 const brandHighlights = [
-  { icon: Users, text: "Connect with 200+ active members" },
+  { icon: Users, text: "Connect with 300+ active members" },
   { icon: ShieldCheck, text: "Access exclusive training resources" },
-  { icon: ArrowRight, text: "Stay updated on events & competitions" },
+  { icon: ArrowRight, text: "Stay updated on events & socials" },
 ];
 
 function BrandPanel() {

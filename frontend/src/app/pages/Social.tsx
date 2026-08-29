@@ -247,7 +247,7 @@ export function Social() {
 
           {/* Drive CTA — URL comes from config.communications.media_drive_url */}
           <FadeIn delay={0.3}>
-            <div className="bg-[#111] border border-white/[0.06] rounded-2xl p-8 md:p-10 flex flex-col md:flex-row items-center gap-6 md:gap-8">
+            <div className="mt-10 bg-[#111] border border-white/[0.06] rounded-2xl p-8 md:p-10 flex flex-col md:flex-row items-center gap-6 md:gap-8">
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(235,117,36,0.1)' }}>
                 <Camera className="w-8 h-8 text-[#eb7524]" />
               </div>
@@ -256,7 +256,7 @@ export function Social() {
                   View Full Photo Drive
                 </h3>
                 <p className="text-white/40" style={{ fontSize: '15px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}>
-                  Access all event photos, competition shots, and training highlights in our Google Drive.
+                  Access all event photos, training highlights, and more in our Google Drive.
                   Feel free to download and share!
                 </p>
               </div>
