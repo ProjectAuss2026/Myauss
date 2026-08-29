@@ -99,7 +99,7 @@ async function main() {
       await prisma.mediaEntry.create({
         data: {
           activityId: latestActivity.id,
-          mediaDriveUrl: 'https://drive.google.com',
+          mediaDriveUrl: 'https://danbainvisuals.pixieset.com/auss/landing/',
         },
       });
     }
@@ -120,7 +120,7 @@ async function main() {
     {
       title: 'Bench Night',
       description:
-        'A dedicated bench press session where members push their limits, compete for top lifts, and celebrate the grind with great energy.',
+        'A dedicated bench press session where members push their limits, cheer each other on, and celebrate the grind with great energy.',
       startTime: new Date('2025-03-25T00:00:00.000Z'),
       endTime: new Date('2025-03-25T22:00:00.000Z'),
       imageUrl: 'https://images.pixieset.com/343267011/7ee3098a16774595483f589ab674bcba-large.jpg',
@@ -129,7 +129,7 @@ async function main() {
     {
       title: 'Interactive Seminar',
       description:
-        'An educational session led by experienced lifters covering technique, programming, and competition prep for aspiring powerlifters.',
+        'An educational session led by experienced lifters covering technique, programming, and smart training for all levels.',
       startTime: new Date('2025-03-08T00:00:00.000Z'),
       endTime: new Date('2025-03-08T22:00:00.000Z'),
       imageUrl: 'https://images.pixieset.com/343267011/8ef4c7d2d68db4be0c23b45a9269e0bc-large.jpg',
@@ -138,7 +138,7 @@ async function main() {
     {
       title: "Beginner's Night",
       description:
-        "A welcoming introduction event for new members to learn the basics of powerlifting, meet the team, and get their first taste of the barbell.",
+        "A welcoming introduction event for new members to learn the basics of strength training, meet the team, and get their first taste of the barbell.",
       startTime: new Date('2025-02-20T00:00:00.000Z'),
       endTime: new Date('2025-02-20T22:00:00.000Z'),
       imageUrl: 'https://images.pixieset.com/343267011/87b6237b3ac40739189aa0d40bff4672-large.jpg',
@@ -267,11 +267,11 @@ async function main() {
       data: [
         {
           question: 'Do I need to be a student?',
-          answer: 'Yes, AUSS is exclusively for current Auckland University students. Just bring your student ID when you join!',
+          answer: 'No — you do not need to be a University of Auckland student to join. We welcome anyone!',
         },
         {
           question: 'Is there a membership fee?',
-          answer: 'AUSS has a small annual membership fee of $20 to cover club activities and events. This is separate from gym membership.',
+          answer: 'AUSS membership costs $10 for the year, or $20 for a year of membership including an official AUSS shirt. This is separate from gym membership.',
         },
         {
           question: "I've never lifted before. Can I still join?",
@@ -282,8 +282,12 @@ async function main() {
           answer: "Just bring yourself, comfortable workout clothes, and athletic shoes. The Recreation Centre has all the equipment you'll need.",
         },
         {
-          question: 'When and where do you train?',
-          answer: 'We train at the Auckland University Recreation Centre on Symonds Street. Sessions run Mon, Wed, Fri 6-8 PM and Sat 10 AM-12 PM.',
+          question: 'Where are your events?',
+          answer: 'Most of our events are held at Hiwa. Keep up to date with our events calendar to see what is coming up!',
+        },
+        {
+          question: 'Does AUSS strictly hold lifting events?',
+          answer: 'No — we hold a wide range of events, from fun fitness-based collaborations to women-centric nights. With 300+ active members, there is something for everyone.',
         },
       ],
     });

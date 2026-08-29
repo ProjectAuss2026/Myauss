@@ -28,7 +28,7 @@
  * Every field must be a non-empty string from the backend.
  */
 export interface PublicConfigCommunications {
-  /** Full email address or mailto: URI (e.g. "auss@auckland.ac.nz") */
+  /** Full email address or mailto: URI (e.g. "uoastrengthsociety@gmail.com") */
   email: string;
   /** Instagram profile URL */
   instagram_url: string;

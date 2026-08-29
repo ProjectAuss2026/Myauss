@@ -46,11 +46,29 @@ export function Footer() {
 
         {/* Secondary Links */}
         <div className="flex justify-center gap-6 mb-8 flex-wrap text-sm">
-          <span className="text-white/25 hover:text-white/50 transition-colors cursor-pointer" style={{ fontFamily: 'Inter, sans-serif' }}>Membership</span>
+          <Link
+            to="/verify-membership"
+            className="text-white/25 hover:text-white/50 transition-colors"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            Membership
+          </Link>
           <span className="text-white/20">-</span>
-          <span className="text-white/25 hover:text-white/50 transition-colors cursor-pointer" style={{ fontFamily: 'Inter, sans-serif' }}>Media/Photos</span>
+          <Link
+            to="/media"
+            className="text-white/25 hover:text-white/50 transition-colors"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            Media/Photos
+          </Link>
           <span className="text-white/20">-</span>
-          <span className="text-white/25 hover:text-white/50 transition-colors cursor-pointer" style={{ fontFamily: 'Inter, sans-serif' }}>Sponsorship</span>
+          <Link
+            to="/sponsorship"
+            className="text-white/25 hover:text-white/50 transition-colors"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            Sponsorship
+          </Link>
           <span className="text-white/20">-</span>
           <Link
             to="/privacy"
