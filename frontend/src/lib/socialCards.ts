@@ -92,7 +92,7 @@ const PLATFORM_META: PlatformMeta[] = [
     label: 'Instagram',
     extractHandle: (url) => {
       const seg = extractPathSegment(url);
-      return seg ? `@${seg}` : '@auss.uoa';
+      return seg ? `@${seg}` : '@auss_uoa';
     },
     description: 'Follow us for training content, event updates, and community highlights.',
     icon: FaInstagram,
@@ -105,7 +105,7 @@ const PLATFORM_META: PlatformMeta[] = [
     label: 'TikTok',
     extractHandle: (url) => {
       const seg = extractPathSegment(url);
-      return seg ? `@${seg.replace(/^@/, '')}` : '@auss.uoa';
+      return seg ? `@${seg.replace(/^@/, '')}` : '@auss_uoa';
     },
     description: 'Watch our latest training clips and behind-the-scenes content.',
     icon: FaTiktok,
