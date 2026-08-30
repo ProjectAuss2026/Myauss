@@ -25,7 +25,6 @@ import { QRCodeSVG } from 'qrcode.react';
 import { fetchWithAuth } from '../lib/authFetch';
 import { RSVPModal } from '../components/RSVPModal';
 import { MembershipPromptModal } from '../components/MembershipPromptModal';
-import { fetchWithAuth } from '../lib/authFetch';
 
 interface CollapsibleSectionProps {
   title: string;
