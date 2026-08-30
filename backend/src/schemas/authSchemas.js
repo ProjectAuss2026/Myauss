@@ -26,7 +26,13 @@ export const registerBodySchema = z
     ),
     firstName: requiredTrimmedString("First name", LIMITS.personName),
     lastName: requiredTrimmedString("Last name", LIMITS.personName),
-    studentId: requiredTrimmedString("Student ID", LIMITS.studentId),
+    studentId: optionalTrimmedString("Student ID", LIMITS.studentId),
+    privacyPolicyConsent: z.literal(true, {
+      error: "Privacy Policy consent is required",
+    }),
+    membershipAgreementConsent: z.literal(true, {
+      error: "Membership agreement consent is required",
+    }),
   });
 
 export const loginBodySchema = z.object({

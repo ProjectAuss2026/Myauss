@@ -40,6 +40,10 @@ model User {
   membershipStatus          MembershipStatus        @default(INACTIVE)
   membershipStatusUpdatedAt DateTime                @default(now())
   inactiveWarnedAt          DateTime?
+  privacyPolicyAcceptedAt   DateTime?
+  privacyPolicyVersion      String?                 @db.VarChar(20)
+  membershipAgreementAcceptedAt DateTime?
+  membershipAgreementVersion String?                 @db.VarChar(20)
   lastCodeSentAt            DateTime                @default(now())
   verificationExpiresAt     DateTime
   createdAt                 DateTime                @default(now())
@@ -142,7 +146,7 @@ model UserInfo {
   id        String @id @default(uuid())
   firstName String
   lastName  String
-  studentId String // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER; field name retained to avoid a risky data migration.
+  studentId String? // Stores SHA-256 hash of normalized student ID + STUDENT_ID_PEPPER when provided; field name retained to avoid a risky data migration.
   userId    String @unique
   user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -301,12 +305,17 @@ model Rsvp {
   // cascading would silently erase historical attendance and event headcounts.
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Snapshotted from the account at booking time so the attendee list stays
+  // readable if the member later changes their details or deletes their account.
   name       String
   email      String
-  studentId  String // Plaintext is currently used for admin attendee display/export; confirm privacy policy or encryption-at-rest requirements.
   createdAt  DateTime @default(now())
 
-  @@unique([activityId, email])
+  // One place per member per event (KAN-178), replacing the old
+  // (activityId, email) rule. Legacy rows from the public era have a NULL
+  // userId; Postgres allows multiple NULLs in a unique index, so they coexist
+  // without collision while every new (authenticated) booking is constrained.
+  @@unique([activityId, userId])
   @@index([activityId])
   @@index([userId, createdAt])
 }

@@ -1,15 +1,13 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
-import { isValidEmail } from '../utils/emailValidation.js';
-import { LIMITS } from '../schemas/commonSchemas.js';
 
 /**
- * POST /api/activities/:id/rsvp — public
- * Body: { name, email, studentId }
- * Creates an RSVP linked to the activity.
- * - 400 invalid input
+ * POST /api/activities/:id/rsvp — signed-in VERIFIED members only (KAN-178)
+ * Takes no body: the attendee's details come from the authenticated account, so
+ * they cannot be spoofed or mistyped. Enforced upstream by
+ * `authenticate` + `requireVerifiedMembership`.
  * - 404 activity not found / unpublished
- * - 409 sold out OR email already registered for this activity
+ * - 409 sold out OR member already registered for this activity
  */
 export const createRsvp = async (req, res) => {
   const activityId = parseInt(req.params.id, 10);
@@ -17,32 +15,27 @@ export const createRsvp = async (req, res) => {
     return res.status(400).json({ error: 'Valid activity id is required' });
   }
 
-  const { name, email, studentId } = req.body || {};
-
-  if (!name || !String(name).trim()) {
-    return res.status(400).json({ error: 'name is required' });
-  }
-  if (String(name).trim().length > LIMITS.personName) {
-    return res.status(400).json({ error: `name must be ${LIMITS.personName} characters or fewer` });
-  }
-  if (!email || !String(email).trim()) {
-    return res.status(400).json({ error: 'email is required' });
-  }
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ error: 'email is not a valid email address' });
-  }
-  if (!studentId || !String(studentId).trim()) {
-    return res.status(400).json({ error: 'studentId is required' });
-  }
-  if (String(studentId).trim().length > LIMITS.studentId) {
-    return res.status(400).json({ error: `studentId must be ${LIMITS.studentId} characters or fewer` });
-  }
-
-  const cleanName = String(name).trim();
-  const cleanEmail = String(email).trim().toLowerCase();
-  const cleanStudentId = String(studentId).trim();
-
   try {
+    // Attendee details are snapshotted from the account, never read from the
+    // request body — any name/email a client sends is deliberately ignored.
+    // requireVerifiedMembership already loaded this row, so reuse it and avoid a
+    // second lookup; the fallback keeps this handler correct on its own.
+    const account =
+      req.user.account ??
+      (await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { email: true, info: { select: { firstName: true, lastName: true } } },
+      }));
+
+    if (!account) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const cleanEmail = account.email;
+    const cleanName =
+      [account.info?.firstName, account.info?.lastName].filter(Boolean).join(' ').trim() ||
+      account.email;
+
     // Atomic capacity-check + insert in a single transaction
     const result = await prisma.$transaction(async (tx) => {
       const activity = await tx.activity.findUnique({
@@ -61,35 +54,23 @@ export const createRsvp = async (req, res) => {
         }
       }
 
-      // Link the RSVP to a member account (KAN-171). A signed-in member is
-      // authoritative; otherwise fall back to matching the submitted email,
-      // which mirrors the migration's backfill so logged-out members still get
-      // linked. Stays null when neither resolves — supported for legacy/public
-      // bookings until the members-only gate lands (KAN-178).
-      let linkedUserId = req.user?.id ?? null;
-      if (!linkedUserId) {
-        const matched = await tx.user.findUnique({
-          where: { email: cleanEmail },
-          select: { id: true },
-        });
-        linkedUserId = matched?.id ?? null;
-      }
-
+      // The route is authenticated (KAN-178), so the booking always carries the
+      // member's account id. KAN-171's email-match fallback is gone — it only
+      // existed to link anonymous bookings from the old public route.
       try {
         const rsvp = await tx.rsvp.create({
           data: {
             activityId,
-            userId: linkedUserId,
+            userId: req.user.id,
             name: cleanName,
             email: cleanEmail,
-            studentId: cleanStudentId,
           },
         });
         return { status: 201, body: rsvp };
       } catch (e) {
-        // Prisma unique constraint violation on (activityId, email)
+        // Prisma unique constraint violation on (activityId, userId)
         if (e && e.code === 'P2002') {
-          return { status: 409, body: { error: 'This email is already registered for this activity' } };
+          return { status: 409, body: { error: 'You are already registered for this activity' } };
         }
         throw e;
       }
@@ -227,12 +208,15 @@ export const exportRsvpsCsv = async (req, res) => {
       orderBy: { createdAt: 'asc' },
     });
 
-    const header = 'Name,Email,Student ID,Registration Date';
+    // Student ID column removed with KAN-178: the field is no longer collected
+    // (it can't be sourced from the account — UserInfo stores a one-way hash —
+    // and KAN-185 makes it optional for non-UoA members). Name + email identify
+    // the attendee; KAN-174's scanner replaces ID checks at the door.
+    const header = 'Name,Email,Registration Date';
     const rows = rsvps.map((r) =>
       [
         csvEscape(r.name),
         csvEscape(r.email),
-        csvEscape(r.studentId),
         csvEscape(r.createdAt.toISOString()),
       ].join(','),
     );

@@ -69,9 +69,9 @@ const carouselSlides = [
 ];
 
 const brandHighlights = [
-  { icon: Users, text: "Connect with 200+ active members" },
+  { icon: Users, text: "Connect with 300+ active members" },
   { icon: ShieldCheck, text: "Access exclusive training resources" },
-  { icon: ArrowRight, text: "Stay updated on events & competitions" },
+  { icon: ArrowRight, text: "Stay updated on events & socials" },
 ];
 
 function BrandPanel() {
@@ -254,6 +254,8 @@ export function Login() {
   const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
   const [regStudentId, setRegStudentId] = useState("");
+  const [regPrivacyConsent, setRegPrivacyConsent] = useState(false);
+  const [regMembershipConsent, setRegMembershipConsent] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
@@ -282,6 +284,7 @@ export function Login() {
     confirmValue?: string,
   ): string {
     const trimmed = value.trim();
+    if (name === "regStudentId" && !trimmed) return "";
     if (!trimmed) return "This field is required";
     if (name === "loginEmail" || name === "regEmail") {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) {
@@ -387,7 +390,9 @@ export function Login() {
         password: regPassword,
         firstName: regFirstName,
         lastName: regLastName,
-        studentId: regStudentId,
+        studentId: regStudentId.trim() || null,
+        privacyPolicyConsent: regPrivacyConsent,
+        membershipAgreementConsent: regMembershipConsent,
       };
 
       const res = await fetch("/api/auth/register", {
@@ -817,7 +822,7 @@ export function Login() {
                           fontFamily: "Inter, sans-serif",
                         }}
                       >
-                        University Email
+                        Email
                         <span className="text-red-400 ml-0.5" aria-hidden="true">
                           *
                         </span>
@@ -830,9 +835,9 @@ export function Login() {
                           value={regEmail}
                           onChange={(e) => { setRegEmail(e.target.value); if (fieldErrors.regEmail) handleBlur('regEmail', e.target.value); }}
                           onBlur={(e) => handleBlur('regEmail', e.target.value)}
-                          placeholder="you@auckland.ac.nz"
+                          placeholder="you@example.com"
                           aria-required="true"
-                          aria-describedby={fieldErrors.regEmail && touched.regEmail ? 'regEmail-error' : undefined}
+                          aria-describedby={`regEmail-help${fieldErrors.regEmail && touched.regEmail ? ' regEmail-error' : ''}`}
                           aria-invalid={!!fieldErrors.regEmail && !!touched.regEmail}
                           className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 pl-10 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regEmail && touched.regEmail ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                           style={{
@@ -844,6 +849,9 @@ export function Login() {
                       {fieldErrors.regEmail && touched.regEmail && (
                         <p id="regEmail-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regEmail}</p>
                       )}
+                      <p id="regEmail-help" className="mt-2 text-white/35" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                        University email preferred.
+                      </p>
                     </div>
 
                     <div>
@@ -855,10 +863,7 @@ export function Login() {
                           fontFamily: "Inter, sans-serif",
                         }}
                       >
-                        Student ID
-                        <span className="text-red-400 ml-0.5" aria-hidden="true">
-                          *
-                        </span>
+                        Student ID (optional)
                       </label>
                       <input
                         id="regStudentId"
@@ -867,8 +872,7 @@ export function Login() {
                         onChange={(e) => { setRegStudentId(e.target.value); if (fieldErrors.regStudentId) handleBlur('regStudentId', e.target.value); }}
                         onBlur={(e) => handleBlur('regStudentId', e.target.value)}
                         placeholder="e.g. 123456789"
-                        aria-required="true"
-                        aria-describedby={fieldErrors.regStudentId && touched.regStudentId ? 'regStudentId-error' : undefined}
+                        aria-describedby={`regStudentId-help${fieldErrors.regStudentId && touched.regStudentId ? ' regStudentId-error' : ''}`}
                         aria-invalid={!!fieldErrors.regStudentId && !!touched.regStudentId}
                         className={`w-full bg-white/[0.04] border rounded-xl px-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:bg-white/[0.06] transition-all ${fieldErrors.regStudentId && touched.regStudentId ? 'border-red-400/50 focus:border-red-400' : 'border-white/10 focus:border-[#eb7524]/50'}`}
                         style={{
@@ -880,6 +884,7 @@ export function Login() {
                         <p id="regStudentId-error" className="text-red-400 mt-1" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }} role="alert">{fieldErrors.regStudentId}</p>
                       )}
                       <p
+                        id="regStudentId-help"
                         className="mt-2 text-white/35"
                         style={{
                           fontSize: "12px",
@@ -887,10 +892,8 @@ export function Login() {
                           lineHeight: 1.5,
                         }}
                       >
-                        Used to confirm Auckland Uni membership eligibility. It
-                        is protected, not displayed publicly, and removal or
-                        correction requests can be sent to auss@auckland.ac.nz.
-                        Final privacy wording should be confirmed by AUSS.
+                        If you have a University of Auckland Student ID, you can
+                        provide it here. Non-UoA members can leave this blank.
                       </p>
                     </div>
 
@@ -1005,14 +1008,18 @@ export function Login() {
 
                     <div className="flex items-start gap-2 pt-1">
                       <input
-                        id="regTos"
+                        id="regPrivacyConsent"
                         type="checkbox"
+                        checked={regPrivacyConsent}
+                        onChange={(event) =>
+                          setRegPrivacyConsent(event.target.checked)
+                        }
                         className="w-4 h-4 rounded bg-white/5 border-white/10 accent-[#eb7524] mt-0.5"
+                        aria-label="I agree to the AUSS Privacy Policy"
                         aria-required="true"
                         required
                       />
-                      <label
-                        htmlFor="regTos"
+                      <p
                         className="text-white/40"
                         style={{
                           fontSize: "13px",
@@ -1023,14 +1030,48 @@ export function Login() {
                         <span className="text-red-400 mr-0.5" aria-hidden="true">
                           *
                         </span>
-                        I agree to the AUSS{" "}
-                        <span className="text-[#eb7524]/70 hover:text-[#eb7524] cursor-pointer transition-colors">
-                          Terms of Service
-                        </span>{" "}
-                        and{" "}
-                        <span className="text-[#eb7524]/70 hover:text-[#eb7524] cursor-pointer transition-colors">
+                        <label htmlFor="regPrivacyConsent">
+                          I agree to the AUSS{" "}
+                        </label>
+                        <a
+                          href="/privacy"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#eb7524]/70 hover:text-[#eb7524] underline underline-offset-2 transition-colors"
+                        >
                           Privacy Policy
+                        </a>
+                        .
+                      </p>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <input
+                        id="regMembershipConsent"
+                        type="checkbox"
+                        checked={regMembershipConsent}
+                        onChange={(event) =>
+                          setRegMembershipConsent(event.target.checked)
+                        }
+                        className="w-4 h-4 rounded bg-white/5 border-white/10 accent-[#eb7524] mt-0.5"
+                        aria-required="true"
+                        required
+                      />
+                      <label
+                        htmlFor="regMembershipConsent"
+                        className="text-white/40"
+                        style={{
+                          fontSize: "13px",
+                          fontFamily: "Inter, sans-serif",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <span className="text-red-400 mr-0.5" aria-hidden="true">
+                          *
                         </span>
+                        I agree, by entering my name, to be a member of Auckland
+                        University Strength Society Incorporated and to be
+                        subject to the Society's constitution and by-laws.
                       </label>
                     </div>
 

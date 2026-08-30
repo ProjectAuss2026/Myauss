@@ -1,4 +1,5 @@
 import prisma from '../prismaClient.js';
+import logger from '../utils/logger.js';
 import { verifyAccessToken } from '../utils/authTokens.js';
 
 function hasRoleAccess(userRole, allowedRoles) {
@@ -69,6 +70,71 @@ export async function attachUserIfPresent(req, _res, next) {
   }
   return next();
 }
+
+/**
+ * Middleware that requires an active (VERIFIED) membership. Must run AFTER
+ * `authenticate`, which supplies req.user (KAN-178).
+ *
+ * Deliberately generic — it makes no assumptions about the resource being
+ * guarded — so gated-content routes (KAN-167) can reuse it unchanged rather
+ * than reimplementing the check.
+ *
+ * On rejection it returns 403 with a stable machine-readable `code` plus the
+ * caller's current status, so the frontend can render the right call-to-action
+ * (e.g. link to /verify-membership) without string-matching an error message.
+ * ADMIN/OWNER are exempt: staff manage events and must not be locked out of
+ * member-facing routes by their own membership state.
+ */
+export async function requireVerifiedMembership(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    // Fetched for every caller, including staff, so the account is always
+    // stashed on req.user for downstream handlers. Selecting these few extra
+    // columns is free — it is the same row either way — and saves the consumer
+    // a second lookup of the user it already needs.
+    const account = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        email: true,
+        membershipStatus: true,
+        info: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    if (!account) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    req.user.membershipStatus = account.membershipStatus;
+    req.user.account = account;
+
+    // Staff run events and must not be locked out by their own membership state.
+    if (req.user.role === 'ADMIN' || req.user.role === 'OWNER') {
+      return next();
+    }
+
+    if (account.membershipStatus !== 'VERIFIED') {
+      return res.status(403).json({
+        error: 'An active AUSS membership is required.',
+        code: 'MEMBERSHIP_REQUIRED',
+        membershipStatus: account.membershipStatus,
+      });
+    }
+
+    return next();
+  } catch (err) {
+    logger.error(
+      { err, userId: req.user.id },
+      'requireVerifiedMembership: membership lookup failed',
+    );
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+requireVerifiedMembership.authType = 'requireVerifiedMembership';
 
 /**
  * Middleware that restricts access to specific roles.

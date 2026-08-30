@@ -139,7 +139,7 @@ function fillRegisterFields() {
   fireEvent.change(screen.getByPlaceholderText("Last name"), {
     target: { value: "Member" },
   });
-  fireEvent.change(screen.getByPlaceholderText("you@auckland.ac.nz"), {
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "ava@example.com" },
   });
   fireEvent.change(screen.getByPlaceholderText("e.g. 123456789"), {
@@ -151,7 +151,9 @@ function fillRegisterFields() {
   fireEvent.change(screen.getByPlaceholderText("Confirm your password"), {
     target: { value: "CorrectHorseBatteryStaple!2026" },
   });
-  fireEvent.click(screen.getByRole("checkbox"));
+  screen.getAllByRole("checkbox").forEach((checkbox) => {
+    fireEvent.click(checkbox);
+  });
 }
 
 function createProofFile(name = "receipt.jpg", type = "image/jpeg") {
