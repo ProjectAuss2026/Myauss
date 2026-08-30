@@ -30,6 +30,10 @@ export const PUBLIC_ROUTES = Object.freeze([
   route("GET", "/api/activities"),
   route("GET", "/api/activities/:id/rsvp/count"),
   route("GET", "/api/sponsorship"),
+  // Non-sensitive club announcements shown on the member dashboard to every
+  // visitor (verified or not). Members-only perks stay on the authenticated
+  // /api/member/content route; this only serves visibility=PUBLIC rows.
+  route("GET", "/api/announcements"),
   route("GET", "/api/faq"),
   route("GET", "/api/executives"),
   route("GET", "/api/media-entries"),
@@ -42,6 +46,10 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   // Members-only with an active-membership gate (KAN-178). Moved out of
   // PUBLIC_ROUTES — events are no longer open to non-members or walk-ins.
   route("POST", "/api/activities/:id/rsvp"),
+  // Gated dashboard perks (KAN-167): authenticate + requireVerifiedMembership.
+  // 401 without a token, 403 for non-VERIFIED members; the members-only rows
+  // are never exposed on a public route.
+  route("GET", "/api/member/content"),
   route("GET", "/api/auth/me"),
   // Member event pass (KAN-180) — the member's own QR value and its reset.
   route("GET", "/api/auth/me/pass"),
