@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Dumbbell, Calendar, Trophy, ArrowRight, ChevronDown } from 'lucide-react';
+import { Users, Dumbbell, Calendar, PartyPopper, ArrowRight, ChevronDown } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -49,17 +49,17 @@ function AnimatedCounter({ end, duration = 2, suffix = '' }: { end: number; dura
 }
 
 const stats = [
-  { label: 'Active Members', value: 200, suffix: '+' },
+  { label: 'Active Members', value: 300, suffix: '+' },
   { label: 'Training Sessions', value: 50, suffix: '+' },
   { label: 'Years Running', value: 10, suffix: '' },
-  { label: 'Competitions', value: 15, suffix: '+' },
+  { label: 'Events', value: 15, suffix: '+' },
 ];
 
 const features = [
   {
     icon: Users,
     title: 'Inclusive Community',
-    description: 'A welcoming space for lifters of all levels - from first-timers to national competitors.',
+    description: 'A welcoming space for lifters of all levels - from first-timers to experienced athletes.',
   },
   {
     icon: Dumbbell,
@@ -69,12 +69,12 @@ const features = [
   {
     icon: Calendar,
     title: 'Regular Events',
-    description: 'Weekly training sessions, social events, and inter-university competitions year-round.',
+    description: 'Weekly training sessions, social events, and club-wide collaborations year-round.',
   },
   {
-    icon: Trophy,
-    title: 'Compete & Grow',
-    description: 'Push your limits in powerlifting, weightlifting, and strongman competitions.',
+    icon: PartyPopper,
+    title: 'Always Something On',
+    description: 'From beginner-friendly sessions to social nights and fitness collaborations — there is always an event to join.',
   },
 ];
 
@@ -167,7 +167,7 @@ export function Home() {
                 transition: 'opacity 0.6s ease 0.4s, transform 0.6s ease 0.4s',
               }}
             >
-              We bring together lifters, beginners, and athletes to train, compete, and progress together. Build strength in a supportive and driven community.
+              We bring together lifters, beginners, and athletes to train, connect, and grow together. Build strength in a supportive and driven community.
             </p>
             <div
               className="flex gap-4 flex-wrap justify-center"

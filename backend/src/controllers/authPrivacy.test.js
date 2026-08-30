@@ -4,6 +4,10 @@ import http from "node:http";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { hashStudentId } from "../utils/studentIdHash.js";
+import {
+  CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
+  CURRENT_PRIVACY_POLICY_VERSION,
+} from "../constants/consent.js";
 
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL ||= "postgresql://user:pass@localhost:5432/test";
@@ -13,6 +17,10 @@ delete process.env.SMTP_USER;
 delete process.env.SMTP_PASS;
 
 const STRONG_TEST_PASSWORD = "CorrectHorseBatteryStaple!2026";
+const REQUIRED_CONSENTS = {
+  privacyPolicyConsent: true,
+  membershipAgreementConsent: true,
+};
 
 const calls = [];
 const usersByEmail = new Map();
@@ -261,6 +269,140 @@ function authToken(user) {
   );
 }
 
+test("register rejects a request that bypasses Privacy Policy consent", async () => {
+  resetState();
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      email: "missing-privacy@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Ava",
+      lastName: "Member",
+      membershipAgreementConsent: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error, "Validation failed");
+  assert.equal(
+    response.json.details.some(
+      (detail) => detail.path === "body.privacyPolicyConsent",
+    ),
+    true,
+  );
+  assert.equal(calls.some((call) => call.name === "user.create"), false);
+});
+
+test("register rejects false membership agreement consent", async () => {
+  resetState();
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      email: "missing-membership@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Ava",
+      lastName: "Member",
+      privacyPolicyConsent: true,
+      membershipAgreementConsent: false,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error, "Validation failed");
+  assert.equal(
+    response.json.details.some(
+      (detail) => detail.path === "body.membershipAgreementConsent",
+    ),
+    true,
+  );
+  assert.equal(calls.some((call) => call.name === "user.create"), false);
+});
+
+test("register stores both consent timestamps and current consent versions", async () => {
+  resetState();
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      ...REQUIRED_CONSENTS,
+      email: "consenting-member@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Ava",
+      lastName: "Member",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const createCall = calls.find((call) => call.name === "user.create");
+  assert.equal(
+    createCall.args.data.privacyPolicyVersion,
+    CURRENT_PRIVACY_POLICY_VERSION,
+  );
+  assert.equal(
+    createCall.args.data.membershipAgreementVersion,
+    CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
+  );
+  assert.equal(createCall.args.data.privacyPolicyAcceptedAt instanceof Date, true);
+  assert.equal(
+    createCall.args.data.membershipAgreementAcceptedAt instanceof Date,
+    true,
+  );
+  assert.equal(
+    createCall.args.data.privacyPolicyAcceptedAt,
+    createCall.args.data.membershipAgreementAcceptedAt,
+  );
+});
+
+test("re-registration stores both consent timestamps and current consent versions", async () => {
+  resetState();
+  storeUser(
+    makeUser({
+      email: "unverified-member@example.com",
+      isVerified: false,
+    }),
+  );
+
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/register",
+    body: {
+      ...REQUIRED_CONSENTS,
+      email: "unverified-member@example.com",
+      password: STRONG_TEST_PASSWORD,
+      firstName: "Ava",
+      lastName: "Member",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const updateCall = calls.find((call) => call.name === "user.update");
+  assert.equal(
+    updateCall.args.data.privacyPolicyVersion,
+    CURRENT_PRIVACY_POLICY_VERSION,
+  );
+  assert.equal(
+    updateCall.args.data.membershipAgreementVersion,
+    CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
+  );
+  assert.equal(
+    updateCall.args.data.privacyPolicyAcceptedAt instanceof Date,
+    true,
+  );
+  assert.equal(
+    updateCall.args.data.membershipAgreementAcceptedAt instanceof Date,
+    true,
+  );
+  assert.equal(
+    updateCall.args.data.privacyPolicyAcceptedAt,
+    updateCall.args.data.membershipAgreementAcceptedAt,
+  );
+});
+
 test("register stores a hashed student ID instead of plaintext", async () => {
   resetState();
 
@@ -268,6 +410,7 @@ test("register stores a hashed student ID instead of plaintext", async () => {
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "member@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Ava",
@@ -295,6 +438,7 @@ test("register stores null when student ID is omitted", async () => {
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "non-uoa-member@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Alex",
@@ -314,6 +458,7 @@ test("register normalises a whitespace-only student ID to null", async () => {
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "blank-id@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Sam",
@@ -335,6 +480,7 @@ test("register fails safely when STUDENT_ID_PEPPER is missing", async () => {
     method: "POST",
     path: "/api/auth/register",
     body: {
+      ...REQUIRED_CONSENTS,
       email: "member@example.com",
       password: STRONG_TEST_PASSWORD,
       firstName: "Ava",

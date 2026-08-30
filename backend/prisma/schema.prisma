@@ -49,6 +49,10 @@ model User {
   membershipStatus          MembershipStatus        @default(INACTIVE)
   membershipStatusUpdatedAt DateTime                @default(now())
   inactiveWarnedAt          DateTime?
+  privacyPolicyAcceptedAt   DateTime?
+  privacyPolicyVersion      String?                 @db.VarChar(20)
+  membershipAgreementAcceptedAt DateTime?
+  membershipAgreementVersion String?                 @db.VarChar(20)
   lastCodeSentAt            DateTime                @default(now())
   verificationExpiresAt     DateTime
   createdAt                 DateTime                @default(now())

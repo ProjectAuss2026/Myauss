@@ -373,6 +373,8 @@ export function MemberDashboard() {
   useEffect(() => {
     if (user?.membershipStatus === 'INACTIVE') {
       setShowMembershipPrompt(true);
+    } else {
+      setShowMembershipPrompt(false);
     }
   }, [user?.membershipStatus]);
 
@@ -1241,7 +1243,7 @@ export function MemberDashboard() {
 
       {/* Membership nudge for inactive members */}
       <MembershipPromptModal
-        open={showMembershipPrompt}
+        open={showMembershipPrompt && user?.membershipStatus === 'INACTIVE'}
         onClose={() => setShowMembershipPrompt(false)}
       />
     </div>

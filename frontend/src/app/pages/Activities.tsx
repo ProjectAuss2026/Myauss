@@ -190,7 +190,7 @@ export function Activities() {
             fontFamily: 'Inter, sans-serif',
             lineHeight: 1.6
           }}>
-            Stay updated on all AUSS activities, training sessions, competitions, and social events. Join us and be part of the action!
+            Stay updated on all AUSS activities, training sessions, and social events. Join us and be part of the action!
           </p>
 
           <div className="flex items-center gap-3 flex-wrap">
