@@ -14,6 +14,10 @@ import {
   verifySchema,
   submitPaymentSchema,
 } from "../schemas/authSchemas.js";
+import {
+  CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
+  CURRENT_PRIVACY_POLICY_VERSION,
+} from "../constants/consent.js";
 import { hashStudentId, isStudentIdHashError } from "../utils/studentIdHash.js";
 import logger from "../utils/logger.js";
 import { isValidEmail } from "../utils/emailValidation.js";
@@ -650,8 +654,7 @@ router.post(
   validate(registerSchema),
   async (req, res) => {
     try {
-      const { email, password, firstName, lastName, studentId } =
-        req.body;
+      const { email, password, firstName, lastName, studentId } = req.body;
       const now = new Date();
       const normalisedEmail = normaliseEmail(email);
 
@@ -693,6 +696,11 @@ router.post(
           data: {
             passwordHash,
             role: "USER",
+            privacyPolicyAcceptedAt: now,
+            privacyPolicyVersion: CURRENT_PRIVACY_POLICY_VERSION,
+            membershipAgreementAcceptedAt: now,
+            membershipAgreementVersion:
+              CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
             lastCodeSentAt: now,
             verificationExpiresAt: new Date(
               now.getTime() + VERIFICATION_WINDOW_MS,
@@ -724,6 +732,10 @@ router.post(
           passwordHash,
           role: "USER",
           isVerified: false,
+          privacyPolicyAcceptedAt: now,
+          privacyPolicyVersion: CURRENT_PRIVACY_POLICY_VERSION,
+          membershipAgreementAcceptedAt: now,
+          membershipAgreementVersion: CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
           lastCodeSentAt: now,
           verificationExpiresAt: new Date(
             now.getTime() + VERIFICATION_WINDOW_MS,

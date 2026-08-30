@@ -45,6 +45,10 @@ model User {
   // member's QR immediately without touching the primary key (19 tables FK to
   // it) and without affecting anyone else.
   qrVersion                 Int                     @default(1)
+  privacyPolicyAcceptedAt   DateTime?
+  privacyPolicyVersion      String?                 @db.VarChar(20)
+  membershipAgreementAcceptedAt DateTime?
+  membershipAgreementVersion String?                 @db.VarChar(20)
   lastCodeSentAt            DateTime                @default(now())
   verificationExpiresAt     DateTime
   createdAt                 DateTime                @default(now())
