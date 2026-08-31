@@ -385,7 +385,7 @@ export function ActivateMembership() {
       stripe.retrievePaymentIntent(piSecret).then(({ paymentIntent }) => {
         if (paymentIntent?.status === "succeeded") {
           setPaid(true);
-          setPayMsg("Payment successful — your membership is now active.");
+          setPayMsg("Payment successful. Your membership is now active.");
           fetchWithAuth("/api/payments/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -639,7 +639,7 @@ export function ActivateMembership() {
                           className="text-white/40"
                           style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
                         >
-                          Upload your receipt — reviewed within 1–3 days
+                          Upload your receipt, reviewed within 1–3 days
                         </p>
                       </div>
                     </div>

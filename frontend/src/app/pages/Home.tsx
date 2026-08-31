@@ -74,7 +74,7 @@ const features = [
   {
     icon: PartyPopper,
     title: 'Always Something On',
-    description: 'From beginner-friendly sessions to social nights and fitness collaborations — there is always an event to join.',
+    description: 'From beginner-friendly sessions to social nights and fitness collaborations, and there is always an event to join.',
   },
 ];
 
