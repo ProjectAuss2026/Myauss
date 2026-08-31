@@ -62,7 +62,7 @@ export const DEFAULT_PUBLIC_CONFIG: PublicConfig = {
       {
         name: 'Auckland Powerlifting',
         tier: 'Partner',
-        description: "Auckland's home for powerlifting — community, events, and coaching.",
+        description: "Auckland's home for powerlifting, with community, events, and coaching.",
         website: 'https://www.sporty.co.nz/aucklandpowerlifting/home-1',
       },
       {
@@ -80,7 +80,7 @@ export const DEFAULT_PUBLIC_CONFIG: PublicConfig = {
       {
         name: 'Lorna Jane',
         tier: 'Partner',
-        description: "Women's activewear — move, nourish, believe.",
+        description: "Women's activewear. Move, nourish, believe.",
         website: 'https://www.lornajane.nz/',
       },
       {

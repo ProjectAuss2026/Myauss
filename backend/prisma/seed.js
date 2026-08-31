@@ -9,7 +9,7 @@ async function main() {
     create: {
       id: 1,
       pageContent:
-        'AUSS is proudly supported by partners who help power our events, training, and community. From activewear and strength gear to local gyms and tech — we are grateful for each one.',
+        'AUSS is proudly supported by partners who help power our events, training, and community. From activewear and strength gear to local gyms and tech. We are grateful for each one.',
     },
   });
 
@@ -267,7 +267,7 @@ async function main() {
       data: [
         {
           question: 'Do I need to be a student?',
-          answer: 'No — you do not need to be a University of Auckland student to join. We welcome anyone!',
+          answer: 'No, you do not need to be a University of Auckland student to join. We welcome anyone!',
         },
         {
           question: 'Is there a membership fee?',
@@ -287,7 +287,7 @@ async function main() {
         },
         {
           question: 'Does AUSS strictly hold lifting events?',
-          answer: 'No — we hold a wide range of events, from fun fitness-based collaborations to women-centric nights. With 300+ active members, there is something for everyone.',
+          answer: 'No, we hold a wide range of events, from fun fitness-based collaborations to women-centric nights. With 300+ active members, there is something for everyone.',
         },
       ],
     });

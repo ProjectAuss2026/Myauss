@@ -174,7 +174,7 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
                 className="text-white/70 text-center mb-6"
                 style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}
               >
-                Events are for AUSS members. Sign in to register — we&rsquo;ll use the details on your account.
+                Events are for AUSS members. Sign in to register. We&rsquo;ll use the details on your account.
               </p>
               <div className="flex items-center gap-3">
                 <button
