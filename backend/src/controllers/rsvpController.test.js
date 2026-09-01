@@ -44,6 +44,7 @@ test('RSVP CSV export has no Student ID column (KAN-178)', async () => {
       name: 'Alex Member',
       email: 'alex@example.com',
       createdAt: new Date('2026-08-18T00:00:00.000Z'),
+      checkedInAt: null,
     },
   ];
   const response = responseMock();
@@ -53,8 +54,8 @@ test('RSVP CSV export has no Student ID column (KAN-178)', async () => {
   assert.equal(response.statusCode, 200);
   assert.equal(
     response.body,
-    'Name,Email,Registration Date\r\n' +
-      'Alex Member,alex@example.com,2026-08-18T00:00:00.000Z\r\n',
+    'Name,Email,Registration Date,Checked In,Check-In Time\r\n' +
+      'Alex Member,alex@example.com,2026-08-18T00:00:00.000Z,No,\r\n',
   );
   // Carried over from #59: no placeholder text should leak into the file.
   assert.equal(response.body.includes('null'), false);
@@ -70,6 +71,7 @@ test('RSVP CSV export escapes values containing commas and quotes', async () => 
       name: 'Member, Awkward "Quoted"',
       email: 'awkward@example.com',
       createdAt: new Date('2026-08-18T00:00:00.000Z'),
+      checkedInAt: null,
     },
   ];
   const response = responseMock();
@@ -87,4 +89,22 @@ test('RSVP CSV export sets download headers', async () => {
 
   assert.match(response.headers['Content-Type'], /text\/csv/);
   assert.match(response.headers['Content-Disposition'], /attachment; filename="rsvps-1\.csv"/);
+});
+
+test('RSVP CSV export records attendance when the member was checked in (KAN-180)', async () => {
+  exportRows = [
+    {
+      id: 3,
+      activityId: 1,
+      name: 'Alex Member',
+      email: 'alex@example.com',
+      createdAt: new Date('2026-08-18T00:00:00.000Z'),
+      checkedInAt: new Date('2026-08-21T18:30:00.000Z'),
+    },
+  ];
+  const response = responseMock();
+
+  await exportRsvpsCsv({ params: { id: '1' } }, response);
+
+  assert.match(response.body, /Alex Member,alex@example\.com,.*,Yes,2026-08-21T18:30:00\.000Z/);
 });
