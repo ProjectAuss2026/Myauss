@@ -121,7 +121,7 @@ export function CheckIn() {
       const data = await res.json();
       setAttendees(new Map((data.attendees as Attendee[]).map((a) => [a.userId, a])));
     } catch {
-      setListError('Could not pre-load the attendee list — verification needs a connection.');
+      setListError('Could not pre-load the attendee list. Verification needs a connection.');
     }
   }, []);
 
@@ -363,12 +363,12 @@ export function CheckIn() {
         )}
         {r.verdict === 'NOT_REGISTERED' && (
           <p className="mt-2 text-white/70" style={{ fontSize: '14px', lineHeight: 1.5 }}>
-            No booking for this event — they can&rsquo;t be checked in here.
+            No booking for this event. They can&rsquo;t be checked in here.
           </p>
         )}
         {r.pending && (
           <p className="mt-2 text-white/60" style={{ fontSize: '13px' }}>
-            Saved locally — will sync when back online.
+            Saved locally. Will sync when back online.
           </p>
         )}
       </div>
@@ -421,7 +421,7 @@ export function CheckIn() {
         {!online && (
           <div className="mb-3 flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-amber-300" style={{ fontSize: '13px' }}>
             <WifiOff className="w-4 h-4 shrink-0" />
-            Offline — verifying from the pre-loaded list.
+            Offline. Verifying from the pre-loaded list.
           </div>
         )}
         {queued.length > 0 && (

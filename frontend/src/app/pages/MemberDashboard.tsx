@@ -107,7 +107,7 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false, 
                   style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}
                 >
                   {pendingReview
-                    ? 'Your payment is under review — an executive will approve it soon.'
+                    ? 'Your payment is under review. An executive will approve it soon.'
                     : 'Activate your membership to unlock this section.'}
                 </p>
                 {pendingReview ? (
@@ -580,7 +580,7 @@ export function MemberDashboard() {
         className="text-white/60 mb-4"
         style={{ fontSize: '14px', lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
       >
-        Exclusive discounts from our sponsors — available only to AUSS members.
+        Exclusive discounts from our sponsors, available only to AUSS members.
       </p>
       {items.map((item) => (
         <div
@@ -835,7 +835,7 @@ export function MemberDashboard() {
                     style={{ fontSize: '14px', fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}
                   >
                     {isPendingReview
-                      ? 'Thanks for submitting your payment. Please wait while an executive member reviews and approves it — your membership will activate automatically once confirmed.'
+                      ? 'Thanks for submitting your payment. Please wait while an executive member reviews and approves it. Your membership will activate automatically once confirmed.'
                       : 'Unlock event RSVPs, exclusive content, sponsor perks and private member links.'}
                   </p>
                 </div>
@@ -1091,7 +1091,7 @@ export function MemberDashboard() {
                             <div
                               className="w-full sm:w-auto px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg text-white/40 flex items-center justify-center gap-1.5"
                               style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-                              title="Your payment is under review — an executive will approve it soon"
+                              title="Your payment is under review. An executive will approve it soon"
                             >
                               <Clock className="w-3.5 h-3.5" />
                               RSVP

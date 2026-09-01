@@ -171,7 +171,7 @@ export function Social() {
               Captured Moments
             </h2>
             <p className="text-white/50 max-w-lg mx-auto" style={{ fontSize: '16px', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' }}>
-              Highlights from our events and sessions — powered by DB Visuals
+              Highlights from our events and sessions, powered by DB Visuals
             </p>
           </FadeIn>
 
