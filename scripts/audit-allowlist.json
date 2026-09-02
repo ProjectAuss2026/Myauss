@@ -21,6 +21,14 @@
       "noFixAvailable": "No published @prisma/config release yet depends on a patched deepmerge-ts, so there is no non-breaking upgrade. `npm audit fix --force` would downgrade Prisma's tooling and risk breaking migrations/generation.",
       "expires": "2026-11-18",
       "reviewAction": "Remove when @prisma/config ships a build that pulls a patched deepmerge-ts (run `npm audit` to confirm the advisory is gone), then delete this entry."
+    },
+    {
+      "id": "GHSA-3f6p-5ww8-9rcr",
+      "package": "mysql2 (transitive via the prisma CLI)",
+      "reason": "MySQL2 auth-plugin downgrade to mysql_clear_password can leak plaintext DB credentials to a malicious or spoofed MySQL server. mysql2 is only present because the Prisma CLI (prisma@7.9.1) bundles connectors for every datasource. This app is PostgreSQL-only: the Prisma datasource is `postgresql` and the running Express server connects exclusively through the pg driver adapter (@prisma/adapter-pg). mysql2 is never imported or used to open a MySQL connection, so the vulnerable auth-negotiation path is unreachable at both build time and runtime.",
+      "noFixAvailable": "The advisory is fixed in mysql2 >=3.22.0, but prisma@7.9.1 pins mysql2@3.15.3 transitively and there is no patched Prisma 7.x release yet. npm's suggested 'fix' is a downgrade to prisma@6.19.3 (a major-version downgrade) which would break the driver-adapter setup and migrations. A manual `overrides: { mysql2: '^3.22.0' }` is possible but touches the lockfile for a package we never load.",
+      "expires": "2026-12-02",
+      "reviewAction": "Remove when Prisma ships a 7.x release bundling mysql2 >=3.22.0 (run `npm audit` to confirm the advisory is gone), or upgrade instead of allowlisting if we ever adopt a MySQL datasource."
     }
   ]
 }
