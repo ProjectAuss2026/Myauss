@@ -9,7 +9,7 @@ async function main() {
     create: {
       id: 1,
       pageContent:
-        'AUSS is proudly supported by partners who help power our events, training, and community. From activewear and strength gear to local gyms and tech — we are grateful for each one.',
+        'AUSS is proudly supported by partners who help power our events, training, and community. From activewear and strength gear to local gyms and tech. We are grateful for each one.',
     },
   });
 
@@ -267,7 +267,7 @@ async function main() {
       data: [
         {
           question: 'Do I need to be a student?',
-          answer: 'No — you do not need to be a University of Auckland student to join. We welcome anyone!',
+          answer: 'No, you do not need to be a University of Auckland student to join. We welcome anyone!',
         },
         {
           question: 'Is there a membership fee?',
@@ -287,9 +287,150 @@ async function main() {
         },
         {
           question: 'Does AUSS strictly hold lifting events?',
-          answer: 'No — we hold a wide range of events, from fun fitness-based collaborations to women-centric nights. With 300+ active members, there is something for everyone.',
+          answer: 'No, we hold a wide range of events, from fun fitness-based collaborations to women-centric nights. With 300+ active members, there is something for everyone.',
         },
       ],
+    });
+  }
+
+  // ── Member content (gated dashboard perks — KAN-167) ─────────────────────
+  // These rows back the members-only sections of the dashboard. They previously
+  // lived hardcoded in frontend/src/app/pages/MemberDashboard.tsx and were only
+  // CSS-blurred, so anyone could read them from the JS bundle. They now live
+  // here and are served only by the authenticated, VERIFIED-membership endpoint
+  // GET /api/member/content.
+  //
+  // NOTE FOR THE COMMITTEE: the discount codes below are the sample values that
+  // shipped in the old frontend. Confirm whether they are live sponsor codes or
+  // placeholders and replace them here (they are no longer public either way).
+  const memberContentSeed = [
+    {
+      id: 1,
+      type: 'DISCOUNT_CODE',
+      title: 'FitNutrition',
+      body: '20% off supplements',
+      code: 'AUSS20',
+      metadata: { tier: 'Platinum' },
+      displayOrder: 1,
+    },
+    {
+      id: 2,
+      type: 'DISCOUNT_CODE',
+      title: 'IronWorks Gym',
+      body: 'Free week pass',
+      code: 'AUSSFIT',
+      metadata: { tier: 'Gold' },
+      displayOrder: 2,
+    },
+    {
+      id: 3,
+      type: 'DISCOUNT_CODE',
+      title: 'Athletic Apparel Co',
+      body: '15% off all gear',
+      code: 'STRENGTH15',
+      metadata: { tier: 'Silver' },
+      displayOrder: 3,
+    },
+    {
+      id: 4,
+      type: 'EXCLUSIVE_CONTENT',
+      title: 'Advanced Powerlifting Program',
+      body: '12-week periodized strength training plan',
+      metadata: { tag: 'New' },
+      displayOrder: 1,
+    },
+    {
+      id: 5,
+      type: 'EXCLUSIVE_CONTENT',
+      title: 'Nutrition Guide for Athletes',
+      body: 'Evidence-based meal planning and macros',
+      metadata: { tag: 'Popular' },
+      displayOrder: 2,
+    },
+    {
+      id: 6,
+      type: 'EXCLUSIVE_CONTENT',
+      title: 'Competition Prep Handbook',
+      body: 'Everything you need for your first meet',
+      metadata: {},
+      displayOrder: 3,
+    },
+    {
+      id: 7,
+      type: 'PRIVATE_LINK',
+      title: 'Members Discord Server',
+      body: '',
+      url: 'https://discord.gg/auss-members',
+      displayOrder: 1,
+    },
+    {
+      id: 8,
+      type: 'PRIVATE_LINK',
+      title: 'Training Drive (Google Drive)',
+      body: '',
+      url: 'https://drive.google.com/auss',
+      displayOrder: 2,
+    },
+    {
+      id: 9,
+      type: 'PRIVATE_LINK',
+      title: 'WhatsApp Community',
+      body: '',
+      url: 'https://chat.whatsapp.com/auss',
+      displayOrder: 3,
+    },
+    {
+      id: 10,
+      type: 'PRIVATE_LINK',
+      title: 'Member Portal (Canvas)',
+      body: '',
+      url: 'https://canvas.auckland.ac.nz',
+      displayOrder: 4,
+    },
+    // ── Announcements (PUBLIC — shown to every dashboard visitor) ────────────
+    // Previously hardcoded in MemberDashboard.tsx. Unlike the perks above these
+    // are non-sensitive and ungated, so they carry visibility: 'PUBLIC' and are
+    // served by GET /api/announcements. `publishedAt` is a real timestamp the
+    // client formats; `metadata.isNew` drives the "New Updates" badge/count.
+    {
+      id: 11,
+      type: 'ANNOUNCEMENT',
+      title: 'New Training Schedule Released',
+      body: 'Check out our updated training times for Semester 2. Now with extra Saturday sessions!',
+      metadata: { isNew: true },
+      visibility: 'PUBLIC',
+      publishedAt: new Date('2026-05-10T00:00:00.000Z'),
+      displayOrder: 1,
+    },
+    {
+      id: 12,
+      type: 'ANNOUNCEMENT',
+      title: 'Competition Registration Open',
+      body: 'Sign up for the Auckland University Strength Championship. Early bird pricing ends May 20th.',
+      metadata: { isNew: true },
+      visibility: 'PUBLIC',
+      publishedAt: new Date('2026-05-08T00:00:00.000Z'),
+      displayOrder: 2,
+    },
+    {
+      id: 13,
+      type: 'ANNOUNCEMENT',
+      title: 'AGM Summary',
+      body: 'Thank you to everyone who attended! View the meeting notes and upcoming initiatives.',
+      metadata: { isNew: false },
+      visibility: 'PUBLIC',
+      publishedAt: new Date('2026-05-01T00:00:00.000Z'),
+      displayOrder: 3,
+    },
+  ];
+
+  for (const item of memberContentSeed) {
+    // Perks default to MEMBERS visibility; announcements set PUBLIC explicitly.
+    const { id, visibility = 'MEMBERS', ...rest } = item;
+    await prisma.memberContent.upsert({
+      where: { id },
+      update: { ...rest, visibility, isActive: true },
+      create: { id, ...rest, visibility, isActive: true },
     });
   }
 
