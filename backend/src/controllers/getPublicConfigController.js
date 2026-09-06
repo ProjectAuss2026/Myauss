@@ -2,21 +2,21 @@ import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
 
 const DEFAULTS = {
-  email: 'auss@auckland.ac.nz',
-  instagram_url: 'https://instagram.com/auss.uoa',
-  tiktok_url: 'https://tiktok.com/@auss.uoa',
-  facebook_url: 'https://facebook.com/auss.uoa',
-  linkedin_url: 'https://linkedin.com/company/auss-uoa',
-  discord_invite_url: 'https://discord.gg/auss',
-  membership_signup_url: 'https://example.com/membership',
-  media_drive_url: 'https://drive.google.com',
+  email: 'uoastrengthsociety@gmail.com',
+  instagram_url: 'https://www.instagram.com/auss_uoa',
+  tiktok_url: 'https://www.tiktok.com/@auss_uoa',
+  facebook_url: 'https://www.facebook.com/auss_uoa',
+  linkedin_url: 'https://www.linkedin.com/company/auckland-university-strength-society',
+  discord_invite_url: '',
+  membership_signup_url: '/verify-membership',
+  media_drive_url: 'https://danbainvisuals.pixieset.com/auss/landing/',
   sponsorship: {
     title: 'Sponsors & Partners',
     subtitle: 'Our Partners',
     body: 'AUSS is proudly supported by our partners and sponsors.',
     cta_heading: 'Become a Sponsor',
     cta_body: "Interested in supporting Auckland's strongest student community? We offer flexible sponsorship packages.",
-    cta_url: 'mailto:auss@auckland.ac.nz?subject=Sponsorship%20Inquiry',
+    cta_url: 'mailto:uoastrengthsociety@gmail.com?subject=Sponsorship%20Inquiry',
   },
 };
 

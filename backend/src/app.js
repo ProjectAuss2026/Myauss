@@ -15,6 +15,7 @@ import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import memberRoutes from './routes/memberRoutes.js';
 import { handleStripeWebhook } from './controllers/paymentController.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
 import logger from './utils/logger.js';
@@ -195,6 +196,7 @@ export function createApp() {
   app.use('/api', executiveRoutes);
   app.use('/api', mediaRoutes);
   app.use('/api', paymentRoutes);
+  app.use('/api', memberRoutes);
 
   // --- Serve the built frontend SPA (single-service production deploy) ---
   // Registered UNCONDITIONALLY so the route set is deterministic (the security

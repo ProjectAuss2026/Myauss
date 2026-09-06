@@ -22,6 +22,19 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal(
+    'matchMedia',
+    vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+  vi.stubGlobal(
     'IntersectionObserver',
     class {
       observe() {}
@@ -78,7 +91,8 @@ describe('registration optional student ID', () => {
     fireEvent.change(screen.getByPlaceholderText('Confirm your password'), {
       target: { value: 'CorrectHorseBatteryStaple!2026' },
     });
-    fireEvent.click(screen.getByLabelText(/I agree to the/));
+    fireEvent.click(screen.getByLabelText('I agree to the AUSS Privacy Policy'));
+    fireEvent.click(screen.getByLabelText(/I agree, by entering my name/));
     fireEvent.click(screen.getByRole('button', { name: 'Create Account' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));

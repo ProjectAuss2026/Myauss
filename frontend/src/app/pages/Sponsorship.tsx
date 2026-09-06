@@ -137,8 +137,8 @@ function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
 }
 
 const benefits = [
-  { icon: Users, title: '200+ Members', text: 'Reach an active, engaged student community' },
-  { icon: Trophy, title: '15+ Events/Year', text: 'Brand visibility at competitions and socials' },
+  { icon: Users, title: '300+ Members', text: 'Reach an active, engaged student community' },
+  { icon: Trophy, title: '15+ Events/Year', text: 'Brand visibility at our events and socials' },
   { icon: Star, title: '10k+ Social Reach', text: 'Exposure across Instagram, TikTok, and more' },
   { icon: Heart, title: 'Community Impact', text: 'Support student health, fitness, and wellbeing' },
 ];
@@ -283,7 +283,7 @@ export function Sponsorship() {
               Interested in supporting Auckland&apos;s strongest student community? We offer flexible sponsorship packages.
             </p>
             <a
-              href="mailto:auss@auckland.ac.nz?subject=Sponsorship%20Inquiry"
+              href="mailto:uoastrengthsociety@gmail.com?subject=Sponsorship%20Inquiry"
               className="inline-flex items-center gap-2 bg-[#eb7524] text-white px-8 py-3.5 rounded-xl hover:bg-[#d4691f] transition-all"
               style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
             >

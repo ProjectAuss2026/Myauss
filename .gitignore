@@ -6,6 +6,7 @@ pnpm-lock.yaml
 
 # Environment variables
 .env
+.env.railway
 .env.local
 .env.*.local
 
@@ -36,3 +37,7 @@ backend/private-uploads/
 
 # MCP config (contains credentials)
 .mcp.json
+
+# Local server logs + env backups
+.server-logs/
+.env.bak-*
