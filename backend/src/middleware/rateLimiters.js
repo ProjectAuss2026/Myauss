@@ -243,3 +243,14 @@ export const submitPaymentLimiter = createLimiter({
   keyGenerator: (req) => `submit-payment:${req.user?.id || "unknown"}`,
   scope: "membership payment submit",
 });
+
+// KAN-180: the check-in scan endpoint resolves a QR to a member, so an
+// unlimited version would be an enumeration oracle. Keyed per exec rather than
+// per IP — a whole committee working one venue shares a NAT address, and the
+// limit is generous enough for a real door queue.
+export const checkInScanLimiter = createLimiter({
+  windowMs: 60 * 1000,
+  max: 120,
+  keyGenerator: (req) => `check-in:${req.user?.id || "unknown"}`,
+  scope: "event check-in scan",
+});

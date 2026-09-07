@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  X, Loader2, AlertCircle, Users, Download, Trash2, Mail, Calendar, RefreshCw,
+  X, Loader2, AlertCircle, Users, Download, Trash2, Mail, Calendar, RefreshCw, CheckCircle2,
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import { fetchWithAuth } from '../lib/authFetch';
@@ -10,6 +10,7 @@ interface RsvpRow {
   name: string;
   email: string;
   createdAt: string;
+  checkedInAt: string | null;
 }
 
 interface RawRsvp {
@@ -17,6 +18,7 @@ interface RawRsvp {
   name: string;
   email: string;
   createdAt: string;
+  checkedInAt?: string | null;
 }
 
 interface AttendeesModalProps {
@@ -43,6 +45,7 @@ function normaliseRsvp(r: RawRsvp): RsvpRow {
     name: r.name,
     email: r.email,
     createdAt: r.createdAt,
+    checkedInAt: r.checkedInAt ?? null,
   };
 }
 
@@ -263,6 +266,7 @@ export function AttendeesModal({ activityId, activityTitle, onClose }: Attendees
                       <th className="px-4 py-3 font-medium">Name</th>
                       <th className="px-4 py-3 font-medium">Email</th>
                       <th className="px-4 py-3 font-medium">Registration Date</th>
+                      <th className="px-4 py-3 font-medium">Attendance</th>
                       <th className="px-4 py-3 font-medium text-right">Action</th>
                     </tr>
                   </thead>
@@ -286,6 +290,16 @@ export function AttendeesModal({ activityId, activityTitle, onClose }: Attendees
                               <Calendar className="w-3.5 h-3.5 shrink-0" />
                               {formatRegDate(r.createdAt)}
                             </span>
+                          </td>
+                          <td className="px-4 py-3 align-top whitespace-nowrap">
+                            {r.checkedInAt ? (
+                              <span className="inline-flex items-center gap-1.5 text-green-400">
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                {formatRegDate(r.checkedInAt)}
+                              </span>
+                            ) : (
+                              <span className="text-white/30">Not checked in</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 align-top text-right">
                             <button
