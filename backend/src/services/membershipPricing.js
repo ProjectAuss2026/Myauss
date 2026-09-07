@@ -14,6 +14,7 @@ export const MEMBERSHIP_TIERS = {
 export const PRICING_DEFAULTS = {
   membershipCents: 1000,
   shirtAddonCents: 1000,
+  shirtTierEnabled: false,
   promoActive: false,
   promoPercentOff: 0,
   promoEndsAt: null,
@@ -48,6 +49,7 @@ export function computePricing(row, nowMs = Date.now()) {
 
   return {
     currency: MEMBERSHIP_CURRENCY,
+    shirtTierEnabled: !!row.shirtTierEnabled,
     promo: {
       active: live,
       percentOff: live ? row.promoPercentOff : 0,
@@ -69,7 +71,10 @@ export function computePricing(row, nowMs = Date.now()) {
  * Throws an Error with `.status = 400` on invalid input. Exposed for testing.
  */
 export function resolveCharge(pricing, { tier, shirtSize } = {}) {
-  const chosen = tier === MEMBERSHIP_TIERS.MEMBERSHIP_WITH_SHIRT
+  // The shirt tier is only honoured when it is enabled; otherwise any request
+  // is coerced to membership-only so a stale/tampered client can never be
+  // charged for (or promised) a shirt we are not selling yet.
+  const chosen = pricing.shirtTierEnabled && tier === MEMBERSHIP_TIERS.MEMBERSHIP_WITH_SHIRT
     ? MEMBERSHIP_TIERS.MEMBERSHIP_WITH_SHIRT
     : MEMBERSHIP_TIERS.MEMBERSHIP;
   const includesShirt = chosen === MEMBERSHIP_TIERS.MEMBERSHIP_WITH_SHIRT;

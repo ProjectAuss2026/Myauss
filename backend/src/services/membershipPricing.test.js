@@ -13,6 +13,7 @@ const NOW = Date.UTC(2026, 8, 7); // 2026-09-07, fixed clock for determinism
 const promoRow = {
   membershipCents: 1000,
   shirtAddonCents: 1000,
+  shirtTierEnabled: true,
   promoActive: true,
   promoPercentOff: 50,
   promoEndsAt: null,
@@ -111,6 +112,16 @@ test('an unknown tier value defaults to membership-only (never over-charges)', (
   assert.equal(c.tier, 'MEMBERSHIP');
   assert.equal(c.amountCents, 500);
   assert.equal(c.includesShirt, false);
+});
+
+test('shirt tier disabled: a with-shirt request is coerced to membership-only', () => {
+  const disabled = computePricing({ ...promoRow, shirtTierEnabled: false }, NOW);
+  assert.equal(disabled.shirtTierEnabled, false);
+  const c = resolveCharge(disabled, { tier: 'MEMBERSHIP_WITH_SHIRT', shirtSize: 'M' });
+  assert.equal(c.tier, 'MEMBERSHIP');
+  assert.equal(c.includesShirt, false);
+  assert.equal(c.amountCents, 500);
+  assert.equal(c.shirtSize, null);
 });
 
 test('isValidShirtSize accepts XS–XXL (case/space-insensitive), rejects others', () => {

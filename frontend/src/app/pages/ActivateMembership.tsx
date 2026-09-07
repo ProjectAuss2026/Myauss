@@ -91,6 +91,7 @@ function fmtMoney(cents: number) {
 type MembershipTierKey = "MEMBERSHIP" | "MEMBERSHIP_WITH_SHIRT";
 type MembershipPricing = {
   currency: string;
+  shirtTierEnabled: boolean;
   promo: { active: boolean; percentOff: number; endsAt: string | null };
   membership: { fullCents: number; nowCents: number };
   shirt: { addonCents: number };
@@ -211,6 +212,10 @@ export function ActivateMembership() {
   const membershipNowCents = pricing?.membership.nowCents ?? 500;
   const shirtAddonCents = pricing?.shirt.addonCents ?? 1000;
   const availableSizes = pricing?.shirtSizes ?? SHIRT_SIZES_FALLBACK;
+  // Launch ships membership-only; the shirt tier is gated behind this flag until
+  // the committee agrees a ToS + pickup workflow. When off, no tier selection or
+  // shirt picker is shown — just the single membership price.
+  const shirtTierEnabled = pricing?.shirtTierEnabled ?? false;
   const currentAmountCents =
     selectedTier === "MEMBERSHIP_WITH_SHIRT"
       ? membershipNowCents + shirtAddonCents
@@ -699,6 +704,17 @@ export function ActivateMembership() {
                       </div>
                     </div>
 
+                    {/* Amount to transfer (so members know the exact figure and admins can verify it) */}
+                    <div className="mb-4 rounded-xl bg-black/30 border border-white/10 px-3 py-2.5 flex items-center justify-between">
+                      <span className="text-white/60" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Amount to transfer</span>
+                      <span className="text-white" style={{ fontSize: "15px", fontFamily: "Outfit, sans-serif", fontWeight: 700 }}>
+                        {promoActive && (
+                          <span className="text-white/30 line-through mr-1.5" style={{ fontSize: "12px", fontWeight: 400 }}>{fmtMoney(membershipFullCents)}</span>
+                        )}
+                        {fmtMoney(currentAmountCents)} <span className="text-white/40" style={{ fontSize: "11px", fontWeight: 400 }}>NZD</span>
+                      </span>
+                    </div>
+
                     {/* Upload area */}
                     <div className="space-y-3 mb-4">
                       <input
@@ -864,10 +880,10 @@ export function ActivateMembership() {
                             </div>
                           )}
                           <div className="space-y-2.5 mb-4">
-                            {([
+                            {(shirtTierEnabled ? [
                               { key: "MEMBERSHIP" as const, label: "Membership", sub: "Full access for the year", amount: membershipNowCents, full: membershipFullCents },
                               { key: "MEMBERSHIP_WITH_SHIRT" as const, label: "Membership + T-shirt", sub: "Everything, plus an AUSS tee", amount: membershipNowCents + shirtAddonCents, full: membershipFullCents + shirtAddonCents },
-                            ]).map((opt) => {
+                            ] : []).map((opt) => {
                               const active = selectedTier === opt.key;
                               return (
                                 <button

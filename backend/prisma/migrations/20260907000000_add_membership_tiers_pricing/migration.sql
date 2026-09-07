@@ -10,6 +10,7 @@ CREATE TABLE "MembershipPricing" (
     "id" INTEGER NOT NULL DEFAULT 1,
     "membershipCents" INTEGER NOT NULL DEFAULT 1000,
     "shirtAddonCents" INTEGER NOT NULL DEFAULT 1000,
+    "shirtTierEnabled" BOOLEAN NOT NULL DEFAULT false,
     "promoActive" BOOLEAN NOT NULL DEFAULT true,
     "promoPercentOff" INTEGER NOT NULL DEFAULT 50,
     "promoEndsAt" TIMESTAMP(3),

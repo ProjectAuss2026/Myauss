@@ -119,6 +119,7 @@ model MembershipPricing {
   id              Int       @id @default(1)
   membershipCents Int       @default(1000) // NZ$10.00 base membership
   shirtAddonCents Int       @default(1000) // +NZ$10.00 for a t-shirt (never discounted)
+  shirtTierEnabled Boolean  @default(false) // gate the t-shirt tier on/off (off for launch until ToS + pickup workflow are agreed)
   promoActive     Boolean   @default(true)
   promoPercentOff Int       @default(50) // % off the membership portion only
   promoEndsAt     DateTime? // null = "limited time" with no hard end yet
