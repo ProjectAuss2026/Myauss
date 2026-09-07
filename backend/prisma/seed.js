@@ -3,6 +3,15 @@ import bcrypt from 'bcrypt';
 import { validatePasswordPolicy } from '../src/utils/passwordPolicy.js';
 
 async function main() {
+  // Membership pricing / launch promo (single row, id=1). Created with schema
+  // defaults; `update: {}` preserves any admin edits (e.g. ending the promo or
+  // setting promoEndsAt) across re-seeds.
+  await prisma.membershipPricing.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, promoEndsAt: new Date('2026-11-16T23:59:59.000Z') }, // 50% promo ends end of Semester 2 (16 Nov 2026)
+  });
+
   const sponsorshipPage = await prisma.sponsorshipPage.upsert({
     where: { id: 1 },
     update: {},
