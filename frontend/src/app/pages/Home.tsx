@@ -147,7 +147,10 @@ function HeroVideo() {
       if (i === active && !paused) v.play().catch(() => {});
       else v.pause();
     });
-    if (paused) return;
+    // Clear the crossfade lock (not just return) when pausing: if the viewer
+    // pauses mid-crossfade, the cleanup cancels the pending timeout, so without
+    // this the lock sticks true and advance() stops cycling. (thanks @ZingZing001)
+    if (paused) { switching.current = false; return; }
     const t = window.setTimeout(() => { switching.current = false; }, 900);
     return () => window.clearTimeout(t);
   }, [active, soundOn, paused]);
