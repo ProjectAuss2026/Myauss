@@ -212,12 +212,14 @@ export const exportRsvpsCsv = async (req, res) => {
     // (it can't be sourced from the account — UserInfo stores a one-way hash —
     // and KAN-185 makes it optional for non-UoA members). Name + email identify
     // the attendee; KAN-174's scanner replaces ID checks at the door.
-    const header = 'Name,Email,Registration Date';
+    const header = 'Name,Email,Registration Date,Checked In,Check-In Time';
     const rows = rsvps.map((r) =>
       [
         csvEscape(r.name),
         csvEscape(r.email),
         csvEscape(r.createdAt.toISOString()),
+        csvEscape(r.checkedInAt ? 'Yes' : 'No'),
+        csvEscape(r.checkedInAt ? r.checkedInAt.toISOString() : ''),
       ].join(','),
     );
     const csv = [header, ...rows].join('\r\n') + '\r\n';

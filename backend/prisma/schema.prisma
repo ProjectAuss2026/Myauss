@@ -49,6 +49,11 @@ model User {
   membershipStatus          MembershipStatus        @default(INACTIVE)
   membershipStatusUpdatedAt DateTime                @default(now())
   inactiveWarnedAt          DateTime?
+  // Event-pass revocation counter (KAN-180). NOT a secret — the pass is
+  // HMAC(id:qrVersion, QR_PASS_SECRET), so bumping this invalidates that
+  // member's QR immediately without touching the primary key (19 tables FK to
+  // it) and without affecting anyone else.
+  qrVersion                 Int                     @default(1)
   privacyPolicyAcceptedAt   DateTime?
   privacyPolicyVersion      String?                 @db.VarChar(20)
   membershipAgreementAcceptedAt DateTime?
@@ -70,6 +75,7 @@ model User {
   uploadedImages            UploadedImage[]
   payments                  Payment[]
   rsvps                     Rsvp[]
+  checkInsPerformed         Rsvp[]                  @relation("RsvpCheckedInBy")
 
   @@index([membershipStatus, membershipStatusUpdatedAt])
 }
@@ -348,6 +354,16 @@ model Rsvp {
   name       String
   email      String
   createdAt  DateTime @default(now())
+  // Attendance (KAN-180). Arrival only — one timestamp per member per event, no
+  // check-out. Duplicate check-ins are impossible by construction: (activityId,
+  // userId) is unique so there is exactly one row to update, and the update is
+  // conditional on checkedInAt IS NULL, so two execs scanning the same person at
+  // once race safely at the database rather than optimistically in the app.
+  checkedInAt       DateTime?
+  checkedInByUserId String?
+  // SetNull as with userId above: deleting the exec who scanned (including via
+  // the KAN-134 retention job) must not erase the attendance record they took.
+  checkedInBy       User?     @relation("RsvpCheckedInBy", fields: [checkedInByUserId], references: [id], onDelete: SetNull)
 
   // One place per member per event (KAN-178), replacing the old
   // (activityId, email) rule. Legacy rows from the public era have a NULL
@@ -356,6 +372,7 @@ model Rsvp {
   @@unique([activityId, userId])
   @@index([activityId])
   @@index([userId, createdAt])
+  @@index([activityId, checkedInAt])
 }
 
 // --- EXEC COMMITTEE ---
