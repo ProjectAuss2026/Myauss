@@ -165,7 +165,7 @@ function HeroVideo() {
           autoPlay={i === 0}
           onTimeUpdate={() => onTime(i)}
           onEnded={() => advance(i)}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-[900ms] ease-in-out ${i === 0 ? 'blur-[3px] scale-[1.08]' : 'scale-[1.02]'}`}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-[900ms] ease-in-out ${i === 0 ? 'blur-[2px] scale-[1.06]' : 'scale-[1.02]'}`}
           style={{ opacity: i === active ? 1 : 0 }}
         />
       ))}
@@ -212,10 +212,10 @@ export function Home() {
   return (
     <div className="bg-black">
       {/* Hero Section */}
-      <section className="relative min-h-screen flex items-center px-6 overflow-hidden bg-black">
+      <section className="relative min-h-[60vh] flex items-center px-6 overflow-hidden bg-black">
         <HeroVideo />
         <div className="max-w-[1200px] mx-auto relative z-10 w-full" ref={heroRef}>
-          <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="flex flex-col items-center justify-center py-16 md:py-20 text-center">
             <p
               className="text-white/70 uppercase mb-6 tracking-[0.35em]"
               style={{
