@@ -7,6 +7,7 @@ import {
   changeMembershipStatus,
 } from '../services/membershipStatus.js';
 import { resolveTierCharge } from '../services/membershipPricing.js';
+import { buildMembershipOrders, createOrders, ORDER_PAYMENT_METHOD } from '../services/orders.js';
 
 const PAYMENT_PURPOSE = 'auss_membership';
 
@@ -105,6 +106,31 @@ async function recordMembershipPayment({ stripe, paymentIntent, userId }) {
       logger.warn({ err: error, userId }, 'Failed to record member shirt size after payment');
     }
   }
+
+  // Order history (additive, best-effort): membership + optional shirt as two
+  // independent rows, idempotent on the PaymentIntent id. A failure here must
+  // never fail the payment/activation — the member is already active.
+  try {
+    const parsedMembership = Number.parseInt(paymentIntent.metadata?.membershipCents ?? '', 10);
+    const shirtCents = Number.parseInt(paymentIntent.metadata?.shirtCents ?? '0', 10) || 0;
+    const membershipCents = Number.isFinite(parsedMembership)
+      ? parsedMembership
+      : ((paymentIntent.amount_received ?? paymentIntent.amount) - (includesShirt ? shirtCents : 0));
+    const rows = buildMembershipOrders({
+      membershipCents,
+      includesShirt,
+      shirtCents,
+      shirtSize,
+      currency: paymentIntent.currency,
+      paymentMethod: ORDER_PAYMENT_METHOD.CARD,
+      reference: paymentIntent.id,
+      paid: true,
+      paidAt: details.paidAt,
+    });
+    await createOrders({ userId, reference: paymentIntent.id, rows });
+  } catch (error) {
+    logger.warn({ err: error, userId, paymentIntentId: paymentIntent.id }, 'Failed to create order rows after payment');
+  }
 }
 
 /**
@@ -195,6 +221,9 @@ export async function createMembershipPaymentIntent(req, res) {
         userId: req.user.id,
         includesShirt: charge.includesShirt ? 'true' : 'false',
         shirtSize: charge.shirtSize || '',
+        // Split recorded so the order-history rows can be rebuilt at confirm/webhook.
+        membershipCents: String(charge.pricing.membership.nowCents),
+        shirtCents: String(charge.includesShirt ? charge.pricing.shirt.addonCents : 0),
       },
     });
 
