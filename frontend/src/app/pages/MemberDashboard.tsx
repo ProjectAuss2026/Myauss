@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Lock,
   Bell,
+  Receipt,
   Link2,
   Calendar,
   Clock,
@@ -235,6 +236,33 @@ const PLACEHOLDER_LINKS: PrivateLink[] = [
   { id: -3, title: 'Members-only chat', description: null, url: '••••••••••' },
 ];
 
+type MemberOrder = {
+  id: string;
+  type: string;
+  status: string;
+  amountCents: number;
+  currency: string;
+  paymentMethod: string;
+  shirtSize: string | null;
+  paidAt: string | null;
+  createdAt: string;
+};
+
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  PENDING_REVIEW: 'In review',
+  PAID: 'Paid',
+  READY_FOR_PICKUP: 'Ready for pickup',
+  PICKED_UP: 'Picked up',
+  DECLINED: 'Declined',
+};
+const ORDER_STATUS_STYLE: Record<string, string> = {
+  PENDING_REVIEW: 'bg-amber-500/15 text-amber-300',
+  PAID: 'bg-green-500/15 text-green-300',
+  READY_FOR_PICKUP: 'bg-[#eb7524]/15 text-[#eb7524]',
+  PICKED_UP: 'bg-white/10 text-white/60',
+  DECLINED: 'bg-red-500/15 text-red-300',
+};
+
 function SectionLoadingRow() {
   return (
     <div className="flex items-center justify-center py-10">
@@ -367,6 +395,31 @@ export function MemberDashboard() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
   const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
+
+  // Member order history: the member's own membership / shirt orders + status.
+  const [orders, setOrders] = useState<MemberOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setOrdersLoading(true);
+        setOrdersError(null);
+        const res = await fetchWithAuth('/api/auth/member/orders');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Failed to load orders');
+        if (!cancelled) setOrders(Array.isArray(data?.data) ? data.data : []);
+      } catch (err) {
+        if (!cancelled) setOrdersError(err instanceof Error ? err.message : 'Failed to load orders');
+      } finally {
+        if (!cancelled) setOrdersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Executive invitation state
   const [inviteToken, setInviteToken] = useState('');
@@ -1173,6 +1226,45 @@ export function MemberDashboard() {
                         >
                           {item.content}
                         </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* My Orders — membership + shirt purchases and their status */}
+          <CollapsibleSection title="My Orders" icon={Receipt} defaultOpen={true}>
+            {ordersLoading ? (
+              <SectionLoadingRow />
+            ) : ordersError ? (
+              <SectionErrorRow message={ordersError} />
+            ) : orders.length === 0 ? (
+              <SectionEmptyRow icon={Receipt} label="No orders yet." />
+            ) : (
+              <div className="space-y-3">
+                {orders.map((o) => (
+                  <div key={o.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-white" style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                          {o.type === 'SHIRT' ? `T-shirt${o.shirtSize ? ` · Size ${o.shirtSize}` : ''}` : 'Membership'}
+                        </div>
+                        <div className="text-white/40" style={{ fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                          {o.paymentMethod === 'CARD' ? 'Card' : 'Bank transfer'} · {new Date(o.paidAt || o.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-white" style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}>
+                          ${(o.amountCents / 100).toFixed(2)}
+                        </div>
+                        <span
+                          className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[11px] ${ORDER_STATUS_STYLE[o.status] || 'bg-white/10 text-white/60'}`}
+                          style={{ fontFamily: 'Inter, sans-serif' }}
+                        >
+                          {ORDER_STATUS_LABEL[o.status] || o.status}
+                        </span>
                       </div>
                     </div>
                   </div>

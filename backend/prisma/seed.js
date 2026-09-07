@@ -9,7 +9,7 @@ async function main() {
   await prisma.membershipPricing.upsert({
     where: { id: 1 },
     update: {},
-    create: { id: 1, promoEndsAt: new Date('2026-11-16T23:59:59.000Z') }, // 50% promo ends end of Semester 2 (16 Nov 2026)
+    create: { id: 1, shirtTierEnabled: true, promoEndsAt: new Date('2026-11-16T23:59:59.000Z') }, // 50% promo ends end of Semester 2 (16 Nov 2026)
   });
 
   const sponsorshipPage = await prisma.sponsorshipPage.upsert({
