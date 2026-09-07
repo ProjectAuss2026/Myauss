@@ -52,7 +52,7 @@ const stats = [
   { label: 'Active Members', value: 300, suffix: '+' },
   { label: 'Training Sessions', value: 50, suffix: '+' },
   { label: 'Years Running', value: 10, suffix: '' },
-  { label: 'Events', value: 15, suffix: '+' },
+  { label: 'Events', value: 100, suffix: '+' },
 ];
 
 const features = [
