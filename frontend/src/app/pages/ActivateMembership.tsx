@@ -83,6 +83,21 @@ function formatBytes(sizeBytes: number) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const SHIRT_SIZES_FALLBACK = ["XS", "S", "M", "L", "XL", "XXL"];
+function fmtMoney(cents: number) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+type MembershipTierKey = "MEMBERSHIP" | "MEMBERSHIP_WITH_SHIRT";
+type MembershipPricing = {
+  currency: string;
+  promo: { active: boolean; percentOff: number; endsAt: string | null };
+  membership: { fullCents: number; nowCents: number };
+  shirt: { addonCents: number };
+  tiers: Record<MembershipTierKey, { amountCents: number; includesShirt: boolean }>;
+  shirtSizes: string[];
+};
+
 function createLocalProofUploadId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `proof-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -139,6 +154,12 @@ export function ActivateMembership() {
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [stripeLoadError, setStripeLoadError] = useState<string | null>(null);
 
+  // Membership tier selection (KAN-198): tier + shirt size + live pricing/promo.
+  const [pricing, setPricing] = useState<MembershipPricing | null>(null);
+  const [selectedTier, setSelectedTier] = useState<MembershipTierKey>("MEMBERSHIP");
+  const [shirtSize, setShirtSize] = useState<string>("");
+  const [startingPayment, setStartingPayment] = useState(false);
+
   const uploadedPaymentProofIds = paymentProofUploads
     .filter((u) => u.status === "uploaded" && u.id)
     .map((u) => u.id as string);
@@ -156,31 +177,23 @@ export function ActivateMembership() {
 
   const membershipStatus = user?.membershipStatus || "INACTIVE";
 
-  // Request a Stripe PaymentIntent when user is INACTIVE
+  // Load membership pricing (tiers + launch promo) for the selector + summary.
+  // The PaymentIntent is created only when the member picks a tier and clicks
+  // Continue (see startPayment) — the amount is always computed server-side.
   useEffect(() => {
-    if (!isStripeConfigured || membershipStatus !== "INACTIVE") return;
-
     let cancelled = false;
-    fetchWithAuth("/api/payments/intent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || "Failed to start payment");
-        if (!cancelled) setStripeClientSecret(data.clientSecret);
+    fetch("/api/public-config")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && d?.membership) setPricing(d.membership as MembershipPricing);
       })
-      .catch((err) => {
-        if (!cancelled)
-          setStripeLoadError(
-            err instanceof Error ? err.message : "Failed to start payment",
-          );
+      .catch(() => {
+        /* selector falls back to the hardcoded promo prices */
       });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [membershipStatus]);
+  }, []);
 
   if (isLoading || !user) {
     return (
@@ -189,6 +202,48 @@ export function ActivateMembership() {
       </div>
     );
   }
+
+  // Derived pricing for the selector/summary (falls back to promo defaults if
+  // /api/public-config has not resolved yet). Display only — the charge is
+  // authoritative server-side.
+  const promoActive = pricing?.promo.active ?? true;
+  const membershipFullCents = pricing?.membership.fullCents ?? 1000;
+  const membershipNowCents = pricing?.membership.nowCents ?? 500;
+  const shirtAddonCents = pricing?.shirt.addonCents ?? 1000;
+  const availableSizes = pricing?.shirtSizes ?? SHIRT_SIZES_FALLBACK;
+  const currentAmountCents =
+    selectedTier === "MEMBERSHIP_WITH_SHIRT"
+      ? membershipNowCents + shirtAddonCents
+      : membershipNowCents;
+  const needsShirtSize = selectedTier === "MEMBERSHIP_WITH_SHIRT" && !shirtSize;
+
+  // Create the PaymentIntent for the chosen tier, then reveal the card element.
+  const startPayment = async () => {
+    if (!isStripeConfigured || startingPayment || stripeClientSecret) return;
+    if (needsShirtSize) {
+      setStripeLoadError("Please choose a shirt size.");
+      return;
+    }
+    setStartingPayment(true);
+    setStripeLoadError(null);
+    try {
+      const res = await fetchWithAuth("/api/payments/intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tier: selectedTier,
+          shirtSize: selectedTier === "MEMBERSHIP_WITH_SHIRT" ? shirtSize : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Failed to start payment");
+      setStripeClientSecret(data.clientSecret);
+    } catch (err) {
+      setStripeLoadError(err instanceof Error ? err.message : "Failed to start payment");
+    } finally {
+      setStartingPayment(false);
+    }
+  };
 
   // ── Payment proof upload handlers ──
 
@@ -772,24 +827,133 @@ export function ActivateMembership() {
                     </div>
 
                     {isStripeConfigured ? (
-                      stripeLoadError ? (
-                        <div className="text-center py-4">
-                          <AlertCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
-                          <p className="text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
-                            {stripeLoadError}
-                          </p>
-                        </div>
-                      ) : stripeClientSecret ? (
-                        <Elements
-                          stripe={stripePromise}
-                          options={{ clientSecret: stripeClientSecret, appearance: cardAppearance }}
-                        >
-                          <StripePaymentForm />
-                        </Elements>
+                      stripeClientSecret ? (
+                        <>
+                          <div className="mb-3 flex items-center justify-between rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+                            <span className="text-white/70" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                              {selectedTier === "MEMBERSHIP_WITH_SHIRT"
+                                ? `Membership + T-shirt${shirtSize ? ` (${shirtSize})` : ""}`
+                                : "Membership"}
+                            </span>
+                            <span className="text-white" style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 700 }}>
+                              {fmtMoney(currentAmountCents)} <span className="text-white/40" style={{ fontSize: "11px", fontWeight: 400 }}>NZD</span>
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setStripeClientSecret(null); setStripeLoadError(null); }}
+                            className="text-[#eb7524] hover:text-[#d4691f] mb-3 cursor-pointer"
+                            style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
+                          >
+                            ← Change selection
+                          </button>
+                          <Elements
+                            stripe={stripePromise}
+                            options={{ clientSecret: stripeClientSecret, appearance: cardAppearance }}
+                          >
+                            <StripePaymentForm />
+                          </Elements>
+                        </>
                       ) : (
-                        <div className="flex items-center justify-center py-6">
-                          <Loader2 className="w-5 h-5 text-[#eb7524] animate-spin" />
-                        </div>
+                        <>
+                          {promoActive && (
+                            <div className="mb-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eb7524]/15 border border-[#eb7524]/30">
+                              <span style={{ fontSize: "11px", fontWeight: 700, color: "#eb7524", fontFamily: "Outfit, sans-serif", letterSpacing: "0.02em" }}>
+                                50% OFF membership · limited time
+                              </span>
+                            </div>
+                          )}
+                          <div className="space-y-2.5 mb-4">
+                            {([
+                              { key: "MEMBERSHIP" as const, label: "Membership", sub: "Full access for the year", amount: membershipNowCents, full: membershipFullCents },
+                              { key: "MEMBERSHIP_WITH_SHIRT" as const, label: "Membership + T-shirt", sub: "Everything, plus an AUSS tee", amount: membershipNowCents + shirtAddonCents, full: membershipFullCents + shirtAddonCents },
+                            ]).map((opt) => {
+                              const active = selectedTier === opt.key;
+                              return (
+                                <button
+                                  key={opt.key}
+                                  type="button"
+                                  onClick={() => setSelectedTier(opt.key)}
+                                  className={`w-full text-left rounded-xl border p-3 transition-all cursor-pointer ${active ? "border-[#eb7524] bg-[#eb7524]/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2.5">
+                                      <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? "border-[#eb7524]" : "border-white/30"}`}>
+                                        {active && <span className="w-2 h-2 rounded-full bg-[#eb7524]" />}
+                                      </span>
+                                      <div>
+                                        <div className="text-white" style={{ fontSize: "14px", fontWeight: 600, fontFamily: "Outfit, sans-serif" }}>{opt.label}</div>
+                                        <div className="text-white/40" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{opt.sub}</div>
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      {promoActive && opt.full !== opt.amount && (
+                                        <span className="text-white/30 line-through mr-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{fmtMoney(opt.full)}</span>
+                                      )}
+                                      <span className="text-white" style={{ fontSize: "15px", fontWeight: 700, fontFamily: "Outfit, sans-serif" }}>{fmtMoney(opt.amount)}</span>
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+
+                            {selectedTier === "MEMBERSHIP_WITH_SHIRT" && (
+                              <div>
+                                <label htmlFor="shirt-size" className="text-white/60 block mb-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>Shirt size</label>
+                                <select
+                                  id="shirt-size"
+                                  value={shirtSize}
+                                  onChange={(e) => setShirtSize(e.target.value)}
+                                  className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-[#eb7524] outline-none"
+                                  style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+                                >
+                                  <option value="" className="bg-black">Select a size…</option>
+                                  {availableSizes.map((s) => (
+                                    <option key={s} value={s} className="bg-black">{s}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-1.5">
+                              <div className="flex justify-between" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                                <span className="text-white/60">AUSS Membership</span>
+                                <span className="text-white/80">
+                                  {promoActive && <span className="text-white/30 line-through mr-1.5">{fmtMoney(membershipFullCents)}</span>}
+                                  {fmtMoney(membershipNowCents)}
+                                </span>
+                              </div>
+                              {selectedTier === "MEMBERSHIP_WITH_SHIRT" && (
+                                <div className="flex justify-between" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                                  <span className="text-white/60">T-shirt{shirtSize ? ` (size ${shirtSize})` : ""}</span>
+                                  <span className="text-white/80">{fmtMoney(shirtAddonCents)}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between pt-1.5 border-t border-white/10" style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 700 }}>
+                                <span className="text-white">Total</span>
+                                <span className="text-white">{fmtMoney(currentAmountCents)} <span className="text-white/40" style={{ fontSize: "11px", fontWeight: 400 }}>NZD</span></span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {stripeLoadError && (
+                            <div className="flex items-start gap-2 mb-3 text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                              <span>{stripeLoadError}</span>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={startPayment}
+                            disabled={startingPayment || needsShirtSize}
+                            className="w-full bg-[#eb7524] text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4691f] transition-all disabled:opacity-60 cursor-pointer"
+                            style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                          >
+                            {startingPayment ? "Starting…" : `Continue to payment — ${fmtMoney(currentAmountCents)}`}
+                            {!startingPayment && <ArrowRight className="w-4 h-4" />}
+                          </button>
+                        </>
                       )
                     ) : (
                       <p

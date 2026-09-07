@@ -49,6 +49,9 @@ model User {
   membershipStatus          MembershipStatus        @default(INACTIVE)
   membershipStatusUpdatedAt DateTime                @default(now())
   inactiveWarnedAt          DateTime?
+  // Latest t-shirt size ordered with a paid membership (KAN-198 tiers), for
+  // expo fulfilment. Null = no shirt ordered. One of XS/S/M/L/XL/XXL.
+  shirtSize                 String?                 @db.VarChar(8)
   // Event-pass revocation counter (KAN-180). NOT a secret — the pass is
   // HMAC(id:qrVersion, QR_PASS_SECRET), so bumping this invalidates that
   // member's QR immediately without touching the primary key (19 tables FK to
@@ -97,12 +100,29 @@ model Payment {
   method                String   @db.VarChar(40) // Stripe payment_method_details.type, e.g. "card"
   cardBrand             String?  @db.VarChar(20) // e.g. "visa", "mastercard"
   cardLast4             String?  @db.VarChar(4)
+  includesShirt         Boolean  @default(false)
+  shirtSize             String?  @db.VarChar(8)
   paidAt                DateTime
   createdAt             DateTime @default(now())
   user                  User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, paidAt])
   @@index([paidAt])
+}
+
+// --- MEMBERSHIP PRICING & PROMO (single-row config, id=1) ---
+// Authoritative prices in cents plus the launch promo. Prices are enforced
+// server-side; the frontend reads them read-only from /api/public-config to
+// render the tier cards + itemised summary. Editable without a redeploy
+// (flip promoActive / set promoEndsAt from the DB or an admin action).
+model MembershipPricing {
+  id              Int       @id @default(1)
+  membershipCents Int       @default(1000) // NZ$10.00 base membership
+  shirtAddonCents Int       @default(1000) // +NZ$10.00 for a t-shirt (never discounted)
+  promoActive     Boolean   @default(true)
+  promoPercentOff Int       @default(50) // % off the membership portion only
+  promoEndsAt     DateTime? // null = "limited time" with no hard end yet
+  updatedAt       DateTime  @updatedAt
 }
 
 model PasswordReset {

@@ -6,11 +6,8 @@ import {
   MembershipTransitionError,
   changeMembershipStatus,
 } from '../services/membershipStatus.js';
+import { resolveTierCharge } from '../services/membershipPricing.js';
 
-// Membership pricing (overridable via env). Amount is in the smallest currency
-// unit (cents). Defaults to NZ$20.00.
-const MEMBERSHIP_PRICE_CENTS = Number.parseInt(process.env.MEMBERSHIP_PRICE_CENTS || '2000', 10);
-const MEMBERSHIP_CURRENCY = (process.env.MEMBERSHIP_CURRENCY || 'nzd').toLowerCase();
 const PAYMENT_PURPOSE = 'auss_membership';
 
 let stripeClient = null;
@@ -77,6 +74,9 @@ async function recordMembershipPayment({ stripe, paymentIntent, userId }) {
     prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
   ]);
 
+  const includesShirt = paymentIntent.metadata?.includesShirt === 'true';
+  const shirtSize = includesShirt ? (paymentIntent.metadata?.shirtSize || null) : null;
+
   await prisma.payment.upsert({
     where: { stripePaymentIntentId: paymentIntent.id },
     update: {},
@@ -89,9 +89,22 @@ async function recordMembershipPayment({ stripe, paymentIntent, userId }) {
       method: details.method,
       cardBrand: details.cardBrand,
       cardLast4: details.cardLast4,
+      includesShirt,
+      shirtSize,
       paidAt: details.paidAt,
     },
   });
+
+  // Record the ordered shirt size on the member for expo fulfilment. Best-effort:
+  // the payment is already ledgered and the member active, so a failure here must
+  // not fail the request (the webhook/confirm both call this idempotently).
+  if (includesShirt && shirtSize) {
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { shirtSize } });
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'Failed to record member shirt size after payment');
+    }
+  }
 }
 
 /**
@@ -139,9 +152,25 @@ export async function createMembershipPaymentIntent(req, res) {
   }
 
   try {
+    // Resolve the client-chosen tier into an authoritative charge. The client
+    // never supplies the amount — it is computed server-side from the DB pricing
+    // row (with the launch promo applied to the membership portion only).
+    let charge;
+    try {
+      charge = await resolveTierCharge({
+        tier: req.body?.tier,
+        shirtSize: req.body?.shirtSize,
+      });
+    } catch (error) {
+      if (error.status === 400) {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { membershipStatus: true },
+      select: { membershipStatus: true, email: true },
     });
 
     if (!user) {
@@ -153,18 +182,29 @@ export async function createMembershipPaymentIntent(req, res) {
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: MEMBERSHIP_PRICE_CENTS,
-      currency: MEMBERSHIP_CURRENCY,
+      amount: charge.amountCents,
+      currency: charge.currency,
       // Card-only: no redirect-based methods, no wallet/klarna activation
       // warnings, and a single clean flow at the expo.
       payment_method_types: ['card'],
-      metadata: { purpose: PAYMENT_PURPOSE, userId: req.user.id },
+      // Stripe emails an automatic receipt to this address on success.
+      receipt_email: user.email || undefined,
+      description: charge.includesShirt ? 'AUSS membership + t-shirt' : 'AUSS membership',
+      metadata: {
+        purpose: PAYMENT_PURPOSE,
+        userId: req.user.id,
+        includesShirt: charge.includesShirt ? 'true' : 'false',
+        shirtSize: charge.shirtSize || '',
+      },
     });
 
     return res.json({
       clientSecret: paymentIntent.client_secret,
-      amount: MEMBERSHIP_PRICE_CENTS,
-      currency: MEMBERSHIP_CURRENCY,
+      amount: charge.amountCents,
+      currency: charge.currency,
+      includesShirt: charge.includesShirt,
+      shirtSize: charge.shirtSize,
+      pricing: charge.pricing,
     });
   } catch (error) {
     logger.error({ err: error }, 'Failed to create membership PaymentIntent');
