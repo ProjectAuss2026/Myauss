@@ -32,6 +32,7 @@ import {
   Camera,
   ExternalLink,
   LogOut,
+  ScanLine,
   Shield,
   Image as ImageIcon,
   Loader2,
@@ -43,6 +44,7 @@ import {
   GripVertical,
   Link as LinkIcon,
   CheckCircle2,
+  Receipt,
   XCircle,
 } from "lucide-react";
 import { AttendeesModal } from "../components/AttendeesModal";
@@ -177,6 +179,7 @@ type Tab =
   | "activities"
   | "execs"
   | "members"
+  | "orders"
   | "faq"
   | "access";
 const VALID_TABS: Tab[] = [
@@ -185,6 +188,7 @@ const VALID_TABS: Tab[] = [
   "activities",
   "execs",
   "members",
+  "orders",
   "faq",
   "access",
 ];
@@ -1650,14 +1654,27 @@ export function Admin() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all cursor-pointer"
-              style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
-            >
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Event check-in (KAN-180). A separate full-screen route rather
+                  than a tab — it's used one-handed at the door, not alongside
+                  the admin panels. */}
+              <button
+                onClick={() => navigate("/admin/check-in")}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer"
+                style={{ fontSize: "14px", fontFamily: "Inter, sans-serif", fontWeight: 600 }}
+              >
+                <ScanLine className="w-4 h-4" />
+                Event Check-In
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.08] hover:border-white/20 transition-all cursor-pointer"
+                style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -1668,6 +1685,7 @@ export function Admin() {
               { key: "media" as Tab, label: "Photo Drive", icon: Camera },
               { key: "execs" as Tab, label: "Execs", icon: Users },
               { key: "members" as Tab, label: "Members", icon: CheckCircle2 },
+              { key: "orders" as Tab, label: "Orders", icon: Receipt },
               { key: "faq" as Tab, label: "FAQ", icon: HelpCircle },
               ...(isOwner
                 ? [{ key: "access" as Tab, label: "Access", icon: Shield }]
@@ -1776,6 +1794,7 @@ export function Admin() {
               onRefreshMembers={refreshMembers}
             />
           )}
+          {tab === "orders" && <OrdersManager />}
           {tab === "faq" && (
             <FaqManager
               faqs={faqs}
@@ -3168,6 +3187,183 @@ function PaymentHistoryModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+type AdminOrder = {
+  id: string;
+  type: string;
+  status: string;
+  amountCents: number;
+  currency: string;
+  paymentMethod: string;
+  shirtSize: string | null;
+  statusReason: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  member: { email: string; name: string | null } | null;
+};
+
+const ADMIN_ORDER_STATUS_LABEL: Record<string, string> = {
+  PENDING_REVIEW: "In review",
+  PAID: "Paid",
+  READY_FOR_PICKUP: "To pick up",
+  PICKED_UP: "Picked up",
+  DECLINED: "Declined",
+};
+const ADMIN_ORDER_STATUS_STYLE: Record<string, string> = {
+  PENDING_REVIEW: "bg-amber-500/15 text-amber-300",
+  PAID: "bg-green-500/15 text-green-300",
+  READY_FOR_PICKUP: "bg-[#eb7524]/15 text-[#eb7524]",
+  PICKED_UP: "bg-white/10 text-white/60",
+  DECLINED: "bg-red-500/15 text-red-300",
+};
+
+const ORDER_FILTERS = [
+  { key: "", label: "All" },
+  { key: "PENDING_REVIEW", label: "In review" },
+  { key: "READY_FOR_PICKUP", label: "To pick up" },
+  { key: "PICKED_UP", label: "Picked up" },
+  { key: "PAID", label: "Paid" },
+  { key: "DECLINED", label: "Declined" },
+];
+
+// Admin Orders view: what each member ordered (membership / shirt), how much,
+// how they paid, the size, and the fulfilment status — plus a Mark-picked-up
+// action for shirts that are READY_FOR_PICKUP.
+function OrdersManager() {
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string>("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetchWithAuth(`/api/auth/admin/orders${filter ? `?status=${filter}` : ""}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Failed to load orders");
+        if (!cancelled) setOrders(Array.isArray(data?.data) ? data.data : []);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load orders");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [filter, reloadKey]);
+
+  const markPickedUp = async (id: string) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`/api/auth/admin/orders/${id}/pickup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error || "Failed to mark picked up");
+      }
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark picked up");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {ORDER_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`px-3 py-1.5 rounded-lg text-[13px] transition-all cursor-pointer ${filter === f.key ? "bg-[#eb7524] text-white" : "bg-white/[0.04] border border-white/10 text-white/60 hover:text-white"}`}
+            style={{ fontFamily: "Outfit, sans-serif" }}
+          >
+            {f.label}
+          </button>
+        ))}
+        <button
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="ml-auto px-3 py-1.5 rounded-lg text-[13px] bg-white/[0.04] border border-white/10 text-white/60 hover:text-white cursor-pointer"
+          style={{ fontFamily: "Outfit, sans-serif" }}
+        >
+          Refresh
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300" style={{ fontSize: "13px" }}>
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="py-10 text-center text-white/40" style={{ fontSize: "14px" }}>Loading orders…</div>
+      ) : orders.length === 0 ? (
+        <div className="py-10 text-center text-white/40" style={{ fontSize: "14px" }}>No orders.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left" style={{ fontFamily: "Inter, sans-serif" }}>
+            <thead>
+              <tr className="text-white/40 border-b border-white/10" style={{ fontSize: "12px" }}>
+                <th className="py-2 pr-3 font-medium">Member</th>
+                <th className="py-2 pr-3 font-medium">Item</th>
+                <th className="py-2 pr-3 font-medium">Amount</th>
+                <th className="py-2 pr-3 font-medium">Method</th>
+                <th className="py-2 pr-3 font-medium">Status</th>
+                <th className="py-2 pr-3 font-medium">Date</th>
+                <th className="py-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <tr key={o.id} className="border-b border-white/[0.06]" style={{ fontSize: "13px" }}>
+                  <td className="py-2.5 pr-3">
+                    <div className="text-white">{o.member?.name || "—"}</div>
+                    <div className="text-white/40" style={{ fontSize: "12px" }}>{o.member?.email || "—"}</div>
+                  </td>
+                  <td className="py-2.5 pr-3 text-white/80">
+                    {o.type === "SHIRT" ? `T-shirt${o.shirtSize ? ` · ${o.shirtSize}` : ""}` : "Membership"}
+                  </td>
+                  <td className="py-2.5 pr-3 text-white">${(o.amountCents / 100).toFixed(2)}</td>
+                  <td className="py-2.5 pr-3 text-white/60">{o.paymentMethod === "CARD" ? "Card" : "Bank transfer"}</td>
+                  <td className="py-2.5 pr-3">
+                    <span className={`px-2 py-0.5 rounded-md text-[11px] ${ADMIN_ORDER_STATUS_STYLE[o.status] || "bg-white/10 text-white/60"}`}>
+                      {ADMIN_ORDER_STATUS_LABEL[o.status] || o.status}
+                    </span>
+                  </td>
+                  <td className="py-2.5 pr-3 text-white/50" style={{ fontSize: "12px" }}>
+                    {new Date(o.paidAt || o.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="py-2.5">
+                    {o.status === "READY_FOR_PICKUP" && (
+                      <button
+                        onClick={() => markPickedUp(o.id)}
+                        disabled={busyId === o.id}
+                        className="px-3 py-1.5 rounded-lg text-[12px] bg-[#eb7524] text-white hover:bg-[#d4691f] disabled:opacity-60 cursor-pointer whitespace-nowrap"
+                        style={{ fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                      >
+                        {busyId === o.id ? "…" : "Mark picked up"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

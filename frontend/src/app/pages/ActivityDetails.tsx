@@ -4,12 +4,14 @@ import {
   AlertCircle,
   ArrowLeft,
   Calendar,
+  Check,
   Clock,
   ExternalLink,
   Loader2,
   Users,
 } from 'lucide-react';
 import { RSVPModal } from '../components/RSVPModal';
+import { fetchWithAuth } from '../lib/authFetch';
 import { getSafeImageSrc, getSafeLinkHref } from '../../lib/safeUrl';
 
 interface Activity {
@@ -27,6 +29,8 @@ interface RsvpCount {
   count: number;
   capacity: number | null;
   isSoldOut: boolean;
+  /** Only meaningful when signed in; the endpoint is public (KAN-191). */
+  isRegistered?: boolean;
 }
 
 function deriveStatus(activity: Activity): 'upcoming' | 'ongoing' | 'archived' {
@@ -108,12 +112,18 @@ export function ActivityDetails() {
     };
   }, [activityId, validId]);
 
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
   const loadRsvpCount = useCallback(async () => {
     if (!validId) return;
     try {
       setRsvpLoading(true);
       setRsvpError(null);
-      const res = await fetch(`/api/activities/${activityId}/rsvp/count`);
+      // fetchWithAuth attaches the token when signed in, so the response can
+      // also tell us whether THIS member holds a place. Anonymous callers still
+      // get count/capacity/soldOut — the route is public either way.
+      const res = await fetchWithAuth(`/api/activities/${activityId}/rsvp/count`);
       if (!res.ok) throw new Error(`Failed to load RSVP info: ${res.statusText}`);
       const data: RsvpCount = await res.json();
       setRsvp(data);
@@ -123,6 +133,34 @@ export function ActivityDetails() {
       setRsvpLoading(false);
     }
   }, [activityId, validId]);
+
+  const handleCancel = useCallback(async () => {
+    setCancelError(null);
+    setCancelling(true);
+    try {
+      const res = await fetchWithAuth(`/api/activities/${activityId}/rsvp`, { method: 'DELETE' });
+      if (res.ok) {
+        // Re-read rather than mutating locally, so the freed place shows in the
+        // count and sold-out state immediately without a manual refresh.
+        await loadRsvpCount();
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      setCancelError(
+        res.status === 401
+          ? 'Your session has expired. Please sign in again.'
+          : body?.code === 'EVENT_FINISHED'
+            ? 'This event has already finished.'
+            : res.status === 404
+              ? 'You are not registered for this event.'
+              : 'Could not cancel your place. Please try again.',
+      );
+    } catch {
+      setCancelError('Could not cancel your place. Please try again.');
+    } finally {
+      setCancelling(false);
+    }
+  }, [activityId, loadRsvpCount]);
 
   useEffect(() => {
     loadRsvpCount();
@@ -170,6 +208,11 @@ export function ActivityDetails() {
   const status = deriveStatus(activity);
   const isArchived = status === 'archived';
   const isSoldOut = rsvp?.isSoldOut ?? false;
+  const isRegistered = rsvp?.isRegistered ?? false;
+  // A registered member sees "Cancel my place" instead of a register button.
+  // Cancellation stays available right up to the event ending (KAN-191): the
+  // reallocation limit belongs on promotion, not on the member doing the
+  // honest thing.
   const rsvpDisabled = isArchived || isSoldOut || rsvpLoading || !!rsvpError;
   const safeImageSrc = getSafeImageSrc(activity.imageUrl);
   const safeExternalLink = getSafeLinkHref(activity.externalLink);
@@ -280,15 +323,46 @@ export function ActivityDetails() {
                 </div>
                 <RSVPStatus loading={rsvpLoading} error={rsvpError} rsvp={rsvp} />
 
-                <div className="flex flex-col sm:flex-row gap-3 mt-5">
-                  <button
-                    onClick={() => setModalOpen(true)}
-                    disabled={rsvpDisabled}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#eb7524]"
-                    style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}
+                {isRegistered && (
+                  <p
+                    className="mt-3 inline-flex items-center gap-1.5 text-green-400"
+                    style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
                   >
-                    {buttonText}
-                  </button>
+                    <Check className="w-3.5 h-3.5 shrink-0" />
+                    You have a place at this event.
+                  </p>
+                )}
+
+                {cancelError && (
+                  <p
+                    className="mt-3 text-red-400"
+                    style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
+                    role="alert"
+                  >
+                    {cancelError}
+                  </p>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 mt-5">
+                  {isRegistered ? (
+                    <button
+                      onClick={handleCancel}
+                      disabled={cancelling || isArchived}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white/70 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}
+                    >
+                      {cancelling ? 'Cancelling...' : 'Cancel my place'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setModalOpen(true)}
+                      disabled={rsvpDisabled}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-[#eb7524] text-white hover:bg-[#d4691f] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#eb7524]"
+                      style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}
+                    >
+                      {buttonText}
+                    </button>
+                  )}
                   {safeExternalLink && (
                     <a
                       href={safeExternalLink}

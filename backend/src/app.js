@@ -15,6 +15,7 @@ import mediaRoutes from './routes/mediaRoutes.js';
 import faqRoutes from './routes/faqRoutes.js';
 import executiveRoutes from './routes/executiveRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import memberRoutes from './routes/memberRoutes.js';
 import { handleStripeWebhook } from './controllers/paymentController.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
 import logger from './utils/logger.js';
@@ -131,7 +132,11 @@ export function createApp() {
   configureSecurity(app);
   app.use(createHelmetMiddleware());
   app.use((_req, res, next) => {
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    // camera=(self): the exec check-in scanner (KAN-180) needs getUserMedia when
+    // the SPA is served from this origin in production. camera=() denied it to
+    // everyone including us. Microphone and geolocation remain fully denied, and
+    // no third-party origin is granted access.
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
     next();
   });
   app.use(createCorsMiddleware());
@@ -195,6 +200,7 @@ export function createApp() {
   app.use('/api', executiveRoutes);
   app.use('/api', mediaRoutes);
   app.use('/api', paymentRoutes);
+  app.use('/api', memberRoutes);
 
   // --- Serve the built frontend SPA (single-service production deploy) ---
   // Registered UNCONDITIONALLY so the route set is deterministic (the security

@@ -151,7 +151,7 @@ export function About() {
             transition: 'opacity 0.6s ease 0.2s, transform 0.6s ease 0.2s',
           }}
         >
-          The Auckland University Strength Society, originally established as the Auckland University Strength & Powerlifting Association (AUSPA), was founded in 2015. It began as a student-led initiative to create a community for University of Auckland students interested in strength training, and has since grown into a much broader strength and fitness society — supporting members of all experience levels, from all walks of life.
+          The Auckland University Strength Society, originally established as the Auckland University Strength & Powerlifting Association (AUSPA), was founded in 2015. It began as a student-led initiative to create a community for University of Auckland students interested in strength training, and has since grown into a much broader strength and fitness society that supports members of all experience levels, from all walks of life.
         </p>
 
         {/* Action Buttons */}

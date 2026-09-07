@@ -21,6 +21,16 @@ import {
 import { hashStudentId, isStudentIdHashError } from "../utils/studentIdHash.js";
 import logger from "../utils/logger.js";
 import { isValidEmail } from "../utils/emailValidation.js";
+import { buildMemberPass, isMemberPassError } from "../utils/memberPass.js";
+import {
+  buildMembershipOrders,
+  createOrders,
+  settleReviewedOrders,
+  ORDER_PAYMENT_METHOD,
+  ORDER_STATUS,
+  ORDER_TYPE,
+} from "../services/orders.js";
+import { getMembershipPricing, isValidShirtSize } from "../services/membershipPricing.js";
 import {
   forgotPasswordEmailThrottle,
   forgotPasswordIpLimiter,
@@ -821,6 +831,29 @@ router.post(
         });
       });
 
+      // Order history (additive, best-effort): a bank-transfer membership
+      // [+ optional shirt] order in review. A failure here must not fail the
+      // proof submission — the membership is already IN_REVIEW.
+      try {
+        const pricing = await getMembershipPricing();
+        const wantsShirt = pricing.shirtTierEnabled && isValidShirtSize(req.body?.shirtSize);
+        const shirtSize = wantsShirt ? String(req.body.shirtSize).trim().toUpperCase() : null;
+        const reference = `proof:${user.id}:${now.getTime()}`;
+        const rows = buildMembershipOrders({
+          membershipCents: pricing.membership.nowCents,
+          includesShirt: wantsShirt,
+          shirtCents: pricing.shirt.addonCents,
+          shirtSize,
+          currency: pricing.currency,
+          paymentMethod: ORDER_PAYMENT_METHOD.BANK_TRANSFER,
+          reference,
+          paid: false,
+        });
+        await createOrders({ userId: user.id, reference, rows });
+      } catch (orderErr) {
+        logger.warn({ err: orderErr, userId: user.id }, "Failed to create order rows on proof submit");
+      }
+
       return res.status(200).json({
         data: {
           membershipStatus: updated.membershipStatus,
@@ -1302,6 +1335,53 @@ router.post("/logout", async (req, res) => {
 });
 
 // ── GET /auth/me ────────────────────────────────────────────────────
+// ── GET /auth/me/pass ───────────────────────────────────────────────
+// The member's event pass QR value (KAN-180). Derived, not stored: the server
+// signs it on request, so there is no secret at rest per member and nothing to
+// migrate. Stable until the member resets it, so a screenshot still scans at a
+// venue with no signal.
+router.get("/me/pass", authenticate, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, qrVersion: true },
+    });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    return res.status(200).json({ pass: buildMemberPass(user) });
+  } catch (err) {
+    if (isMemberPassError(err)) {
+      logger.error({ err }, "Member pass configuration error:");
+      return res.status(500).json({ error: "Member passes are not configured" });
+    }
+    logger.error({ err }, "Member pass error:");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /auth/me/pass/reset ────────────────────────────────────────
+// Revokes the member's current pass by bumping qrVersion. Instant, scoped to
+// this member only, and never touches User.id (19 tables foreign-key to it).
+router.post("/me/pass/reset", authenticate, async (req, res) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { qrVersion: { increment: 1 } },
+      select: { id: true, qrVersion: true },
+    });
+    logger.info({ userId: user.id, qrVersion: user.qrVersion }, "Member pass reset");
+    return res.status(200).json({ pass: buildMemberPass(user) });
+  } catch (err) {
+    if (isMemberPassError(err)) {
+      logger.error({ err }, "Member pass configuration error:");
+      return res.status(500).json({ error: "Member passes are not configured" });
+    }
+    logger.error({ err }, "Member pass reset error:");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/me", authenticate, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -2172,6 +2252,19 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
       reason,
     });
 
+    // Keep order rows in sync with the membership decision (additive,
+    // best-effort — never blocks the decision itself). Approve settles a
+    // member's PENDING_REVIEW orders to PAID / READY_FOR_PICKUP; decline -> DECLINED.
+    try {
+      if (toStatus === "VERIFIED") {
+        await settleReviewedOrders({ userId: targetUserId, approve: true, reason, actorUserId: req.user.id });
+      } else if (isDecline) {
+        await settleReviewedOrders({ userId: targetUserId, approve: false, reason, actorUserId: req.user.id });
+      }
+    } catch (orderErr) {
+      logger.warn({ err: orderErr, targetUserId }, "Failed to settle order rows on membership decision");
+    }
+
     let warning = null;
     if (isDecline) {
       const targetEmail = updated.email || target.email;
@@ -2239,5 +2332,107 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
 });
 
 router.use(handleImageUploadError);
+
+// ── GET /auth/admin/orders ──────────────────────────────────────────
+// Admin order list (member info + optional status/type filters, newest first).
+router.get("/admin/orders", authenticate, async (req, res) => {
+  if (!isAdminOrOwner(req)) {
+    return res.status(403).json({ error: "Only ADMIN or OWNER can view orders" });
+  }
+  const rawStatus = req.query.status ? String(req.query.status).trim().toUpperCase() : null;
+  const rawType = req.query.type ? String(req.query.type).trim().toUpperCase() : null;
+  const status = rawStatus && Object.values(ORDER_STATUS).includes(rawStatus) ? rawStatus : null;
+  const type = rawType && Object.values(ORDER_TYPE).includes(rawType) ? rawType : null;
+  const take = Math.min(Number.parseInt(req.query.limit, 10) || 100, 200);
+  try {
+    const orders = await prisma.order.findMany({
+      where: { ...(status ? { status } : {}), ...(type ? { type } : {}) },
+      orderBy: { createdAt: "desc" },
+      take,
+      include: {
+        user: { select: { email: true, info: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+    return res.json({
+      data: orders.map((o) => ({
+        id: o.id,
+        type: o.type,
+        status: o.status,
+        amountCents: o.amountCents,
+        currency: o.currency,
+        paymentMethod: o.paymentMethod,
+        shirtSize: o.shirtSize,
+        statusReason: o.statusReason,
+        paidAt: o.paidAt,
+        createdAt: o.createdAt,
+        member: o.user
+          ? {
+              email: o.user.email,
+              name: [o.user.info?.firstName, o.user.info?.lastName].filter(Boolean).join(" ") || null,
+            }
+          : null,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to list orders");
+    return res.status(500).json({ error: "Failed to load orders" });
+  }
+});
+
+// ── POST /auth/admin/orders/:orderId/pickup ─────────────────────────
+// Mark a READY_FOR_PICKUP (physical) order as PICKED_UP, with an optional note.
+router.post("/admin/orders/:orderId/pickup", authenticate, async (req, res) => {
+  if (!isAdminOrOwner(req)) {
+    return res.status(403).json({ error: "Only ADMIN or OWNER can update orders" });
+  }
+  const orderId = String(req.params.orderId || "").trim();
+  const reason = req.body?.reason ? String(req.body.reason).trim().slice(0, 500) : null;
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, status: true } });
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    if (order.status !== ORDER_STATUS.READY_FOR_PICKUP) {
+      return res.status(409).json({
+        error: `Only READY_FOR_PICKUP orders can be marked picked up (current: ${order.status})`,
+      });
+    }
+    const updated = await prisma.order.update({
+      where: { id: orderId },
+      data: { status: ORDER_STATUS.PICKED_UP, statusReason: reason, statusUpdatedById: req.user.id },
+    });
+    return res.json({ data: { id: updated.id, status: updated.status } });
+  } catch (err) {
+    logger.error({ err, orderId }, "Failed to mark order picked up");
+    return res.status(500).json({ error: "Failed to update order" });
+  }
+});
+
+// ── GET /auth/member/orders ─────────────────────────────────────────
+// The authenticated member's own order history (newest first).
+router.get("/member/orders", authenticate, async (req, res) => {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        amountCents: true,
+        currency: true,
+        paymentMethod: true,
+        shirtSize: true,
+        paidAt: true,
+        createdAt: true,
+      },
+    });
+    return res.json({ data: orders });
+  } catch (err) {
+    logger.error({ err }, "Failed to list member orders");
+    return res.status(500).json({ error: "Failed to load orders" });
+  }
+});
 
 export default router;

@@ -30,6 +30,10 @@ export const PUBLIC_ROUTES = Object.freeze([
   route("GET", "/api/activities"),
   route("GET", "/api/activities/:id/rsvp/count"),
   route("GET", "/api/sponsorship"),
+  // Non-sensitive club announcements shown on the member dashboard to every
+  // visitor (verified or not). Members-only perks stay on the authenticated
+  // /api/member/content route; this only serves visibility=PUBLIC rows.
+  route("GET", "/api/announcements"),
   route("GET", "/api/faq"),
   route("GET", "/api/executives"),
   route("GET", "/api/media-entries"),
@@ -42,7 +46,17 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   // Members-only with an active-membership gate (KAN-178). Moved out of
   // PUBLIC_ROUTES — events are no longer open to non-members or walk-ins.
   route("POST", "/api/activities/:id/rsvp"),
+  // Member-initiated cancellation (KAN-191). Authenticated but NOT
+  // membership-gated: a lapsed member must still be able to release their place.
+  route("DELETE", "/api/activities/:id/rsvp"),
+  // Gated dashboard perks (KAN-167): authenticate + requireVerifiedMembership.
+  // 401 without a token, 403 for non-VERIFIED members; the members-only rows
+  // are never exposed on a public route.
+  route("GET", "/api/member/content"),
   route("GET", "/api/auth/me"),
+  // Member event pass (KAN-180) — the member's own QR value and its reset.
+  route("GET", "/api/auth/me/pass"),
+  route("POST", "/api/auth/me/pass/reset"),
   route("DELETE", "/api/auth/me/info"),
   route("POST", "/api/auth/payment-proofs/pending"),
   route("DELETE", "/api/auth/payment-proofs/pending/:proofUploadId"),
@@ -59,9 +73,16 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   route("GET", "/api/auth/admin/members/:userId/payments"),
   route("GET", "/api/auth/admin/payment-proofs/:proofId/file"),
   route("POST", "/api/auth/admin/members/:userId/status"),
+  // Orders (order history / fulfilment) — admin-gated in-handler like the members routes.
+  route("GET", "/api/auth/admin/orders"),
+  route("POST", "/api/auth/admin/orders/:orderId/pickup"),
+  route("GET", "/api/auth/member/orders"),
   route("POST", "/api/upload"),
   route("POST", "/api/payments/intent"),
   route("POST", "/api/payments/confirm"),
+  // Standalone t-shirt purchase for an active member.
+  route("POST", "/api/payments/shirt-intent"),
+  route("POST", "/api/payments/shirt-confirm"),
 ]);
 
 export const ADMIN_ROUTES = Object.freeze([
@@ -75,6 +96,9 @@ export const ADMIN_ROUTES = Object.freeze([
   route("GET", "/api/activities/:id/rsvps"),
   route("GET", "/api/activities/:id/rsvps/export"),
   route("DELETE", "/api/activities/:id/rsvps/:rsvpId"),
+  // Event check-in (KAN-180) — exec-facing, admin-gated server-side.
+  route("POST", "/api/activities/:id/check-in"),
+  route("GET", "/api/activities/:id/check-in/attendees"),
   route("PATCH", "/api/sponsorship"),
   route("POST", "/api/sponsors"),
   route("PATCH", "/api/sponsors/:id"),

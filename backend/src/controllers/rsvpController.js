@@ -1,5 +1,6 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
+import { releaseRsvpPlace, isRsvpNotFoundError } from '../services/rsvpPlaces.js';
 
 /**
  * POST /api/activities/:id/rsvp — signed-in VERIFIED members only (KAN-178)
@@ -107,7 +108,20 @@ export const getRsvpCount = async (req, res) => {
     const capacity = activity.capacity ?? null;
     const isSoldOut = capacity !== null && count >= capacity;
 
-    return res.json({ count, capacity, isSoldOut });
+    // The route stays public, but when a signed-in member calls it we also say
+    // whether *they* hold a place (KAN-191) — otherwise the UI has no way to
+    // know a "Cancel my place" action applies. `attachUserIfPresent` is optional
+    // auth: anonymous callers simply don't get the flag.
+    let isRegistered = false;
+    if (req.user?.id) {
+      const own = await prisma.rsvp.findUnique({
+        where: { activityId_userId: { activityId, userId: req.user.id } },
+        select: { id: true },
+      });
+      isRegistered = Boolean(own);
+    }
+
+    return res.json({ count, capacity, isSoldOut, isRegistered });
   } catch (err) {
     logger.error({ err }, 'getRsvpCount error:');
     return res.status(500).json({ error: 'Internal server error' });
@@ -148,6 +162,60 @@ export const listRsvps = async (req, res) => {
  * DELETE /api/activities/:id/rsvps/:rsvpId — admin only
  * Deletes a single RSVP record if it exists and belongs to that activity.
  */
+/**
+ * DELETE /api/activities/:id/rsvp — signed-in members (KAN-191)
+ *
+ * Cancels the caller's OWN place. There is deliberately no RSVP id in the path:
+ * the row is identified by (activityId, req.user.id), so cancelling someone
+ * else's place is not expressible rather than expressible-and-rejected.
+ *
+ * Deliberately NOT gated on requireVerifiedMembership. A member whose
+ * membership lapsed after booking must still be able to release their place —
+ * gating it would trap exactly the people most likely to need it and leave the
+ * place stuck. Cancelling is a de-escalation; no privilege is gained by it.
+ *
+ * No cutoff: blocking a late cancellation doesn't keep anyone in the room, it
+ * just turns a cancellation into a no-show and makes attendance data worse. The
+ * reallocation limit belongs on KAN-189's promotion cutoff instead.
+ */
+export const cancelOwnRsvp = async (req, res) => {
+  const activityId = parseInt(req.params.id, 10);
+  if (!activityId || Number.isNaN(activityId)) {
+    return res.status(400).json({ error: 'Valid activity id is required' });
+  }
+
+  try {
+    const activity = await prisma.activity.findUnique({
+      where: { id: activityId },
+      select: { id: true, endTime: true },
+    });
+    if (!activity) {
+      return res.status(404).json({ error: 'Activity not found' });
+    }
+
+    // A finished event can't be cancelled out of — the attendance record is
+    // already history. Rejected explicitly so this is never a 500.
+    if (activity.endTime && activity.endTime.getTime() <= Date.now()) {
+      return res.status(409).json({
+        error: 'This event has already finished, so your place cannot be cancelled.',
+        code: 'EVENT_FINISHED',
+      });
+    }
+
+    // Single transaction so KAN-189's promotion can be added atomically here.
+    await prisma.$transaction((tx) => releaseRsvpPlace({ activityId, userId: req.user.id, tx }));
+
+    logger.info({ activityId, userId: req.user.id }, 'Member cancelled their RSVP');
+    return res.status(204).send();
+  } catch (err) {
+    if (isRsvpNotFoundError(err)) {
+      return res.status(404).json({ error: 'You are not registered for this activity' });
+    }
+    logger.error({ err, activityId }, 'cancelOwnRsvp error:');
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export const deleteRsvp = async (req, res) => {
   const activityId = parseInt(req.params.id, 10);
   const rsvpId = parseInt(req.params.rsvpId, 10);
@@ -212,12 +280,14 @@ export const exportRsvpsCsv = async (req, res) => {
     // (it can't be sourced from the account — UserInfo stores a one-way hash —
     // and KAN-185 makes it optional for non-UoA members). Name + email identify
     // the attendee; KAN-174's scanner replaces ID checks at the door.
-    const header = 'Name,Email,Registration Date';
+    const header = 'Name,Email,Registration Date,Checked In,Check-In Time';
     const rows = rsvps.map((r) =>
       [
         csvEscape(r.name),
         csvEscape(r.email),
         csvEscape(r.createdAt.toISOString()),
+        csvEscape(r.checkedInAt ? 'Yes' : 'No'),
+        csvEscape(r.checkedInAt ? r.checkedInAt.toISOString() : ''),
       ].join(','),
     );
     const csv = [header, ...rows].join('\r\n') + '\r\n';

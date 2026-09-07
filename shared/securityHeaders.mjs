@@ -118,6 +118,11 @@ export function createContentSecurityPolicy({
     "font-src 'self' data: https:",
     `connect-src ${getConfiguredCspConnectSrcValues({ env, allowWebSockets }).join(' ')}`,
     `frame-src ${getConfiguredCspFrameSrcValues().join(' ')}`,
+    // The event check-in scanner (KAN-180) runs QR decoding in a worker created
+    // from a blob URL. Without an explicit worker-src this falls back to
+    // script-src and is blocked. Scoped to workers only — script-src is
+    // unchanged, so this does not widen where scripts may be loaded from.
+    "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

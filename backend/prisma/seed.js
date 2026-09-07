@@ -3,13 +3,22 @@ import bcrypt from 'bcrypt';
 import { validatePasswordPolicy } from '../src/utils/passwordPolicy.js';
 
 async function main() {
+  // Membership pricing / launch promo (single row, id=1). Created with schema
+  // defaults; `update: {}` preserves any admin edits (e.g. ending the promo or
+  // setting promoEndsAt) across re-seeds.
+  await prisma.membershipPricing.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, shirtTierEnabled: true, promoEndsAt: new Date('2026-11-16T23:59:59.000Z') }, // 50% promo ends end of Semester 2 (16 Nov 2026)
+  });
+
   const sponsorshipPage = await prisma.sponsorshipPage.upsert({
     where: { id: 1 },
     update: {},
     create: {
       id: 1,
       pageContent:
-        'AUSS is proudly supported by partners who help power our events, training, and community. From activewear and strength gear to local gyms and tech — we are grateful for each one.',
+        'AUSS is proudly supported by partners who help power our events, training, and community. From activewear and strength gear to local gyms and tech. We are grateful for each one.',
     },
   });
 
@@ -267,7 +276,7 @@ async function main() {
       data: [
         {
           question: 'Do I need to be a student?',
-          answer: 'No — you do not need to be a University of Auckland student to join. We welcome anyone!',
+          answer: 'No, you do not need to be a University of Auckland student to join. We welcome anyone!',
         },
         {
           question: 'Is there a membership fee?',
@@ -287,9 +296,37 @@ async function main() {
         },
         {
           question: 'Does AUSS strictly hold lifting events?',
-          answer: 'No — we hold a wide range of events, from fun fitness-based collaborations to women-centric nights. With 300+ active members, there is something for everyone.',
+          answer: 'No, we hold a wide range of events, from fun fitness-based collaborations to women-centric nights. With 300+ active members, there is something for everyone.',
         },
       ],
+    });
+  }
+
+  // ── Member content (gated dashboard perks — KAN-167) ─────────────────────
+  // These rows back the members-only sections of the dashboard. They previously
+  // lived hardcoded in frontend/src/app/pages/MemberDashboard.tsx and were only
+  // CSS-blurred, so anyone could read them from the JS bundle. They now live
+  // here and are served only by the authenticated, VERIFIED-membership endpoint
+  // GET /api/member/content.
+  //
+  // NOTE FOR THE COMMITTEE: this list is intentionally empty for launch (see the
+  // comment inside the array). Populate it with real, agreed sponsor codes,
+  // content, links, or announcements when ready, or add them via the admin panel.
+  const memberContentSeed = [
+    // Intentionally empty for launch. We do not yet have committee-confirmed
+    // sponsor discount codes, exclusive content, private links, or announcements,
+    // so the members-only dashboard shows honest 'coming soon' empty states
+    // rather than invented perks. Add real rows here (or via the admin panel)
+    // once the committee has agreed them with each sponsor.
+  ];
+
+  for (const item of memberContentSeed) {
+    // Perks default to MEMBERS visibility; announcements set PUBLIC explicitly.
+    const { id, visibility = 'MEMBERS', ...rest } = item;
+    await prisma.memberContent.upsert({
+      where: { id },
+      update: { ...rest, visibility, isActive: true },
+      create: { id, ...rest, visibility, isActive: true },
     });
   }
 
