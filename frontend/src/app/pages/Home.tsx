@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Dumbbell, Calendar, PartyPopper, ArrowRight, ChevronDown } from 'lucide-react';
+import { Users, Dumbbell, Calendar, PartyPopper, ArrowRight, ChevronDown, Volume2, VolumeX } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -95,11 +95,98 @@ function FadeInSection({ children, className = '', delay = 0 }: { children: Reac
   );
 }
 
-const heroImages = [
-  { src: "/photos/club_photo2.jpg", alt: 'Strength training', gradient: 'from-[#eb7524]/40 to-[#d4691f]/60', h: 'h-56 md:h-64' },
-  { src: "/photos/club_photo1.jpg", alt: 'Group photo', gradient: 'from-[#eb7524]/30 to-[#1a1a1a]/80', h: 'h-56 md:h-80' },
-  { src: "/photos/club_photo3.jpg", alt: 'Red Bull event', gradient: 'from-[#d4691f]/50 to-[#eb7524]/30', h: 'h-56 md:h-64' },
+// Hero background: two club clips (A -> B) crossfading on a loop. Muted by
+// default so autoplay is allowed; a corner button unmutes whichever clip is
+// currently on screen (audio follows the active clip). Lives inside Home, so it
+// only ever plays on the landing page and stops when you navigate away.
+const HERO_CLIPS = [
+  { src: '/videos/hero-a.mp4', poster: '/videos/poster-a.jpg' },
+  { src: '/videos/hero-b.mp4', poster: '/videos/poster-b.jpg' },
 ];
+
+function HeroVideo() {
+  const videos = useRef<(HTMLVideoElement | null)[]>([]);
+  const [active, setActive] = useState(0);
+  const [soundOn, setSoundOn] = useState(false);
+  const switching = useRef(false);
+
+  const advance = (from: number) => {
+    if (from !== active || switching.current) return;
+    switching.current = true;
+    const next = from === 0 ? 1 : 0;
+    const nv = videos.current[next];
+    if (nv) {
+      try { nv.currentTime = 0; } catch { /* not seekable yet */ }
+      nv.play().catch(() => {});
+    }
+    setActive(next);
+  };
+
+  // Start the crossfade a beat before the active clip ends (onEnded is a backstop).
+  const onTime = (i: number) => {
+    const v = videos.current[i];
+    if (!v || i !== active || !v.duration || Number.isNaN(v.duration)) return;
+    if (v.currentTime >= v.duration - 0.7) advance(i);
+  };
+
+  // Play the active clip, route audio to it (if unmuted), release the lock.
+  useEffect(() => {
+    videos.current.forEach((v, i) => {
+      if (!v) return;
+      v.muted = !(soundOn && i === active);
+      if (i === active) v.play().catch(() => {});
+    });
+    const t = window.setTimeout(() => { switching.current = false; }, 900);
+    return () => window.clearTimeout(t);
+  }, [active, soundOn]);
+
+  // Pause on a hidden tab; resume the active clip when the page is visible again.
+  useEffect(() => {
+    const onVis = () => {
+      const v = videos.current[active];
+      if (!v) return;
+      if (document.hidden) v.pause(); else v.play().catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [active]);
+
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {HERO_CLIPS.map((clip, i) => (
+        <video
+          key={clip.src}
+          ref={(el) => { videos.current[i] = el; }}
+          src={clip.src}
+          poster={clip.poster}
+          muted
+          playsInline
+          preload="auto"
+          autoPlay={i === 0}
+          onTimeUpdate={() => onTime(i)}
+          onEnded={() => advance(i)}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-[900ms] ease-in-out ${i === 0 ? 'blur-[3px] scale-[1.08]' : 'scale-[1.02]'}`}
+          style={{ opacity: i === active ? 1 : 0 }}
+        />
+      ))}
+      {/* Brand grade + legibility scrim */}
+      <div className="absolute inset-0 bg-[#eb7524]/30 mix-blend-soft-light" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-black/75" />
+      <div className="absolute inset-0 bg-black/25" />
+      {/* Sound toggle — default off (silent); unmutes the active clip */}
+      <button
+        type="button"
+        onClick={() => setSoundOn((s) => !s)}
+        aria-label={soundOn ? 'Mute background video' : 'Play background sound'}
+        className="absolute bottom-6 left-6 z-20 flex items-center gap-2 px-3.5 py-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white/90 hover:bg-black/60 transition-all cursor-pointer"
+        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+      >
+        {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+        <span className="hidden sm:inline">{soundOn ? 'Sound on' : 'Sound off'}</span>
+      </button>
+    </div>
+  );
+}
 
 export function Home() {
   const { ref: heroRef, inView: heroInView } = useInViewCustom({ once: true });
@@ -125,11 +212,12 @@ export function Home() {
   return (
     <div className="bg-black">
       {/* Hero Section */}
-      <section className="relative bg-[#eb7524] px-6 overflow-hidden">
-        <div className="max-w-[1200px] mx-auto relative" ref={heroRef}>
-          <div className="flex flex-col items-center justify-center py-20 md:py-28 text-center">
+      <section className="relative min-h-screen flex items-center px-6 overflow-hidden bg-black">
+        <HeroVideo />
+        <div className="max-w-[1200px] mx-auto relative z-10 w-full" ref={heroRef}>
+          <div className="flex flex-col items-center justify-center py-24 text-center">
             <p
-              className="text-black/70 uppercase mb-6 tracking-[0.35em]"
+              className="text-white/70 uppercase mb-6 tracking-[0.35em]"
               style={{
                 fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500,
                 opacity: heroInView ? 1 : 0, transform: heroInView ? 'translateY(0)' : 'translateY(20px)',
@@ -139,7 +227,7 @@ export function Home() {
               Auckland University Strength Society
             </p>
             <h1
-              className="text-black mb-6"
+              className="text-white mb-6"
               style={{
                 fontSize: 'clamp(36px, 6vw, 64px)', fontWeight: 700, lineHeight: '1.15', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif',
                 opacity: heroInView ? 1 : 0, transform: heroInView ? 'translateY(0)' : 'translateY(30px)',
@@ -151,7 +239,7 @@ export function Home() {
               <span className="relative">
                 Strength Athletes
                 <div
-                  className="absolute -bottom-2 left-0 w-full h-1 bg-black/20 rounded-full origin-left"
+                  className="absolute -bottom-2 left-0 w-full h-1 bg-[#eb7524] rounded-full origin-left"
                   style={{
                     transform: heroInView ? 'scaleX(1)' : 'scaleX(0)',
                     transition: 'transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.8s',
@@ -160,7 +248,7 @@ export function Home() {
               </span>
             </h1>
             <p
-              className="text-black/70 mb-10 max-w-xl"
+              className="text-white/80 mb-10 max-w-xl"
               style={{
                 fontSize: '17px', lineHeight: '1.7', fontFamily: 'Inter, sans-serif',
                 opacity: heroInView ? 1 : 0, transform: heroInView ? 'translateY(0)' : 'translateY(20px)',
@@ -178,7 +266,7 @@ export function Home() {
             >
               <Link to={ctaTo}>
                 <div
-                  className="bg-black text-white px-8 py-3.5 rounded-xl flex items-center gap-2 shadow-[0_8px_30px_rgba(0,0,0,0.2)] hover:shadow-[0_12px_40px_rgba(0,0,0,0.3)] transition-all hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
+                  className="bg-[#eb7524] text-white px-8 py-3.5 rounded-xl flex items-center gap-2 shadow-[0_8px_30px_rgba(235,117,36,0.35)] hover:shadow-[0_12px_40px_rgba(235,117,36,0.5)] transition-all hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
                   style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
                 >
                   {ctaLabel}
@@ -187,7 +275,7 @@ export function Home() {
               </Link>
               <Link to="/about">
                 <div
-                  className="bg-white/20 backdrop-blur-sm text-black/90 px-8 py-3.5 rounded-xl border border-black/10 hover:bg-white/30 transition-all hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
+                  className="bg-white/10 backdrop-blur-md text-white px-8 py-3.5 rounded-xl border border-white/20 hover:bg-white/20 transition-all hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.97]"
                   style={{ fontSize: '16px', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}
                 >
                   Learn More
@@ -196,35 +284,12 @@ export function Home() {
             </div>
           </div>
 
-          {/* Hero Images (gradient placeholders) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pb-16">
-            {heroImages.map((img, i) => (
-              <div
-                key={img.alt}
-                className={`${img.h} overflow-hidden rounded-2xl group relative bg-gradient-to-br ${img.gradient}`}
-                style={{
-                  opacity: heroInView ? 1 : 0, transform: heroInView ? 'translateY(0)' : 'translateY(40px)',
-                  transition: `opacity 0.7s ease ${0.6 + i * 0.15}s, transform 0.7s ease ${0.6 + i * 0.15}s`,
-                }}
-              >
-                {/* Real image */}
-                <img
-                  src={img.src}
-                  alt={img.alt}
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Dumbbell className="w-12 h-12 text-black/20" />
-                </div>
-              </div>
-            ))}
-          </div>
+        </div>
 
-          <div className="flex justify-center pb-8">
-            <div style={{ transform: `translateY(${bounceY}px)` }}>
-              <ChevronDown className="w-6 h-6 text-black/30" />
-            </div>
+        {/* Scroll hint */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10">
+          <div style={{ transform: `translateY(${bounceY}px)` }}>
+            <ChevronDown className="w-6 h-6 text-white/40" />
           </div>
         </div>
       </section>

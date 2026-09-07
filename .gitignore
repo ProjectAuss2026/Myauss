@@ -41,3 +41,7 @@ backend/private-uploads/
 # Local server logs + env backups
 .server-logs/
 .env.bak-*
+
+# Local video source + scratch (transcoded mp4s live in frontend/public/videos)
+*.mov
+.vidframes/
