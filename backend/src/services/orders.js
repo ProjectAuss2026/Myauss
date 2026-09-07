@@ -90,6 +90,44 @@ export async function createOrders({ userId, reference, rows }) {
   return { created: rows.length };
 }
 
+/**
+ * PURE: what a PENDING_REVIEW order becomes when an admin approves/declines.
+ * Approve: SHIRT (physical) -> READY_FOR_PICKUP, everything else -> PAID.
+ * Decline: -> DECLINED. Exposed pure for unit testing.
+ */
+export function nextReviewedStatus(orderType, approve) {
+  if (!approve) return ORDER_STATUS.DECLINED;
+  return orderType === ORDER_TYPE.SHIRT ? ORDER_STATUS.READY_FOR_PICKUP : ORDER_STATUS.PAID;
+}
+
+/**
+ * Settle a member's PENDING_REVIEW orders alongside an admin membership
+ * decision, keeping order status in sync with member status. Additive: callers
+ * invoke this best-effort after changeMembershipStatus so a failure here never
+ * blocks the membership decision.
+ */
+export async function settleReviewedOrders({ userId, approve, reason = null, actorUserId = null }) {
+  const now = new Date();
+  const pending = await prisma.order.findMany({
+    where: { userId, status: ORDER_STATUS.PENDING_REVIEW },
+    select: { id: true, type: true },
+  });
+  await Promise.all(
+    pending.map((o) =>
+      prisma.order.update({
+        where: { id: o.id },
+        data: {
+          status: nextReviewedStatus(o.type, approve),
+          paidAt: approve ? now : null,
+          statusReason: reason,
+          statusUpdatedById: actorUserId,
+        },
+      }),
+    ),
+  );
+  return pending.length;
+}
+
 export default {
   ORDER_TYPE,
   ORDER_STATUS,
@@ -97,4 +135,6 @@ export default {
   buildMembershipOrders,
   buildShirtOrder,
   createOrders,
+  nextReviewedStatus,
+  settleReviewedOrders,
 };

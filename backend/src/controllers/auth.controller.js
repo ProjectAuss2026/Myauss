@@ -23,6 +23,13 @@ import logger from "../utils/logger.js";
 import { isValidEmail } from "../utils/emailValidation.js";
 import { buildMemberPass, isMemberPassError } from "../utils/memberPass.js";
 import {
+  buildMembershipOrders,
+  createOrders,
+  settleReviewedOrders,
+  ORDER_PAYMENT_METHOD,
+} from "../services/orders.js";
+import { getMembershipPricing, isValidShirtSize } from "../services/membershipPricing.js";
+import {
   forgotPasswordEmailThrottle,
   forgotPasswordIpLimiter,
   loginEmailThrottle,
@@ -821,6 +828,29 @@ router.post(
           client: tx,
         });
       });
+
+      // Order history (additive, best-effort): a bank-transfer membership
+      // [+ optional shirt] order in review. A failure here must not fail the
+      // proof submission — the membership is already IN_REVIEW.
+      try {
+        const pricing = await getMembershipPricing();
+        const wantsShirt = pricing.shirtTierEnabled && isValidShirtSize(req.body?.shirtSize);
+        const shirtSize = wantsShirt ? String(req.body.shirtSize).trim().toUpperCase() : null;
+        const reference = `proof:${user.id}:${now.getTime()}`;
+        const rows = buildMembershipOrders({
+          membershipCents: pricing.membership.nowCents,
+          includesShirt: wantsShirt,
+          shirtCents: pricing.shirt.addonCents,
+          shirtSize,
+          currency: pricing.currency,
+          paymentMethod: ORDER_PAYMENT_METHOD.BANK_TRANSFER,
+          reference,
+          paid: false,
+        });
+        await createOrders({ userId: user.id, reference, rows });
+      } catch (orderErr) {
+        logger.warn({ err: orderErr, userId: user.id }, "Failed to create order rows on proof submit");
+      }
 
       return res.status(200).json({
         data: {
@@ -2219,6 +2249,19 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
       actorUserId: req.user.id,
       reason,
     });
+
+    // Keep order rows in sync with the membership decision (additive,
+    // best-effort — never blocks the decision itself). Approve settles a
+    // member's PENDING_REVIEW orders to PAID / READY_FOR_PICKUP; decline -> DECLINED.
+    try {
+      if (toStatus === "VERIFIED") {
+        await settleReviewedOrders({ userId: targetUserId, approve: true, reason, actorUserId: req.user.id });
+      } else if (isDecline) {
+        await settleReviewedOrders({ userId: targetUserId, approve: false, reason, actorUserId: req.user.id });
+      }
+    } catch (orderErr) {
+      logger.warn({ err: orderErr, targetUserId }, "Failed to settle order rows on membership decision");
+    }
 
     let warning = null;
     if (isDecline) {

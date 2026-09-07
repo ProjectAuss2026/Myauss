@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMembershipOrders, buildShirtOrder, ORDER_STATUS, ORDER_TYPE } from './orders.js';
+import { buildMembershipOrders, buildShirtOrder, nextReviewedStatus, ORDER_STATUS, ORDER_TYPE } from './orders.js';
 
 test('paid membership only -> one MEMBERSHIP row, PAID', () => {
   const rows = buildMembershipOrders({
@@ -40,6 +40,13 @@ test('bank-transfer (not yet paid) -> both rows PENDING_REVIEW, no paidAt', () =
   assert.ok(rows.every((r) => r.status === ORDER_STATUS.PENDING_REVIEW));
   assert.ok(rows.every((r) => r.paidAt === null));
   assert.ok(rows.every((r) => r.paymentMethod === 'BANK_TRANSFER'));
+});
+
+test('review settlement: approve -> PAID / READY_FOR_PICKUP, decline -> DECLINED', () => {
+  assert.equal(nextReviewedStatus(ORDER_TYPE.MEMBERSHIP, true), ORDER_STATUS.PAID);
+  assert.equal(nextReviewedStatus(ORDER_TYPE.SHIRT, true), ORDER_STATUS.READY_FOR_PICKUP);
+  assert.equal(nextReviewedStatus(ORDER_TYPE.MEMBERSHIP, false), ORDER_STATUS.DECLINED);
+  assert.equal(nextReviewedStatus(ORDER_TYPE.SHIRT, false), ORDER_STATUS.DECLINED);
 });
 
 test('standalone shirt order for an active member', () => {
