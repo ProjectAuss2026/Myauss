@@ -29,6 +29,46 @@
       "noFixAvailable": "The advisory is fixed in mysql2 >=3.22.0, but prisma@7.9.1 pins mysql2@3.15.3 transitively and there is no patched Prisma 7.x release yet. npm's suggested 'fix' is a downgrade to prisma@6.19.3 (a major-version downgrade) which would break the driver-adapter setup and migrations. A manual `overrides: { mysql2: '^3.22.0' }` is possible but touches the lockfile for a package we never load.",
       "expires": "2026-12-02",
       "reviewAction": "Remove when Prisma ships a 7.x release bundling mysql2 >=3.22.0 (run `npm audit` to confirm the advisory is gone), or upgrade instead of allowlisting if we ever adopt a MySQL datasource."
+    },
+    {
+      "id": "GHSA-rgwj-5xj2-c3m3",
+      "package": "mysql2 (transitive via the prisma CLI)",
+      "reason": "MySQL2 decompression-bomb DoS: an unbounded zlib inflate in the compressed MySQL protocol handler. Same provenance as GHSA-3f6p-5ww8-9rcr: mysql2 is bundled by the Prisma CLI (prisma@7.9.1) for MySQL datasources and is never loaded here. This is a PostgreSQL-only app (datasource postgresql, @prisma/adapter-pg / pg) that never opens a MySQL connection, let alone a compressed one, so the vulnerable protocol handler is unreachable at build and runtime.",
+      "noFixAvailable": "No patched Prisma 7.x release bundles a fixed mysql2 yet; npm's only 'fix' is a Prisma major downgrade. The package never runs in production, so allowlisting with an expiry is preferred over churning the lockfile.",
+      "expires": "2026-12-02",
+      "reviewAction": "Remove when Prisma ships a 7.x release bundling a patched mysql2 (run `npm audit` to confirm), or if we ever adopt a MySQL datasource."
+    },
+    {
+      "id": "GHSA-5jgf-p345-68v8",
+      "package": "fast-uri (transitive via prisma CLI dev tooling)",
+      "reason": "fast-uri host confusion via skipped IDN canonicalization on scheme-relative references. fast-uri is a build/dev-time transitive of the Prisma CLI only: prisma@7.9.1 -> @prisma/dev -> @prisma/streams-local -> ajv -> fast-uri. @prisma/dev is Prisma's local development server tooling and is never imported or executed by the production Express app (which talks to Postgres via @prisma/client + @prisma/adapter-pg + pg). fast-uri is never invoked on runtime request data, so the parsing path is unreachable in production.",
+      "noFixAvailable": "A patched fast-uri (3.1.7) exists but sits deep in the Prisma CLI tree (ajv -> fast-uri); an `overrides` pin did not take (npm kept Prisma's resolved 3.1.5). The real fix is a Prisma CLI upgrade bundling the patched fast-uri; no such 7.x release exists yet. Never runs in production.",
+      "expires": "2026-12-02",
+      "reviewAction": "Remove when a Prisma 7.x upgrade pulls fast-uri >=3.1.7 (run `npm audit` to confirm the four fast-uri advisories are gone)."
+    },
+    {
+      "id": "GHSA-f65p-4m7j-42xc",
+      "package": "fast-uri (transitive via prisma CLI dev tooling)",
+      "reason": "fast-uri SSRF via malformed IPv6 normalization. Reachability identical to GHSA-5jgf-p345-68v8: fast-uri comes only via prisma@7.9.1 -> @prisma/dev -> @prisma/streams-local -> ajv -> fast-uri (Prisma's local dev server tooling), never executed by the production Express app, never invoked on runtime request data. SSRF path unreachable in production.",
+      "noFixAvailable": "Patched in fast-uri 3.1.7 but pinned deep inside the Prisma CLI tree; no Prisma 7.x release bundles it yet and an overrides pin did not take. Never runs in production.",
+      "expires": "2026-12-02",
+      "reviewAction": "Remove when a Prisma 7.x upgrade pulls fast-uri >=3.1.7 (run `npm audit` to confirm)."
+    },
+    {
+      "id": "GHSA-fph4-wmhf-6fwf",
+      "package": "fast-uri (transitive via prisma CLI dev tooling)",
+      "reason": "fast-uri SSRF via repeated hostname percent-decoding. Reachability identical to GHSA-5jgf-p345-68v8: fast-uri comes only via prisma@7.9.1 -> @prisma/dev -> @prisma/streams-local -> ajv -> fast-uri (Prisma's local dev server tooling), never executed by the production Express app, never invoked on runtime request data. SSRF path unreachable in production.",
+      "noFixAvailable": "Patched in fast-uri 3.1.7 but pinned deep inside the Prisma CLI tree; no Prisma 7.x release bundles it yet and an overrides pin did not take. Never runs in production.",
+      "expires": "2026-12-02",
+      "reviewAction": "Remove when a Prisma 7.x upgrade pulls fast-uri >=3.1.7 (run `npm audit` to confirm)."
+    },
+    {
+      "id": "GHSA-jqff-g426-hqxp",
+      "package": "fast-uri (transitive via prisma CLI dev tooling)",
+      "reason": "fast-uri host confusion via percent-encoded scheme normalization. Reachability identical to GHSA-5jgf-p345-68v8: fast-uri comes only via prisma@7.9.1 -> @prisma/dev -> @prisma/streams-local -> ajv -> fast-uri (Prisma's local dev server tooling), never executed by the production Express app, never invoked on runtime request data. Parsing path unreachable in production.",
+      "noFixAvailable": "Patched in fast-uri 3.1.7 but pinned deep inside the Prisma CLI tree; no Prisma 7.x release bundles it yet and an overrides pin did not take. Never runs in production.",
+      "expires": "2026-12-02",
+      "reviewAction": "Remove when a Prisma 7.x upgrade pulls fast-uri >=3.1.7 (run `npm audit` to confirm)."
     }
   ]
 }
