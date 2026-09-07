@@ -2,6 +2,8 @@ import { Router } from 'express';
 import {
   createMembershipPaymentIntent,
   confirmMembershipPayment,
+  createShirtPaymentIntent,
+  confirmShirtPayment,
 } from '../controllers/paymentController.js';
 import { authenticateApi } from '../middleware/authMiddleware.js';
 
@@ -12,5 +14,9 @@ const router = Router();
 // request body for signature verification.
 router.post('/payments/intent', authenticateApi, createMembershipPaymentIntent);
 router.post('/payments/confirm', authenticateApi, confirmMembershipPayment);
+
+// Standalone t-shirt purchase for an already-active member (independent of membership).
+router.post('/payments/shirt-intent', authenticateApi, createShirtPaymentIntent);
+router.post('/payments/shirt-confirm', authenticateApi, confirmShirtPayment);
 
 export default router;

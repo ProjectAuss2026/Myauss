@@ -27,6 +27,8 @@ import {
   createOrders,
   settleReviewedOrders,
   ORDER_PAYMENT_METHOD,
+  ORDER_STATUS,
+  ORDER_TYPE,
 } from "../services/orders.js";
 import { getMembershipPricing, isValidShirtSize } from "../services/membershipPricing.js";
 import {
@@ -2330,5 +2332,107 @@ router.post("/admin/members/:userId/status", authenticate, async (req, res) => {
 });
 
 router.use(handleImageUploadError);
+
+// ── GET /auth/admin/orders ──────────────────────────────────────────
+// Admin order list (member info + optional status/type filters, newest first).
+router.get("/admin/orders", authenticate, async (req, res) => {
+  if (!isAdminOrOwner(req)) {
+    return res.status(403).json({ error: "Only ADMIN or OWNER can view orders" });
+  }
+  const rawStatus = req.query.status ? String(req.query.status).trim().toUpperCase() : null;
+  const rawType = req.query.type ? String(req.query.type).trim().toUpperCase() : null;
+  const status = rawStatus && Object.values(ORDER_STATUS).includes(rawStatus) ? rawStatus : null;
+  const type = rawType && Object.values(ORDER_TYPE).includes(rawType) ? rawType : null;
+  const take = Math.min(Number.parseInt(req.query.limit, 10) || 100, 200);
+  try {
+    const orders = await prisma.order.findMany({
+      where: { ...(status ? { status } : {}), ...(type ? { type } : {}) },
+      orderBy: { createdAt: "desc" },
+      take,
+      include: {
+        user: { select: { email: true, info: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+    return res.json({
+      data: orders.map((o) => ({
+        id: o.id,
+        type: o.type,
+        status: o.status,
+        amountCents: o.amountCents,
+        currency: o.currency,
+        paymentMethod: o.paymentMethod,
+        shirtSize: o.shirtSize,
+        statusReason: o.statusReason,
+        paidAt: o.paidAt,
+        createdAt: o.createdAt,
+        member: o.user
+          ? {
+              email: o.user.email,
+              name: [o.user.info?.firstName, o.user.info?.lastName].filter(Boolean).join(" ") || null,
+            }
+          : null,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to list orders");
+    return res.status(500).json({ error: "Failed to load orders" });
+  }
+});
+
+// ── POST /auth/admin/orders/:orderId/pickup ─────────────────────────
+// Mark a READY_FOR_PICKUP (physical) order as PICKED_UP, with an optional note.
+router.post("/admin/orders/:orderId/pickup", authenticate, async (req, res) => {
+  if (!isAdminOrOwner(req)) {
+    return res.status(403).json({ error: "Only ADMIN or OWNER can update orders" });
+  }
+  const orderId = String(req.params.orderId || "").trim();
+  const reason = req.body?.reason ? String(req.body.reason).trim().slice(0, 500) : null;
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, status: true } });
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    if (order.status !== ORDER_STATUS.READY_FOR_PICKUP) {
+      return res.status(409).json({
+        error: `Only READY_FOR_PICKUP orders can be marked picked up (current: ${order.status})`,
+      });
+    }
+    const updated = await prisma.order.update({
+      where: { id: orderId },
+      data: { status: ORDER_STATUS.PICKED_UP, statusReason: reason, statusUpdatedById: req.user.id },
+    });
+    return res.json({ data: { id: updated.id, status: updated.status } });
+  } catch (err) {
+    logger.error({ err, orderId }, "Failed to mark order picked up");
+    return res.status(500).json({ error: "Failed to update order" });
+  }
+});
+
+// ── GET /auth/member/orders ─────────────────────────────────────────
+// The authenticated member's own order history (newest first).
+router.get("/member/orders", authenticate, async (req, res) => {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        amountCents: true,
+        currency: true,
+        paymentMethod: true,
+        shirtSize: true,
+        paidAt: true,
+        createdAt: true,
+      },
+    });
+    return res.json({ data: orders });
+  } catch (err) {
+    logger.error({ err }, "Failed to list member orders");
+    return res.status(500).json({ error: "Failed to load orders" });
+  }
+});
 
 export default router;

@@ -73,9 +73,16 @@ export const AUTHENTICATED_ROUTES = Object.freeze([
   route("GET", "/api/auth/admin/members/:userId/payments"),
   route("GET", "/api/auth/admin/payment-proofs/:proofId/file"),
   route("POST", "/api/auth/admin/members/:userId/status"),
+  // Orders (order history / fulfilment) — admin-gated in-handler like the members routes.
+  route("GET", "/api/auth/admin/orders"),
+  route("POST", "/api/auth/admin/orders/:orderId/pickup"),
+  route("GET", "/api/auth/member/orders"),
   route("POST", "/api/upload"),
   route("POST", "/api/payments/intent"),
   route("POST", "/api/payments/confirm"),
+  // Standalone t-shirt purchase for an active member.
+  route("POST", "/api/payments/shirt-intent"),
+  route("POST", "/api/payments/shirt-confirm"),
 ]);
 
 export const ADMIN_ROUTES = Object.freeze([

@@ -6,10 +6,11 @@ import {
   MembershipTransitionError,
   changeMembershipStatus,
 } from '../services/membershipStatus.js';
-import { resolveTierCharge } from '../services/membershipPricing.js';
-import { buildMembershipOrders, createOrders, ORDER_PAYMENT_METHOD } from '../services/orders.js';
+import { resolveTierCharge, getMembershipPricing, isValidShirtSize } from '../services/membershipPricing.js';
+import { buildMembershipOrders, buildShirtOrder, createOrders, ORDER_PAYMENT_METHOD } from '../services/orders.js';
 
 const PAYMENT_PURPOSE = 'auss_membership';
+const SHIRT_PURPOSE = 'auss_shirt';
 
 let stripeClient = null;
 
@@ -312,6 +313,153 @@ export async function confirmMembershipPayment(req, res) {
 }
 
 /**
+ * Record a standalone shirt purchase: ledger row + SHIRT order (READY_FOR_PICKUP)
+ * + the member's latest shirt size. Idempotent on the PaymentIntent id.
+ */
+async function recordShirtPayment({ stripe, paymentIntent, userId }) {
+  const [details, user] = await Promise.all([
+    extractPaymentDetails(stripe, paymentIntent),
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+  ]);
+  const shirtSize = paymentIntent.metadata?.shirtSize || null;
+  const amountCents = paymentIntent.amount_received ?? paymentIntent.amount;
+
+  await prisma.payment.upsert({
+    where: { stripePaymentIntentId: paymentIntent.id },
+    update: {},
+    create: {
+      userId,
+      payerEmail: user?.email || paymentIntent.receipt_email || 'unknown',
+      stripePaymentIntentId: paymentIntent.id,
+      amountCents,
+      currency: paymentIntent.currency,
+      method: details.method,
+      cardBrand: details.cardBrand,
+      cardLast4: details.cardLast4,
+      includesShirt: true,
+      shirtSize,
+      paidAt: details.paidAt,
+    },
+  });
+
+  if (shirtSize) {
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { shirtSize } });
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'Failed to record member shirt size after shirt payment');
+    }
+  }
+
+  try {
+    const rows = buildShirtOrder({
+      shirtCents: amountCents,
+      shirtSize,
+      currency: paymentIntent.currency,
+      paymentMethod: ORDER_PAYMENT_METHOD.CARD,
+      reference: paymentIntent.id,
+      paid: true,
+      paidAt: details.paidAt,
+    });
+    await createOrders({ userId, reference: paymentIntent.id, rows });
+  } catch (error) {
+    logger.warn({ err: error, userId, paymentIntentId: paymentIntent.id }, 'Failed to create shirt order row');
+  }
+}
+
+/**
+ * POST /api/payments/shirt-intent  (authenticated, VERIFIED members only)
+ * Lets an existing member buy a t-shirt on its own (independent of membership).
+ */
+export async function createShirtPaymentIntent(req, res) {
+  const stripe = getStripe();
+  if (!stripe) {
+    return res.status(503).json({ error: 'Payments are not configured' });
+  }
+
+  try {
+    const pricing = await getMembershipPricing();
+    if (!pricing.shirtTierEnabled) {
+      return res.status(409).json({ error: 'Shirt purchases are not available right now.' });
+    }
+    const size = req.body?.shirtSize;
+    if (!isValidShirtSize(size)) {
+      return res.status(400).json({ error: 'A valid shirt size (XS, S, M, L, XL or XXL) is required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { membershipStatus: true, email: true },
+    });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (user.membershipStatus !== MEMBERSHIP_STATUS.VERIFIED) {
+      return res.status(409).json({ error: 'Activate your membership before buying a shirt.' });
+    }
+
+    const normalizedSize = String(size).trim().toUpperCase();
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: pricing.shirt.addonCents,
+      currency: pricing.currency,
+      payment_method_types: ['card'],
+      receipt_email: user.email || undefined,
+      description: 'AUSS t-shirt',
+      metadata: { purpose: SHIRT_PURPOSE, userId: req.user.id, shirtSize: normalizedSize },
+    });
+
+    return res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount: pricing.shirt.addonCents,
+      currency: pricing.currency,
+      shirtSize: normalizedSize,
+    });
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to create shirt PaymentIntent');
+    return res.status(502).json({ error: 'Failed to start payment' });
+  }
+}
+
+/**
+ * POST /api/payments/shirt-confirm  (authenticated)
+ * Confirms a standalone shirt payment and records the ledger row + SHIRT order.
+ */
+export async function confirmShirtPayment(req, res) {
+  const stripe = getStripe();
+  if (!stripe) {
+    return res.status(503).json({ error: 'Payments are not configured' });
+  }
+
+  const { paymentIntentId } = req.body || {};
+  if (!paymentIntentId || typeof paymentIntentId !== 'string') {
+    return res.status(400).json({ error: 'A paymentIntentId is required' });
+  }
+
+  let paymentIntent;
+  try {
+    paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] });
+  } catch (error) {
+    logger.warn({ err: error, paymentIntentId }, 'Failed to retrieve shirt PaymentIntent');
+    return res.status(404).json({ error: 'Payment not found' });
+  }
+
+  if (paymentIntent.metadata?.purpose !== SHIRT_PURPOSE || paymentIntent.metadata?.userId !== req.user.id) {
+    return res.status(403).json({ error: 'This payment does not belong to your account' });
+  }
+  if (paymentIntent.status !== 'succeeded') {
+    return res.status(402).json({ error: 'Payment has not completed', status: paymentIntent.status });
+  }
+
+  try {
+    await recordShirtPayment({ stripe, paymentIntent, userId: req.user.id });
+  } catch (error) {
+    logger.error({ err: error, userId: req.user.id }, 'Failed to record shirt payment');
+    return res.status(500).json({ error: 'Payment succeeded but recording failed' });
+  }
+
+  return res.json({ ok: true, shirtSize: paymentIntent.metadata?.shirtSize || null });
+}
+
+/**
  * POST /api/payments/webhook  (no auth — verified via Stripe signature)
  * Durable source of truth: activates membership when Stripe confirms the
  * payment, even if the user closed the tab before /confirm ran. Requires the
@@ -361,6 +509,13 @@ export async function handleStripeWebhook(req, res) {
         // 500 so Stripe retries the delivery.
         return res.status(500).json({ received: false });
       }
+    } else if (paymentIntent.metadata?.purpose === SHIRT_PURPOSE && userId) {
+      try {
+        await recordShirtPayment({ stripe, paymentIntent, userId });
+      } catch (error) {
+        logger.error({ err: error, userId }, 'Failed to record shirt payment from webhook');
+        return res.status(500).json({ received: false });
+      }
     }
   }
 
@@ -370,5 +525,7 @@ export async function handleStripeWebhook(req, res) {
 export default {
   createMembershipPaymentIntent,
   confirmMembershipPayment,
+  createShirtPaymentIntent,
+  confirmShirtPayment,
   handleStripeWebhook,
 };
