@@ -11,7 +11,7 @@ export const MEMBERSHIP_TIERS = {
 
 // Safe fallback if the single MembershipPricing row is ever missing: base
 // prices with NO promo (never charge a surprise discount we can't explain).
-const DEFAULTS = {
+export const PRICING_DEFAULTS = {
   membershipCents: 1000,
   shirtAddonCents: 1000,
   promoActive: false,
@@ -25,30 +25,21 @@ export function isValidShirtSize(size) {
   return typeof size === 'string' && SHIRT_SIZES.includes(size.trim().toUpperCase());
 }
 
-async function loadPricingRow() {
-  try {
-    const row = await prisma.membershipPricing.findUnique({ where: { id: 1 } });
-    return row || DEFAULTS;
-  } catch (error) {
-    logger.warn({ err: error }, 'MembershipPricing lookup failed; using default prices (no promo)');
-    return DEFAULTS;
-  }
-}
-
-function promoIsLive(row) {
+// Is the promo live right now? Off if inactive, zero-percent, or past its end.
+export function promoIsLive(row, nowMs = Date.now()) {
   if (!row.promoActive) return false;
-  if (row.promoEndsAt && new Date(row.promoEndsAt).getTime() <= Date.now()) return false;
-  return row.promoPercentOff > 0;
+  if (!(row.promoPercentOff > 0)) return false;
+  if (row.promoEndsAt && new Date(row.promoEndsAt).getTime() <= nowMs) return false;
+  return true;
 }
 
 /**
- * Authoritative price breakdown for both tiers. The promo discounts ONLY the
- * membership portion; the t-shirt add-on is never discounted.
- * Amounts are in cents (smallest currency unit).
+ * PURE: compute the authoritative price breakdown from a pricing row. The promo
+ * discounts ONLY the membership portion; the t-shirt add-on is never discounted.
+ * Amounts are in cents. Exposed for exhaustive unit testing (no DB).
  */
-export async function getMembershipPricing() {
-  const row = await loadPricingRow();
-  const live = promoIsLive(row);
+export function computePricing(row, nowMs = Date.now()) {
+  const live = promoIsLive(row, nowMs);
   const membershipFull = row.membershipCents;
   const membershipNow = live
     ? Math.round((membershipFull * (100 - row.promoPercentOff)) / 100)
@@ -73,12 +64,11 @@ export async function getMembershipPricing() {
 }
 
 /**
- * Resolve a client-supplied { tier, shirtSize } into the authoritative charge.
- * The client NEVER supplies the amount — we compute it here from the DB row.
- * Throws an Error with `.status = 400` on invalid input.
+ * PURE: resolve a client-supplied { tier, shirtSize } against a computed pricing
+ * object into the authoritative charge. The client NEVER supplies the amount.
+ * Throws an Error with `.status = 400` on invalid input. Exposed for testing.
  */
-export async function resolveTierCharge({ tier, shirtSize }) {
-  const pricing = await getMembershipPricing();
+export function resolveCharge(pricing, { tier, shirtSize } = {}) {
   const chosen = tier === MEMBERSHIP_TIERS.MEMBERSHIP_WITH_SHIRT
     ? MEMBERSHIP_TIERS.MEMBERSHIP_WITH_SHIRT
     : MEMBERSHIP_TIERS.MEMBERSHIP;
@@ -104,4 +94,33 @@ export async function resolveTierCharge({ tier, shirtSize }) {
   };
 }
 
-export default { getMembershipPricing, resolveTierCharge, isValidShirtSize, SHIRT_SIZES, MEMBERSHIP_TIERS };
+async function loadPricingRow() {
+  try {
+    const row = await prisma.membershipPricing.findUnique({ where: { id: 1 } });
+    return row || PRICING_DEFAULTS;
+  } catch (error) {
+    logger.warn({ err: error }, 'MembershipPricing lookup failed; using default prices (no promo)');
+    return PRICING_DEFAULTS;
+  }
+}
+
+// Async wrappers used by the controllers: load the DB row, then compute.
+export async function getMembershipPricing() {
+  return computePricing(await loadPricingRow());
+}
+
+export async function resolveTierCharge(input) {
+  return resolveCharge(await getMembershipPricing(), input);
+}
+
+export default {
+  getMembershipPricing,
+  resolveTierCharge,
+  computePricing,
+  resolveCharge,
+  promoIsLive,
+  isValidShirtSize,
+  SHIRT_SIZES,
+  MEMBERSHIP_TIERS,
+  PRICING_DEFAULTS,
+};
