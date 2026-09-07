@@ -77,6 +77,7 @@ model User {
   paymentProofUploads       PaymentProofUpload[]
   uploadedImages            UploadedImage[]
   payments                  Payment[]
+  orders                    Order[]
   rsvps                     Rsvp[]
   checkInsPerformed         Rsvp[]                  @relation("RsvpCheckedInBy")
 
@@ -124,6 +125,53 @@ model MembershipPricing {
   promoPercentOff Int       @default(50) // % off the membership portion only
   promoEndsAt     DateTime? // null = "limited time" with no hard end yet
   updatedAt       DateTime  @updatedAt
+}
+
+enum OrderType {
+  MEMBERSHIP
+  SHIRT
+}
+
+enum OrderStatus {
+  PENDING_REVIEW
+  PAID
+  READY_FOR_PICKUP
+  PICKED_UP
+  DECLINED
+}
+
+enum OrderPaymentMethod {
+  CARD
+  BANK_TRANSFER
+}
+
+// --- ORDERS (order history; extensible toward a future shop) ---
+// One row per purchased item, so a "membership + shirt" checkout writes TWO
+// independent Order rows sharing a `reference`. Physical items (SHIRT) run the
+// full fulfilment lifecycle (PAID -> READY_FOR_PICKUP -> PICKED_UP); memberships
+// stop at PAID. Additive to the existing Payment / proof-review flows — it does
+// not change membership status logic.
+model Order {
+  id                String             @id @default(uuid())
+  userId            String?
+  type              OrderType
+  status            OrderStatus        @default(PENDING_REVIEW)
+  amountCents       Int
+  currency          String             @db.VarChar(3)
+  paymentMethod     OrderPaymentMethod
+  shirtSize         String?            @db.VarChar(8)
+  reference         String? // groups orders from one checkout (Stripe PI id / proof submission)
+  statusReason      String?            @db.VarChar(500) // optional note for the latest action (approve/decline/pickup)
+  statusUpdatedById String?
+  paidAt            DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  metadata          Json?
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([type, status])
 }
 
 model PasswordReset {
