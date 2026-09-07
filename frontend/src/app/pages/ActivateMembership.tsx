@@ -139,7 +139,7 @@ async function removePendingPaymentProof(proofUploadId: string) {
 }
 
 export function ActivateMembership() {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, refreshUser } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
@@ -173,6 +173,52 @@ export function ActivateMembership() {
       navigate("/login");
     }
   }, [isLoading, isAuthenticated, navigate]);
+
+  // Stripe redirect-based methods (e.g. a real 3DS card) navigate away and come
+  // back to /verify-membership with the PaymentIntent client secret in the URL.
+  // By then the card element is unmounted and the page has reset to the tier
+  // picker, so detect the return here at the page level. We ask Stripe for the
+  // *authoritative* status via retrievePaymentIntent — never trusting the URL's
+  // redirect_status, which a member could edit — before confirming + routing.
+  useEffect(() => {
+    const clientSecret = new URLSearchParams(window.location.search).get(
+      "payment_intent_client_secret",
+    );
+    if (!clientSecret) return;
+    // Strip the query so a refresh cannot re-trigger this.
+    window.history.replaceState({}, "", "/verify-membership");
+    let cancelled = false;
+    stripePromise
+      .then((stripe) => stripe?.retrievePaymentIntent(clientSecret))
+      .then((result) => {
+        if (cancelled) return;
+        const paymentIntent = result?.paymentIntent;
+        if (paymentIntent?.status === "succeeded") {
+          fetchWithAuth("/api/payments/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paymentIntentId: paymentIntent.id }),
+          })
+            .catch(() => {
+              /* webhook backstop reconciles if this direct confirm fails */
+            })
+            .then(() => refreshUser().catch(() => {}))
+            .finally(() => {
+              showToast("Payment successful! Your membership is now active.", "success");
+              navigate("/dashboard");
+            });
+        } else if (paymentIntent) {
+          showToast("Payment was not completed. Please try again.", "error");
+        }
+      })
+      .catch(() => {
+        /* leave the member on the page to retry */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -406,6 +452,26 @@ export function ActivateMembership() {
     // "could not retrieve data from the specified Element".
     const [elementReady, setElementReady] = useState(false);
 
+    // Card payments succeed in place (redirect: "if_required"); show a clear
+    // confirmation, sync the account, then move the member to their dashboard.
+    const finishPaymentSuccess = async (paymentIntentId: string) => {
+      setPaid(true);
+      setPaying(false);
+      setPayMsg("Payment successful. Your membership is now active.");
+      try {
+        await fetchWithAuth("/api/payments/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentIntentId }),
+        });
+      } catch {
+        /* webhook backstop reconciles if this direct confirm fails */
+      }
+      await refreshUser().catch(() => {});
+      showToast("Payment successful! Your membership is now active.", "success");
+      setTimeout(() => navigate("/dashboard"), 1400);
+    };
+
     const handlePay = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!stripe || !elements || !elementReady) return;
@@ -421,47 +487,32 @@ export function ActivateMembership() {
         return;
       }
 
-      const { error: stripeErr } = await stripe.confirmPayment({
+      const { error: stripeErr, paymentIntent } = await stripe.confirmPayment({
         elements,
         confirmParams: {
           return_url: `${window.location.origin}/verify-membership`,
         },
+        redirect: "if_required",
       });
 
       if (stripeErr) {
         setPayMsg(stripeErr.message ?? "Payment failed.");
         setPaying(false);
+        return;
       }
-      // Redirect-based methods cause a page reload — the fallthrough below handles them.
+
+      // A card normally confirms right here without leaving the page — show the
+      // success state in place instead of bouncing through return_url (which
+      // reset the whole page back to the tier picker).
+      if (paymentIntent?.status === "succeeded") {
+        await finishPaymentSuccess(paymentIntent.id);
+        return;
+      }
+
+      // A redirect-based method (e.g. a 3DS card) has navigated away; the return
+      // to /verify-membership is handled by the page-level effect above.
+      setPaying(false);
     };
-
-    // When Stripe redirects back here after a redirect-based payment method,
-    // read the outcome from the URL and confirm server-side.
-    useEffect(() => {
-      if (!stripe) return;
-      const piSecret = new URLSearchParams(window.location.search).get(
-        "payment_intent_client_secret",
-      );
-      if (!piSecret) return;
-
-      stripe.retrievePaymentIntent(piSecret).then(({ paymentIntent }) => {
-        if (paymentIntent?.status === "succeeded") {
-          setPaid(true);
-          setPayMsg("Payment successful. Your membership is now active.");
-          fetchWithAuth("/api/payments/confirm", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ paymentIntentId: paymentIntent.id }),
-          })
-            .then(() => refreshUser())
-            .catch(() => {
-              /* webhook backstop */
-            });
-        } else if (paymentIntent?.status === "requires_payment_method") {
-          setPayMsg("Payment was not completed. Please try again.");
-        }
-      });
-    }, [stripe]);
 
     if (paid) {
       return (
