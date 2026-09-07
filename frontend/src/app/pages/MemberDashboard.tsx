@@ -1188,7 +1188,7 @@ export function MemberDashboard() {
               PLACEHOLDER_EXCLUSIVE,
               renderExclusiveContent,
               Lock,
-              'No exclusive content published yet.',
+              'Exclusive content is coming soon.',
             )}
           </CollapsibleSection>
 
@@ -1199,7 +1199,7 @@ export function MemberDashboard() {
               PLACEHOLDER_DISCOUNTS,
               renderDiscountCodes,
               Tag,
-              'No sponsor codes available yet.',
+              'Sponsor perks are coming soon.',
             )}
           </CollapsibleSection>
 
@@ -1210,7 +1210,7 @@ export function MemberDashboard() {
               PLACEHOLDER_LINKS,
               renderPrivateLinks,
               Link2,
-              'No private links available yet.',
+              'Private member links are coming soon.',
             )}
           </CollapsibleSection>
 
