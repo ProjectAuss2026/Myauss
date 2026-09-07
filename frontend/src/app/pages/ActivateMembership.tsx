@@ -407,7 +407,10 @@ export function ActivateMembership() {
       const res = await fetch("/api/auth/membership/submit-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ proofUploadIds: uploadedPaymentProofIds }),
+        body: JSON.stringify({
+          proofUploadIds: uploadedPaymentProofIds,
+          shirtSize: selectedTier === "MEMBERSHIP_WITH_SHIRT" ? shirtSize : undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
 

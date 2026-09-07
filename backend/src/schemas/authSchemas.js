@@ -61,6 +61,9 @@ export const submitPaymentBodySchema = z.object({
     .array(z.string().trim().uuid({ message: "Each payment proof upload ID must be a valid ID" }))
     .min(1, { message: "At least one payment proof upload is required" })
     .max(10, { message: "You can upload at most 10 payment proof files" }),
+  // Optional shirt size when the member chose the membership + t-shirt tier via
+  // bank transfer; the controller only honours it when the shirt tier is on.
+  shirtSize: z.string().trim().max(8).optional(),
 });
 
 export const submitPaymentSchema = { body: submitPaymentBodySchema };
