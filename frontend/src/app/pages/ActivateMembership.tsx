@@ -160,6 +160,8 @@ export function ActivateMembership() {
   const [selectedTier, setSelectedTier] = useState<MembershipTierKey>("MEMBERSHIP");
   const [shirtSize, setShirtSize] = useState<string>("");
   const [startingPayment, setStartingPayment] = useState(false);
+  // Two-step flow: choose membership (Step 1) -> pick a payment method (Step 2).
+  const [paymentStep, setPaymentStep] = useState<"choose" | "pay">("choose");
 
   const uploadedPaymentProofIds = paymentProofUploads
     .filter((u) => u.status === "uploaded" && u.id)
@@ -682,6 +684,97 @@ export function ActivateMembership() {
                     </div>
                   )}
 
+                  {/* ── STEP 1: choose your membership (shows the promo) ── */}
+                  {paymentStep === "choose" && (
+                    <div className="mb-6">
+                      {promoActive && (
+                        <div className="mb-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eb7524]/15 border border-[#eb7524]/30">
+                          <span style={{ fontSize: "11px", fontWeight: 700, color: "#eb7524", fontFamily: "Outfit, sans-serif", letterSpacing: "0.02em" }}>
+                            50% OFF · limited time
+                          </span>
+                        </div>
+                      )}
+                      <div className="space-y-2.5 mb-4">
+                        {(shirtTierEnabled ? [
+                          { key: "MEMBERSHIP" as const, label: "Membership", sub: "Full access for the year", amount: membershipNowCents, full: membershipFullCents },
+                          { key: "MEMBERSHIP_WITH_SHIRT" as const, label: "Membership + T-shirt", sub: "Everything, plus an AUSS tee", amount: membershipNowCents + shirtAddonCents, full: membershipFullCents + shirtAddonCents },
+                        ] : [
+                          { key: "MEMBERSHIP" as const, label: "AUSS Membership", sub: "Full access for the year", amount: membershipNowCents, full: membershipFullCents },
+                        ]).map((opt) => {
+                          const active = selectedTier === opt.key;
+                          return (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              onClick={() => setSelectedTier(opt.key)}
+                              className={`w-full text-left rounded-xl border p-3.5 transition-all cursor-pointer ${active ? "border-[#eb7524] bg-[#eb7524]/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5">
+                                  <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? "border-[#eb7524]" : "border-white/30"}`}>
+                                    {active && <span className="w-2 h-2 rounded-full bg-[#eb7524]" />}
+                                  </span>
+                                  <div>
+                                    <div className="text-white" style={{ fontSize: "14px", fontWeight: 600, fontFamily: "Outfit, sans-serif" }}>{opt.label}</div>
+                                    <div className="text-white/40" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{opt.sub}</div>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  {promoActive && opt.full !== opt.amount && (
+                                    <span className="text-white/30 line-through mr-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{fmtMoney(opt.full)}</span>
+                                  )}
+                                  <span className="text-white" style={{ fontSize: "16px", fontWeight: 700, fontFamily: "Outfit, sans-serif" }}>{fmtMoney(opt.amount)}</span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+
+                        {selectedTier === "MEMBERSHIP_WITH_SHIRT" && (
+                          <div>
+                            <label className="text-white/60 block mb-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>Shirt size</label>
+                            <div className="grid grid-cols-6 gap-1.5">
+                              {availableSizes.map((s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={() => setShirtSize(s)}
+                                  className={`py-2 rounded-lg border transition-all cursor-pointer ${shirtSize === s ? "border-[#eb7524] bg-[#eb7524]/15 text-white" : "border-white/10 bg-white/[0.02] text-white/60 hover:border-white/25"}`}
+                                  style={{ fontSize: "13px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                                >
+                                  {s}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setPaymentStep("pay")}
+                        disabled={needsShirtSize}
+                        className="w-full bg-[#eb7524] text-white py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4691f] transition-all disabled:opacity-60 cursor-pointer"
+                        style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                      >
+                        Continue to Payment — {fmtMoney(currentAmountCents)}
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ── STEP 2: choose how to pay ── */}
+                  {paymentStep === "pay" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setPaymentStep("choose"); setStripeClientSecret(null); setStripeLoadError(null); }}
+                        className="mb-4 inline-flex items-center gap-1.5 text-white/60 hover:text-white transition-colors cursor-pointer"
+                        style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                      >
+                        <ChevronLeft className="w-4 h-4" /> Change membership ({fmtMoney(currentAmountCents)})
+                      </button>
+
                   {/* ── Bank Transfer Option ── */}
                   <div className="mb-6 rounded-2xl border border-[#eb7524]/20 bg-[#eb7524]/[0.04] p-5">
                     <div className="flex items-center gap-3 mb-4">
@@ -872,101 +965,20 @@ export function ActivateMembership() {
                         </>
                       ) : (
                         <>
-                          {promoActive && (
-                            <div className="mb-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eb7524]/15 border border-[#eb7524]/30">
-                              <span style={{ fontSize: "11px", fontWeight: 700, color: "#eb7524", fontFamily: "Outfit, sans-serif", letterSpacing: "0.02em" }}>
-                                50% OFF membership · limited time
-                              </span>
-                            </div>
-                          )}
-                          <div className="space-y-2.5 mb-4">
-                            {(shirtTierEnabled ? [
-                              { key: "MEMBERSHIP" as const, label: "Membership", sub: "Full access for the year", amount: membershipNowCents, full: membershipFullCents },
-                              { key: "MEMBERSHIP_WITH_SHIRT" as const, label: "Membership + T-shirt", sub: "Everything, plus an AUSS tee", amount: membershipNowCents + shirtAddonCents, full: membershipFullCents + shirtAddonCents },
-                            ] : []).map((opt) => {
-                              const active = selectedTier === opt.key;
-                              return (
-                                <button
-                                  key={opt.key}
-                                  type="button"
-                                  onClick={() => setSelectedTier(opt.key)}
-                                  className={`w-full text-left rounded-xl border p-3 transition-all cursor-pointer ${active ? "border-[#eb7524] bg-[#eb7524]/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
-                                >
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-2.5">
-                                      <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? "border-[#eb7524]" : "border-white/30"}`}>
-                                        {active && <span className="w-2 h-2 rounded-full bg-[#eb7524]" />}
-                                      </span>
-                                      <div>
-                                        <div className="text-white" style={{ fontSize: "14px", fontWeight: 600, fontFamily: "Outfit, sans-serif" }}>{opt.label}</div>
-                                        <div className="text-white/40" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{opt.sub}</div>
-                                      </div>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                      {promoActive && opt.full !== opt.amount && (
-                                        <span className="text-white/30 line-through mr-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{fmtMoney(opt.full)}</span>
-                                      )}
-                                      <span className="text-white" style={{ fontSize: "15px", fontWeight: 700, fontFamily: "Outfit, sans-serif" }}>{fmtMoney(opt.amount)}</span>
-                                    </div>
-                                  </div>
-                                </button>
-                              );
-                            })}
-
-                            {selectedTier === "MEMBERSHIP_WITH_SHIRT" && (
-                              <div>
-                                <label htmlFor="shirt-size" className="text-white/60 block mb-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>Shirt size</label>
-                                <select
-                                  id="shirt-size"
-                                  value={shirtSize}
-                                  onChange={(e) => setShirtSize(e.target.value)}
-                                  className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-[#eb7524] outline-none"
-                                  style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
-                                >
-                                  <option value="" className="bg-black">Select a size…</option>
-                                  {availableSizes.map((s) => (
-                                    <option key={s} value={s} className="bg-black">{s}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-
-                            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-1.5">
-                              <div className="flex justify-between" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
-                                <span className="text-white/60">AUSS Membership</span>
-                                <span className="text-white/80">
-                                  {promoActive && <span className="text-white/30 line-through mr-1.5">{fmtMoney(membershipFullCents)}</span>}
-                                  {fmtMoney(membershipNowCents)}
-                                </span>
-                              </div>
-                              {selectedTier === "MEMBERSHIP_WITH_SHIRT" && (
-                                <div className="flex justify-between" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
-                                  <span className="text-white/60">T-shirt{shirtSize ? ` (size ${shirtSize})` : ""}</span>
-                                  <span className="text-white/80">{fmtMoney(shirtAddonCents)}</span>
-                                </div>
-                              )}
-                              <div className="flex justify-between pt-1.5 border-t border-white/10" style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 700 }}>
-                                <span className="text-white">Total</span>
-                                <span className="text-white">{fmtMoney(currentAmountCents)} <span className="text-white/40" style={{ fontSize: "11px", fontWeight: 400 }}>NZD</span></span>
-                              </div>
-                            </div>
-                          </div>
-
                           {stripeLoadError && (
                             <div className="flex items-start gap-2 mb-3 text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
                               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                               <span>{stripeLoadError}</span>
                             </div>
                           )}
-
                           <button
                             type="button"
                             onClick={startPayment}
-                            disabled={startingPayment || needsShirtSize}
+                            disabled={startingPayment}
                             className="w-full bg-[#eb7524] text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4691f] transition-all disabled:opacity-60 cursor-pointer"
                             style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
                           >
-                            {startingPayment ? "Starting…" : `Continue to payment — ${fmtMoney(currentAmountCents)}`}
+                            {startingPayment ? "Starting…" : `Pay ${fmtMoney(currentAmountCents)} by card`}
                             {!startingPayment && <ArrowRight className="w-4 h-4" />}
                           </button>
                         </>
@@ -980,6 +992,8 @@ export function ActivateMembership() {
                       </p>
                     )}
                   </div>
+                    </>
+                  )}
                 </>
               )}
             </div>
