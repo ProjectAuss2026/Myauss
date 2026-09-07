@@ -22,9 +22,9 @@ import {
   Settings,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { fetchWithAuth } from '../lib/authFetch';
 import { RSVPModal } from '../components/RSVPModal';
 import { MembershipPromptModal } from '../components/MembershipPromptModal';
-import { fetchWithAuth } from '../lib/authFetch';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -309,43 +309,47 @@ export function MemberDashboard() {
   const { ref: containerRef, inView } = useInViewCustom({ once: true });
   const [mounted, setMounted] = useState(false);
 
-  // QR reveal state: click-to-reveal with auto-hide (security measure)
-  const [qrRevealed, setQrRevealed] = useState(false);
-  const revealTimerRef = useRef<number | null>(null);
-  const [revealSecondsLeft, setRevealSecondsLeft] = useState(0);
-  const handleToggleReveal = () => {
-    if (qrRevealed) {
-      setQrRevealed(false);
-      if (revealTimerRef.current) {
-        clearInterval(revealTimerRef.current);
-        revealTimerRef.current = null;
-      }
-      setRevealSecondsLeft(0);
-      return;
+  // Member event pass (KAN-180). The QR is a server-signed value fetched on
+  // demand, not derived from anything the client knows. The old click-to-reveal
+  // blur and right-click blocking were removed with it: they implied a
+  // protection that never existed, since the value sat in the DOM regardless.
+  // Security comes from the pass being unguessable, and from the member being
+  // able to reset it if it leaks.
+  const [pass, setPass] = useState<string | null>(null);
+  const [passError, setPassError] = useState<string | null>(null);
+  const [resettingPass, setResettingPass] = useState(false);
+
+  const loadPass = useCallback(async () => {
+    setPassError(null);
+    try {
+      const res = await fetchWithAuth('/api/auth/me/pass');
+      if (!res.ok) throw new Error(`pass request failed: ${res.status}`);
+      const data = await res.json();
+      setPass(data.pass ?? null);
+    } catch (err) {
+      console.error('Failed to load member pass:', err);
+      setPassError('Could not load your pass. Pull to refresh or try again.');
     }
-    setQrRevealed(true);
-    let seconds = 10;
-    setRevealSecondsLeft(seconds);
-    revealTimerRef.current = window.setInterval(() => {
-      seconds -= 1;
-      setRevealSecondsLeft(seconds);
-      if (seconds <= 0) {
-        setQrRevealed(false);
-        if (revealTimerRef.current) {
-          clearInterval(revealTimerRef.current);
-          revealTimerRef.current = null;
-        }
-        setRevealSecondsLeft(0);
-      }
-    }, 1000);
-  };
+  }, []);
+
   useEffect(() => {
-    return () => {
-      if (revealTimerRef.current) {
-        clearInterval(revealTimerRef.current);
-        revealTimerRef.current = null;
-      }
-    };
+    loadPass();
+  }, [loadPass]);
+
+  const handleResetPass = useCallback(async () => {
+    setResettingPass(true);
+    setPassError(null);
+    try {
+      const res = await fetchWithAuth('/api/auth/me/pass/reset', { method: 'POST' });
+      if (!res.ok) throw new Error(`pass reset failed: ${res.status}`);
+      const data = await res.json();
+      setPass(data.pass ?? null);
+    } catch (err) {
+      console.error('Failed to reset member pass:', err);
+      setPassError('Could not reset your pass. Please try again.');
+    } finally {
+      setResettingPass(false);
+    }
   }, []);
 
   // Upcoming events (from the Activities API)
@@ -898,38 +902,47 @@ export function MemberDashboard() {
                   </div>
                 </div>
 
-                {/* QR Code - Top on mobile, prominent (blur by default, click to reveal) */}
+                {/* Member event pass — scanned by an exec at the event desk (KAN-180) */}
               <div className="flex flex-col items-center justify-center w-full">
                 <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-2xl">
-                  <div className="w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] relative">
-                    <div
-                      className="w-full h-full rounded-xl transition-all"
-                      style={{
-                        filter: qrRevealed ? 'none' : 'blur(8px)',
-                        WebkitFilter: qrRevealed ? 'none' : 'blur(8px)',
-                      }}
-                      onContextMenu={(e) => e.preventDefault()}
-                      onDragStart={(e) => e.preventDefault()}
-                    >
+                  <div className="w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] flex items-center justify-center">
+                    {pass ? (
                       <QRCodeSVG
-                        value={`AUSS-MEMBER-${user.email}`}
+                        value={pass}
                         size={240}
                         level="H"
                         includeMargin={false}
                         fgColor="#000000"
                         style={{ width: '100%', height: '100%' }}
                       />
-                    </div>
+                    ) : (
+                      <span
+                        className="text-black/40 text-center px-4"
+                        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
+                      >
+                        {passError ?? 'Loading your pass…'}
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center gap-2">
+                <p
+                  className="mt-4 text-white/40 text-center max-w-[260px]"
+                  style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}
+                >
+                  Show this at the event desk. A screenshot works if you have no signal.
+                </p>
+
+                <div className="mt-3 flex items-center gap-2">
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleToggleReveal(); }}
-                    className="px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-full"
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleResetPass(); }}
+                    disabled={resettingPass}
+                    className="px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-full disabled:opacity-50"
                     style={{ fontSize: '11px', fontFamily: 'Inter, sans-serif' }}
+                    title="Invalidates your current QR and issues a new one. Use this if you've shared or lost it."
                   >
-                    {qrRevealed ? 'Hide QR' : 'Reveal QR'}
+                    {resettingPass ? 'Resetting…' : 'Reset my pass'}
                   </button>
                 </div>
               </div>

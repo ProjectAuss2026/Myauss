@@ -10,6 +10,8 @@ import {
   deleteRsvp,
   exportRsvpsCsv,
 } from '../controllers/rsvpController.js';
+import { checkInByPass, listCheckInAttendees } from '../controllers/checkInController.js';
+import { checkInScanLimiter } from '../middleware/rateLimiters.js';
 
 const router = Router();
 
@@ -42,6 +44,24 @@ router.get('/:id/rsvps', authenticate, authorise('ADMIN'), listRsvps);
 
 // GET /api/activities/:id/rsvps/export — admin only (CSV export)
 router.get('/:id/rsvps/export', authenticate, authorise('ADMIN'), exportRsvpsCsv);
+
+// --- Event check-in (KAN-180) ---
+// POST /api/activities/:id/check-in — admin only (scan a member's pass)
+router.post(
+  '/:id/check-in',
+  authenticate,
+  authorise('ADMIN'),
+  checkInScanLimiter,
+  checkInByPass,
+);
+
+// GET /api/activities/:id/check-in/attendees — admin only (pre-fetch for offline verification)
+router.get(
+  '/:id/check-in/attendees',
+  authenticate,
+  authorise('ADMIN'),
+  listCheckInAttendees,
+);
 
 // DELETE /api/activities/:id/rsvps/:rsvpId — admin only (remove attendee)
 router.delete('/:id/rsvps/:rsvpId', authenticate, authorise('ADMIN'), deleteRsvp);
