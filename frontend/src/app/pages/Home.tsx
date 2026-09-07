@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Dumbbell, Calendar, PartyPopper, ArrowRight, ChevronDown, Volume2, VolumeX } from 'lucide-react';
+import { Users, Dumbbell, Calendar, PartyPopper, ArrowRight, ChevronDown, Volume2, VolumeX, Play, Pause } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 function useInViewCustom(options?: { once?: boolean; margin?: string }) {
@@ -111,10 +111,15 @@ function HeroVideo() {
   const videos = useRef<(HTMLVideoElement | null)[]>([]);
   const [active, setActive] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
+  // Respect the OS "reduce motion" setting: start paused (poster only) and let
+  // the viewer opt in. WCAG 2.2.2 also requires a pause control for autoplay >5s.
+  const [paused, setPaused] = useState(
+    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+  );
   const switching = useRef(false);
 
   const advance = (from: number) => {
-    if (from !== active || switching.current) return;
+    if (paused || from !== active || switching.current) return;
     switching.current = true;
     const next = from === 0 ? 1 : 0;
     const nv = videos.current[next];
@@ -127,32 +132,46 @@ function HeroVideo() {
 
   // Start the crossfade a beat before the active clip ends (onEnded is a backstop).
   const onTime = (i: number) => {
+    if (paused) return;
     const v = videos.current[i];
     if (!v || i !== active || !v.duration || Number.isNaN(v.duration)) return;
     if (v.currentTime >= v.duration - 0.7) advance(i);
   };
 
-  // Play the active clip, route audio to it (if unmuted), release the lock.
+  // Drive playback: play the active clip unless paused, route audio to it, and
+  // release the crossfade lock.
   useEffect(() => {
     videos.current.forEach((v, i) => {
       if (!v) return;
       v.muted = !(soundOn && i === active);
-      if (i === active) v.play().catch(() => {});
+      if (i === active && !paused) v.play().catch(() => {});
+      else v.pause();
     });
+    if (paused) return;
     const t = window.setTimeout(() => { switching.current = false; }, 900);
     return () => window.clearTimeout(t);
-  }, [active, soundOn]);
+  }, [active, soundOn, paused]);
 
-  // Pause on a hidden tab; resume the active clip when the page is visible again.
+  // Follow the OS reduced-motion setting if it changes while the page is open.
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!mq) return;
+    const onChange = () => setPaused(mq.matches);
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+
+  // Pause on a hidden tab; resume when visible (unless the viewer paused it).
   useEffect(() => {
     const onVis = () => {
       const v = videos.current[active];
       if (!v) return;
-      if (document.hidden) v.pause(); else v.play().catch(() => {});
+      if (document.hidden) v.pause();
+      else if (!paused) v.play().catch(() => {});
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, [active]);
+  }, [active, paused]);
 
   return (
     <div className="absolute inset-0 overflow-hidden">
@@ -165,7 +184,6 @@ function HeroVideo() {
           muted
           playsInline
           preload={i === 0 ? 'auto' : 'metadata'}
-          autoPlay={i === 0}
           onTimeUpdate={() => onTime(i)}
           onEnded={() => advance(i)}
           className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-[900ms] ease-in-out ${clip.cls}`}
@@ -176,17 +194,27 @@ function HeroVideo() {
       <div className="absolute inset-0 bg-[#eb7524]/30 mix-blend-soft-light" />
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-black/75" />
       <div className="absolute inset-0 bg-black/25" />
-      {/* Sound toggle — default off (silent); unmutes the active clip */}
-      <button
-        type="button"
-        onClick={() => setSoundOn((s) => !s)}
-        aria-label={soundOn ? 'Mute background video' : 'Play background sound'}
-        className="absolute bottom-6 left-6 z-20 flex items-center gap-2 px-3.5 py-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white/90 hover:bg-black/60 transition-all cursor-pointer"
-        style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
-      >
-        {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-        <span className="hidden sm:inline">{soundOn ? 'Sound on' : 'Sound off'}</span>
-      </button>
+      {/* Controls: play/pause (WCAG 2.2.2) + sound toggle */}
+      <div className="absolute bottom-6 left-6 z-20 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setPaused((p) => !p)}
+          aria-label={paused ? 'Play background video' : 'Pause background video'}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white/90 hover:bg-black/60 transition-all cursor-pointer"
+        >
+          {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSoundOn((s) => !s)}
+          aria-label={soundOn ? 'Mute background video' : 'Unmute background video'}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white/90 hover:bg-black/60 transition-all cursor-pointer"
+          style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif', fontWeight: 500 }}
+        >
+          {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          <span className="hidden sm:inline">{soundOn ? 'Sound on' : 'Sound off'}</span>
+        </button>
+      </div>
     </div>
   );
 }
