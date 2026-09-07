@@ -100,8 +100,11 @@ function FadeInSection({ children, className = '', delay = 0 }: { children: Reac
 // currently on screen (audio follows the active clip). Lives inside Home, so it
 // only ever plays on the landing page and stops when you navigate away.
 const HERO_CLIPS = [
-  { src: '/videos/hero-a.mp4', poster: '/videos/poster-a.jpg' },
-  { src: '/videos/hero-b.mp4', poster: '/videos/poster-b.jpg' },
+  // Lead with the crisp gym / event footage, then the vlog clip. Shown at their
+  // natural 16:9 in a 16:9 hero — no blur, no zoom, so they stay as sharp as the
+  // source allows.
+  { src: '/videos/hero-b.mp4', poster: '/videos/poster-b.jpg', cls: 'scale-[1.02]' },
+  { src: '/videos/hero-a.mp4', poster: '/videos/poster-a.jpg', cls: 'scale-[1.02]' },
 ];
 
 function HeroVideo() {
@@ -161,11 +164,11 @@ function HeroVideo() {
           poster={clip.poster}
           muted
           playsInline
-          preload="auto"
+          preload={i === 0 ? 'auto' : 'metadata'}
           autoPlay={i === 0}
           onTimeUpdate={() => onTime(i)}
           onEnded={() => advance(i)}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-[900ms] ease-in-out ${i === 0 ? 'blur-[2px] scale-[1.06]' : 'scale-[1.02]'}`}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-[900ms] ease-in-out ${clip.cls}`}
           style={{ opacity: i === active ? 1 : 0 }}
         />
       ))}
@@ -212,7 +215,7 @@ export function Home() {
   return (
     <div className="bg-black">
       {/* Hero Section */}
-      <section className="relative min-h-[60vh] flex items-center px-6 overflow-hidden bg-black">
+      <section className="relative w-full aspect-[16/9] min-h-[560px] max-h-[860px] flex items-center px-6 overflow-hidden bg-black">
         <HeroVideo />
         <div className="max-w-[1200px] mx-auto relative z-10 w-full" ref={heroRef}>
           <div className="flex flex-col items-center justify-center py-16 md:py-20 text-center">
