@@ -11,6 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { RSVPModal } from '../components/RSVPModal';
+import { useAuth } from '../contexts/AuthContext';
 import { fetchWithAuth } from '../lib/authFetch';
 import { getSafeImageSrc, getSafeLinkHref } from '../../lib/safeUrl';
 
@@ -64,6 +65,7 @@ function formatTime(dateStr: string) {
 export function ActivityDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
 
   const activityId = id ? parseInt(id, 10) : NaN;
   const validId = !Number.isNaN(activityId);
@@ -223,10 +225,13 @@ export function ActivityDetails() {
   const safeImageSrc = getSafeImageSrc(activity.imageUrl);
   const safeExternalLink = getSafeLinkHref(activity.externalLink);
 
+  // Execs never join a queue — they don't consume capacity, so a full event is
+  // never full *for them* (KAN-190). Offering them "Join waitlist" would
+  // contradict what the server actually does, which is confirm them outright.
   let buttonText = 'Register Now';
   if (isArchived) buttonText = 'Event Ended';
   else if (rsvpLoading) buttonText = 'Loading...';
-  else if (isSoldOut) buttonText = 'Join waitlist';
+  else if (isSoldOut && !isAdmin) buttonText = 'Join waitlist';
 
   return (
     <div className="bg-black min-h-screen">
