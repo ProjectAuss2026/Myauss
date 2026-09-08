@@ -70,7 +70,7 @@ describe('RSVPModal — members-only gating (KAN-178)', () => {
     expect(screen.queryByRole('button', { name: 'Activate membership' })).toBeNull();
   });
 
-  it('shows the account details read-only and posts no body', async () => {
+  it('shows the account details read-only and posts only the waitlist opt-in', async () => {
     mockAuth = { user: verifiedUser, isAdmin: false };
     fetchWithAuthMock.mockResolvedValue(new Response('{}', { status: 201 }));
     open();
@@ -84,8 +84,10 @@ describe('RSVPModal — members-only gating (KAN-178)', () => {
     const [url, init] = fetchWithAuthMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/activities/42/rsvp');
     expect(init.method).toBe('POST');
-    // Attendee details are server-sourced — nothing is sent from the client.
-    expect(init.body).toBeUndefined();
+    // KAN-189 added exactly one body field: the explicit waitlist opt-in, false
+    // on a normal booking. Attendee details are still server-sourced, so no
+    // name/email/studentId may appear here.
+    expect(JSON.parse(String(init.body))).toEqual({ joinWaitlist: false });
   });
 
   it('surfaces a membership rejection using the machine-readable code', async () => {

@@ -1,6 +1,6 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
-import { releaseRsvpPlace, isRsvpNotFoundError } from '../services/rsvpPlaces.js';
+import { releaseRsvpPlace, notifyPromotion, isRsvpNotFoundError } from '../services/rsvpPlaces.js';
 
 /**
  * POST /api/activities/:id/rsvp — signed-in VERIFIED members only (KAN-178)
@@ -15,6 +15,10 @@ export const createRsvp = async (req, res) => {
   if (!activityId || isNaN(activityId)) {
     return res.status(400).json({ error: 'Valid activity id is required' });
   }
+
+  // The only body field honoured: an explicit opt-in to the waitlist when the
+  // event is full. Everything else still comes from the account.
+  const joinWaitlist = req.body?.joinWaitlist === true;
 
   try {
     // Attendee details are snapshotted from the account, never read from the
@@ -48,11 +52,35 @@ export const createRsvp = async (req, res) => {
         return { status: 404, body: { error: 'Activity not found' } };
       }
 
-      if (activity.capacity !== null && activity.capacity !== undefined) {
-        const count = await tx.rsvp.count({ where: { activityId } });
-        if (count >= activity.capacity) {
-          return { status: 409, body: { error: 'Activity is sold out' } };
-        }
+      // Execs run events rather than taking a member's place (KAN-190), so their
+      // booking never consumes capacity — and, critically, an exec is therefore
+      // never full and never waitlisted. Snapshotted onto the row rather than
+      // joined live, so a later promotion/demotion can't rewrite past headcounts.
+      const countsTowardCapacity = !(req.user.role === 'ADMIN' || req.user.role === 'OWNER');
+
+      // Full means full *for this person*: capacity counts only CONFIRMED places
+      // that count toward it, and an exec is never blocked by it.
+      let isFull = false;
+      if (
+        countsTowardCapacity &&
+        activity.capacity !== null &&
+        activity.capacity !== undefined
+      ) {
+        const count = await tx.rsvp.count({
+          where: { activityId, status: 'CONFIRMED', countsTowardCapacity: true },
+        });
+        isFull = count >= activity.capacity;
+      }
+
+      // Waitlisting is explicit (KAN-189): a full event reports EVENT_FULL with a
+      // machine-readable code, and the member joins the queue only by taking a
+      // separate action. Silently waitlisting someone who believes they hold a
+      // place is the worst failure at the door.
+      if (isFull && !joinWaitlist) {
+        return {
+          status: 409,
+          body: { error: 'This event is full.', code: 'EVENT_FULL' },
+        };
       }
 
       // The route is authenticated (KAN-178), so the booking always carries the
@@ -65,6 +93,8 @@ export const createRsvp = async (req, res) => {
             userId: req.user.id,
             name: cleanName,
             email: cleanEmail,
+            status: isFull ? 'WAITLISTED' : 'CONFIRMED',
+            countsTowardCapacity,
           },
         });
         return { status: 201, body: rsvp };
@@ -104,7 +134,13 @@ export const getRsvpCount = async (req, res) => {
       return res.status(404).json({ error: 'Activity not found' });
     }
 
-    const count = await prisma.rsvp.count({ where: { activityId } });
+    // Same predicate as createRsvp's check — waitlisted entries and exec places
+    // never make an event look fuller than it is. Both sites must agree or the
+    // UI and the API disagree about whether an event is full, and members see
+    // the wrong one.
+    const count = await prisma.rsvp.count({
+      where: { activityId, status: 'CONFIRMED', countsTowardCapacity: true },
+    });
     const capacity = activity.capacity ?? null;
     const isSoldOut = capacity !== null && count >= capacity;
 
@@ -113,15 +149,19 @@ export const getRsvpCount = async (req, res) => {
     // know a "Cancel my place" action applies. `attachUserIfPresent` is optional
     // auth: anonymous callers simply don't get the flag.
     let isRegistered = false;
+    let myStatus = null;
     if (req.user?.id) {
       const own = await prisma.rsvp.findUnique({
         where: { activityId_userId: { activityId, userId: req.user.id } },
-        select: { id: true },
+        select: { id: true, status: true },
       });
       isRegistered = Boolean(own);
+      // CONFIRMED vs WAITLISTED, so the member is never left guessing which they
+      // hold — that ambiguity is the thing explicit opt-in exists to prevent.
+      myStatus = own?.status ?? null;
     }
 
-    return res.json({ count, capacity, isSoldOut, isRegistered });
+    return res.json({ count, capacity, isSoldOut, isRegistered, myStatus });
   } catch (err) {
     logger.error({ err }, 'getRsvpCount error:');
     return res.status(500).json({ error: 'Internal server error' });
@@ -202,10 +242,18 @@ export const cancelOwnRsvp = async (req, res) => {
       });
     }
 
-    // Single transaction so KAN-189's promotion can be added atomically here.
-    await prisma.$transaction((tx) => releaseRsvpPlace({ activityId, userId: req.user.id, tx }));
+    // The vacate and any waitlist promotion happen atomically here.
+    const { promoted } = await prisma.$transaction((tx) =>
+      releaseRsvpPlace({ activityId, userId: req.user.id, tx }),
+    );
 
     logger.info({ activityId, userId: req.user.id }, 'Member cancelled their RSVP');
+
+    // Only once the transaction has committed. Sending inside it would put an
+    // SMTP round-trip in the transaction and blow Prisma's 5s timeout, rolling
+    // back the cancellation the member just asked for.
+    await notifyPromotion({ activityId, promoted });
+
     return res.status(204).send();
   } catch (err) {
     if (isRsvpNotFoundError(err)) {

@@ -104,12 +104,15 @@ test('a duplicate booking for the same activity is rejected as 409', async () =>
   assert.match(res.body.error, /already registered/i);
 });
 
-test('sold-out activities are still rejected (capacity unchanged)', async () => {
+test('a full event is still rejected — now with the EVENT_FULL code (KAN-189)', async () => {
+  // Capacity still blocks the booking; only the response shape changed. The
+  // member joins the waitlist by an explicit second action rather than being
+  // silently queued, so the frontend switches on `code`, not on the message.
   activity = { id: 1, isPublished: true, capacity: 5 };
   rsvpCount = 5;
   const res = await submitRsvp();
   assert.equal(res.code, 409);
-  assert.match(res.body.error, /sold out/i);
+  assert.equal(res.body.code, 'EVENT_FULL');
 });
 
 test('unpublished or missing activity returns 404', async () => {

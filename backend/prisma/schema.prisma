@@ -30,6 +30,15 @@ enum PaymentProofUploadStatus {
   LINKED
 }
 
+// Event place state (KAN-189). One Rsvp row per member per event in either
+// state, so promotion is a single field update and (activityId, userId) keeps
+// preventing double entries. Ordering comes from createdAt — an explicit
+// position column would need renumbering on every removal.
+enum RsvpStatus {
+  CONFIRMED
+  WAITLISTED
+}
+
 // Content visibility gate (KAN-167 / KAN-112). PUBLIC rows may be served on
 // unauthenticated routes; MEMBERS rows are returned ONLY by the authenticated,
 // membership-checked member endpoint. The filter is enforced in the query, not
@@ -423,6 +432,17 @@ model Rsvp {
   name       String
   email      String
   createdAt  DateTime @default(now())
+  // Waitlist state (KAN-189). Waitlisted rows are excluded from the capacity
+  // count, so they never make an event look fuller than it is, and they can
+  // never satisfy attendance (which needs CONFIRMED + checkedInAt) — so they
+  // stay as a demand record without polluting reporting.
+  status     RsvpStatus @default(CONFIRMED)
+  // Snapshotted at RSVP time from User.role in (ADMIN, OWNER) — NOT joined live
+  // (KAN-190). Roles change: computing this at query time would silently rewrite
+  // the headcount of events that already ran when someone is promoted or demoted
+  // mid-year. Execs run events rather than taking a member's place, so their
+  // rows are excluded from the capacity count.
+  countsTowardCapacity Boolean @default(true)
   // Attendance (KAN-180). Arrival only — one timestamp per member per event, no
   // check-out. Duplicate check-ins are impossible by construction: (activityId,
   // userId) is unique so there is exactly one row to update, and the update is
@@ -442,6 +462,9 @@ model Rsvp {
   @@index([activityId])
   @@index([userId, createdAt])
   @@index([activityId, checkedInAt])
+  // Capacity counts and waitlist ordering both filter on these.
+  @@index([activityId, status, countsTowardCapacity])
+  @@index([activityId, status, createdAt])
 }
 
 // --- EXEC COMMITTEE ---
