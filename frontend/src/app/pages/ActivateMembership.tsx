@@ -83,6 +83,22 @@ function formatBytes(sizeBytes: number) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const SHIRT_SIZES_FALLBACK = ["XS", "S", "M", "L", "XL", "XXL"];
+function fmtMoney(cents: number) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+type MembershipTierKey = "MEMBERSHIP" | "MEMBERSHIP_WITH_SHIRT";
+type MembershipPricing = {
+  currency: string;
+  shirtTierEnabled: boolean;
+  promo: { active: boolean; percentOff: number; endsAt: string | null };
+  membership: { fullCents: number; nowCents: number };
+  shirt: { addonCents: number };
+  tiers: Record<MembershipTierKey, { amountCents: number; includesShirt: boolean }>;
+  shirtSizes: string[];
+};
+
 function createLocalProofUploadId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `proof-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -123,7 +139,7 @@ async function removePendingPaymentProof(proofUploadId: string) {
 }
 
 export function ActivateMembership() {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, refreshUser } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
@@ -139,6 +155,14 @@ export function ActivateMembership() {
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [stripeLoadError, setStripeLoadError] = useState<string | null>(null);
 
+  // Membership tier selection (KAN-198): tier + shirt size + live pricing/promo.
+  const [pricing, setPricing] = useState<MembershipPricing | null>(null);
+  const [selectedTier, setSelectedTier] = useState<MembershipTierKey>("MEMBERSHIP");
+  const [shirtSize, setShirtSize] = useState<string>("");
+  const [startingPayment, setStartingPayment] = useState(false);
+  // Two-step flow: choose membership (Step 1) -> pick a payment method (Step 2).
+  const [paymentStep, setPaymentStep] = useState<"choose" | "pay">("choose");
+
   const uploadedPaymentProofIds = paymentProofUploads
     .filter((u) => u.status === "uploaded" && u.id)
     .map((u) => u.id as string);
@@ -150,37 +174,75 @@ export function ActivateMembership() {
     }
   }, [isLoading, isAuthenticated, navigate]);
 
+  // Stripe redirect-based methods (e.g. a real 3DS card) navigate away and come
+  // back to /verify-membership with the PaymentIntent client secret in the URL.
+  // By then the card element is unmounted and the page has reset to the tier
+  // picker, so detect the return here at the page level. We ask Stripe for the
+  // *authoritative* status via retrievePaymentIntent — never trusting the URL's
+  // redirect_status, which a member could edit — before confirming + routing.
+  useEffect(() => {
+    const clientSecret = new URLSearchParams(window.location.search).get(
+      "payment_intent_client_secret",
+    );
+    if (!clientSecret) return;
+    // Strip the query so a refresh cannot re-trigger this.
+    window.history.replaceState({}, "", "/verify-membership");
+    let cancelled = false;
+    stripePromise
+      .then((stripe) => stripe?.retrievePaymentIntent(clientSecret))
+      .then((result) => {
+        if (cancelled) return;
+        const paymentIntent = result?.paymentIntent;
+        if (paymentIntent?.status === "succeeded") {
+          fetchWithAuth("/api/payments/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paymentIntentId: paymentIntent.id }),
+          })
+            .catch(() => {
+              /* webhook backstop reconciles if this direct confirm fails */
+            })
+            .then(() => refreshUser().catch(() => {}))
+            .finally(() => {
+              showToast("Payment successful! Your membership is now active.", "success");
+              navigate("/dashboard");
+            });
+        } else if (paymentIntent) {
+          showToast("Payment was not completed. Please try again.", "error");
+        }
+      })
+      .catch(() => {
+        /* leave the member on the page to retry */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
   }, []);
 
   const membershipStatus = user?.membershipStatus || "INACTIVE";
 
-  // Request a Stripe PaymentIntent when user is INACTIVE
+  // Load membership pricing (tiers + launch promo) for the selector + summary.
+  // The PaymentIntent is created only when the member picks a tier and clicks
+  // Continue (see startPayment) — the amount is always computed server-side.
   useEffect(() => {
-    if (!isStripeConfigured || membershipStatus !== "INACTIVE") return;
-
     let cancelled = false;
-    fetchWithAuth("/api/payments/intent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || "Failed to start payment");
-        if (!cancelled) setStripeClientSecret(data.clientSecret);
+    fetch("/api/public-config")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && d?.membership) setPricing(d.membership as MembershipPricing);
       })
-      .catch((err) => {
-        if (!cancelled)
-          setStripeLoadError(
-            err instanceof Error ? err.message : "Failed to start payment",
-          );
+      .catch(() => {
+        /* selector falls back to the hardcoded promo prices */
       });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [membershipStatus]);
+  }, []);
 
   if (isLoading || !user) {
     return (
@@ -189,6 +251,52 @@ export function ActivateMembership() {
       </div>
     );
   }
+
+  // Derived pricing for the selector/summary (falls back to promo defaults if
+  // /api/public-config has not resolved yet). Display only — the charge is
+  // authoritative server-side.
+  const promoActive = pricing?.promo.active ?? true;
+  const membershipFullCents = pricing?.membership.fullCents ?? 1000;
+  const membershipNowCents = pricing?.membership.nowCents ?? 500;
+  const shirtAddonCents = pricing?.shirt.addonCents ?? 1000;
+  const availableSizes = pricing?.shirtSizes ?? SHIRT_SIZES_FALLBACK;
+  // Launch ships membership-only; the shirt tier is gated behind this flag until
+  // the committee agrees a ToS + pickup workflow. When off, no tier selection or
+  // shirt picker is shown — just the single membership price.
+  const shirtTierEnabled = pricing?.shirtTierEnabled ?? false;
+  const currentAmountCents =
+    selectedTier === "MEMBERSHIP_WITH_SHIRT"
+      ? membershipNowCents + shirtAddonCents
+      : membershipNowCents;
+  const needsShirtSize = selectedTier === "MEMBERSHIP_WITH_SHIRT" && !shirtSize;
+
+  // Create the PaymentIntent for the chosen tier, then reveal the card element.
+  const startPayment = async () => {
+    if (!isStripeConfigured || startingPayment || stripeClientSecret) return;
+    if (needsShirtSize) {
+      setStripeLoadError("Please choose a shirt size.");
+      return;
+    }
+    setStartingPayment(true);
+    setStripeLoadError(null);
+    try {
+      const res = await fetchWithAuth("/api/payments/intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tier: selectedTier,
+          shirtSize: selectedTier === "MEMBERSHIP_WITH_SHIRT" ? shirtSize : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Failed to start payment");
+      setStripeClientSecret(data.clientSecret);
+    } catch (err) {
+      setStripeLoadError(err instanceof Error ? err.message : "Failed to start payment");
+    } finally {
+      setStartingPayment(false);
+    }
+  };
 
   // ── Payment proof upload handlers ──
 
@@ -299,7 +407,10 @@ export function ActivateMembership() {
       const res = await fetch("/api/auth/membership/submit-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ proofUploadIds: uploadedPaymentProofIds }),
+        body: JSON.stringify({
+          proofUploadIds: uploadedPaymentProofIds,
+          shirtSize: selectedTier === "MEMBERSHIP_WITH_SHIRT" ? shirtSize : undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -344,6 +455,26 @@ export function ActivateMembership() {
     // "could not retrieve data from the specified Element".
     const [elementReady, setElementReady] = useState(false);
 
+    // Card payments succeed in place (redirect: "if_required"); show a clear
+    // confirmation, sync the account, then move the member to their dashboard.
+    const finishPaymentSuccess = async (paymentIntentId: string) => {
+      setPaid(true);
+      setPaying(false);
+      setPayMsg("Payment successful. Your membership is now active.");
+      try {
+        await fetchWithAuth("/api/payments/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentIntentId }),
+        });
+      } catch {
+        /* webhook backstop reconciles if this direct confirm fails */
+      }
+      await refreshUser().catch(() => {});
+      showToast("Payment successful! Your membership is now active.", "success");
+      setTimeout(() => navigate("/dashboard"), 1400);
+    };
+
     const handlePay = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!stripe || !elements || !elementReady) return;
@@ -359,47 +490,32 @@ export function ActivateMembership() {
         return;
       }
 
-      const { error: stripeErr } = await stripe.confirmPayment({
+      const { error: stripeErr, paymentIntent } = await stripe.confirmPayment({
         elements,
         confirmParams: {
           return_url: `${window.location.origin}/verify-membership`,
         },
+        redirect: "if_required",
       });
 
       if (stripeErr) {
         setPayMsg(stripeErr.message ?? "Payment failed.");
         setPaying(false);
+        return;
       }
-      // Redirect-based methods cause a page reload — the fallthrough below handles them.
+
+      // A card normally confirms right here without leaving the page — show the
+      // success state in place instead of bouncing through return_url (which
+      // reset the whole page back to the tier picker).
+      if (paymentIntent?.status === "succeeded") {
+        await finishPaymentSuccess(paymentIntent.id);
+        return;
+      }
+
+      // A redirect-based method (e.g. a 3DS card) has navigated away; the return
+      // to /verify-membership is handled by the page-level effect above.
+      setPaying(false);
     };
-
-    // When Stripe redirects back here after a redirect-based payment method,
-    // read the outcome from the URL and confirm server-side.
-    useEffect(() => {
-      if (!stripe) return;
-      const piSecret = new URLSearchParams(window.location.search).get(
-        "payment_intent_client_secret",
-      );
-      if (!piSecret) return;
-
-      stripe.retrievePaymentIntent(piSecret).then(({ paymentIntent }) => {
-        if (paymentIntent?.status === "succeeded") {
-          setPaid(true);
-          setPayMsg("Payment successful. Your membership is now active.");
-          fetchWithAuth("/api/payments/confirm", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ paymentIntentId: paymentIntent.id }),
-          })
-            .then(() => refreshUser())
-            .catch(() => {
-              /* webhook backstop */
-            });
-        } else if (paymentIntent?.status === "requires_payment_method") {
-          setPayMsg("Payment was not completed. Please try again.");
-        }
-      });
-    }, [stripe]);
 
     if (paid) {
       return (
@@ -622,6 +738,97 @@ export function ActivateMembership() {
                     </div>
                   )}
 
+                  {/* ── STEP 1: choose your membership (shows the promo) ── */}
+                  {paymentStep === "choose" && (
+                    <div className="mb-6">
+                      {promoActive && (
+                        <div className="mb-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eb7524]/15 border border-[#eb7524]/30">
+                          <span style={{ fontSize: "11px", fontWeight: 700, color: "#eb7524", fontFamily: "Outfit, sans-serif", letterSpacing: "0.02em" }}>
+                            50% OFF · limited time
+                          </span>
+                        </div>
+                      )}
+                      <div className="space-y-2.5 mb-4">
+                        {(shirtTierEnabled ? [
+                          { key: "MEMBERSHIP" as const, label: "Membership", sub: "Full access for the year", amount: membershipNowCents, full: membershipFullCents },
+                          { key: "MEMBERSHIP_WITH_SHIRT" as const, label: "Membership + T-shirt", sub: "Everything, plus an AUSS tee", amount: membershipNowCents + shirtAddonCents, full: membershipFullCents + shirtAddonCents },
+                        ] : [
+                          { key: "MEMBERSHIP" as const, label: "AUSS Membership", sub: "Full access for the year", amount: membershipNowCents, full: membershipFullCents },
+                        ]).map((opt) => {
+                          const active = selectedTier === opt.key;
+                          return (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              onClick={() => setSelectedTier(opt.key)}
+                              className={`w-full text-left rounded-xl border p-3.5 transition-all cursor-pointer ${active ? "border-[#eb7524] bg-[#eb7524]/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5">
+                                  <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? "border-[#eb7524]" : "border-white/30"}`}>
+                                    {active && <span className="w-2 h-2 rounded-full bg-[#eb7524]" />}
+                                  </span>
+                                  <div>
+                                    <div className="text-white" style={{ fontSize: "14px", fontWeight: 600, fontFamily: "Outfit, sans-serif" }}>{opt.label}</div>
+                                    <div className="text-white/40" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{opt.sub}</div>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  {promoActive && opt.full !== opt.amount && (
+                                    <span className="text-white/30 line-through mr-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>{fmtMoney(opt.full)}</span>
+                                  )}
+                                  <span className="text-white" style={{ fontSize: "16px", fontWeight: 700, fontFamily: "Outfit, sans-serif" }}>{fmtMoney(opt.amount)}</span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+
+                        {selectedTier === "MEMBERSHIP_WITH_SHIRT" && (
+                          <div>
+                            <label className="text-white/60 block mb-1.5" style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>Shirt size</label>
+                            <div className="grid grid-cols-6 gap-1.5">
+                              {availableSizes.map((s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={() => setShirtSize(s)}
+                                  className={`py-2 rounded-lg border transition-all cursor-pointer ${shirtSize === s ? "border-[#eb7524] bg-[#eb7524]/15 text-white" : "border-white/10 bg-white/[0.02] text-white/60 hover:border-white/25"}`}
+                                  style={{ fontSize: "13px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                                >
+                                  {s}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setPaymentStep("pay")}
+                        disabled={needsShirtSize}
+                        className="w-full bg-[#eb7524] text-white py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4691f] transition-all disabled:opacity-60 cursor-pointer"
+                        style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                      >
+                        Continue to Payment — {fmtMoney(currentAmountCents)}
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ── STEP 2: choose how to pay ── */}
+                  {paymentStep === "pay" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setPaymentStep("choose"); setStripeClientSecret(null); setStripeLoadError(null); }}
+                        className="mb-4 inline-flex items-center gap-1.5 text-white/60 hover:text-white transition-colors cursor-pointer"
+                        style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+                      >
+                        <ChevronLeft className="w-4 h-4" /> Change membership ({fmtMoney(currentAmountCents)})
+                      </button>
+
                   {/* ── Bank Transfer Option ── */}
                   <div className="mb-6 rounded-2xl border border-[#eb7524]/20 bg-[#eb7524]/[0.04] p-5">
                     <div className="flex items-center gap-3 mb-4">
@@ -642,6 +849,17 @@ export function ActivateMembership() {
                           Upload your receipt, reviewed within 1–3 days
                         </p>
                       </div>
+                    </div>
+
+                    {/* Amount to transfer (so members know the exact figure and admins can verify it) */}
+                    <div className="mb-4 rounded-xl bg-black/30 border border-white/10 px-3 py-2.5 flex items-center justify-between">
+                      <span className="text-white/60" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Amount to transfer</span>
+                      <span className="text-white" style={{ fontSize: "15px", fontFamily: "Outfit, sans-serif", fontWeight: 700 }}>
+                        {promoActive && (
+                          <span className="text-white/30 line-through mr-1.5" style={{ fontSize: "12px", fontWeight: 400 }}>{fmtMoney(membershipFullCents)}</span>
+                        )}
+                        {fmtMoney(currentAmountCents)} <span className="text-white/40" style={{ fontSize: "11px", fontWeight: 400 }}>NZD</span>
+                      </span>
                     </div>
 
                     {/* Upload area */}
@@ -772,24 +990,52 @@ export function ActivateMembership() {
                     </div>
 
                     {isStripeConfigured ? (
-                      stripeLoadError ? (
-                        <div className="text-center py-4">
-                          <AlertCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
-                          <p className="text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
-                            {stripeLoadError}
-                          </p>
-                        </div>
-                      ) : stripeClientSecret ? (
-                        <Elements
-                          stripe={stripePromise}
-                          options={{ clientSecret: stripeClientSecret, appearance: cardAppearance }}
-                        >
-                          <StripePaymentForm />
-                        </Elements>
+                      stripeClientSecret ? (
+                        <>
+                          <div className="mb-3 flex items-center justify-between rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+                            <span className="text-white/70" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                              {selectedTier === "MEMBERSHIP_WITH_SHIRT"
+                                ? `Membership + T-shirt${shirtSize ? ` (${shirtSize})` : ""}`
+                                : "Membership"}
+                            </span>
+                            <span className="text-white" style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 700 }}>
+                              {fmtMoney(currentAmountCents)} <span className="text-white/40" style={{ fontSize: "11px", fontWeight: 400 }}>NZD</span>
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setStripeClientSecret(null); setStripeLoadError(null); }}
+                            className="text-[#eb7524] hover:text-[#d4691f] mb-3 cursor-pointer"
+                            style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}
+                          >
+                            ← Change selection
+                          </button>
+                          <Elements
+                            stripe={stripePromise}
+                            options={{ clientSecret: stripeClientSecret, appearance: cardAppearance }}
+                          >
+                            <StripePaymentForm />
+                          </Elements>
+                        </>
                       ) : (
-                        <div className="flex items-center justify-center py-6">
-                          <Loader2 className="w-5 h-5 text-[#eb7524] animate-spin" />
-                        </div>
+                        <>
+                          {stripeLoadError && (
+                            <div className="flex items-start gap-2 mb-3 text-red-300" style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}>
+                              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                              <span>{stripeLoadError}</span>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={startPayment}
+                            disabled={startingPayment}
+                            className="w-full bg-[#eb7524] text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4691f] transition-all disabled:opacity-60 cursor-pointer"
+                            style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}
+                          >
+                            {startingPayment ? "Starting…" : `Pay ${fmtMoney(currentAmountCents)} by card`}
+                            {!startingPayment && <ArrowRight className="w-4 h-4" />}
+                          </button>
+                        </>
                       )
                     ) : (
                       <p
@@ -800,6 +1046,8 @@ export function ActivateMembership() {
                       </p>
                     )}
                   </div>
+                    </>
+                  )}
                 </>
               )}
             </div>

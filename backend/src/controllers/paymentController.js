@@ -6,12 +6,11 @@ import {
   MembershipTransitionError,
   changeMembershipStatus,
 } from '../services/membershipStatus.js';
+import { resolveTierCharge, getMembershipPricing, isValidShirtSize } from '../services/membershipPricing.js';
+import { buildMembershipOrders, buildShirtOrder, createOrders, ORDER_PAYMENT_METHOD } from '../services/orders.js';
 
-// Membership pricing (overridable via env). Amount is in the smallest currency
-// unit (cents). Defaults to NZ$20.00.
-const MEMBERSHIP_PRICE_CENTS = Number.parseInt(process.env.MEMBERSHIP_PRICE_CENTS || '2000', 10);
-const MEMBERSHIP_CURRENCY = (process.env.MEMBERSHIP_CURRENCY || 'nzd').toLowerCase();
 const PAYMENT_PURPOSE = 'auss_membership';
+const SHIRT_PURPOSE = 'auss_shirt';
 
 let stripeClient = null;
 
@@ -77,6 +76,9 @@ async function recordMembershipPayment({ stripe, paymentIntent, userId }) {
     prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
   ]);
 
+  const includesShirt = paymentIntent.metadata?.includesShirt === 'true';
+  const shirtSize = includesShirt ? (paymentIntent.metadata?.shirtSize || null) : null;
+
   await prisma.payment.upsert({
     where: { stripePaymentIntentId: paymentIntent.id },
     update: {},
@@ -89,9 +91,47 @@ async function recordMembershipPayment({ stripe, paymentIntent, userId }) {
       method: details.method,
       cardBrand: details.cardBrand,
       cardLast4: details.cardLast4,
+      includesShirt,
+      shirtSize,
       paidAt: details.paidAt,
     },
   });
+
+  // Record the ordered shirt size on the member for expo fulfilment. Best-effort:
+  // the payment is already ledgered and the member active, so a failure here must
+  // not fail the request (the webhook/confirm both call this idempotently).
+  if (includesShirt && shirtSize) {
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { shirtSize } });
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'Failed to record member shirt size after payment');
+    }
+  }
+
+  // Order history (additive, best-effort): membership + optional shirt as two
+  // independent rows, idempotent on the PaymentIntent id. A failure here must
+  // never fail the payment/activation — the member is already active.
+  try {
+    const parsedMembership = Number.parseInt(paymentIntent.metadata?.membershipCents ?? '', 10);
+    const shirtCents = Number.parseInt(paymentIntent.metadata?.shirtCents ?? '0', 10) || 0;
+    const membershipCents = Number.isFinite(parsedMembership)
+      ? parsedMembership
+      : ((paymentIntent.amount_received ?? paymentIntent.amount) - (includesShirt ? shirtCents : 0));
+    const rows = buildMembershipOrders({
+      membershipCents,
+      includesShirt,
+      shirtCents,
+      shirtSize,
+      currency: paymentIntent.currency,
+      paymentMethod: ORDER_PAYMENT_METHOD.CARD,
+      reference: paymentIntent.id,
+      paid: true,
+      paidAt: details.paidAt,
+    });
+    await createOrders({ userId, reference: paymentIntent.id, rows });
+  } catch (error) {
+    logger.warn({ err: error, userId, paymentIntentId: paymentIntent.id }, 'Failed to create order rows after payment');
+  }
 }
 
 /**
@@ -139,9 +179,25 @@ export async function createMembershipPaymentIntent(req, res) {
   }
 
   try {
+    // Resolve the client-chosen tier into an authoritative charge. The client
+    // never supplies the amount — it is computed server-side from the DB pricing
+    // row (with the launch promo applied to the membership portion only).
+    let charge;
+    try {
+      charge = await resolveTierCharge({
+        tier: req.body?.tier,
+        shirtSize: req.body?.shirtSize,
+      });
+    } catch (error) {
+      if (error.status === 400) {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { membershipStatus: true },
+      select: { membershipStatus: true, email: true },
     });
 
     if (!user) {
@@ -153,18 +209,32 @@ export async function createMembershipPaymentIntent(req, res) {
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: MEMBERSHIP_PRICE_CENTS,
-      currency: MEMBERSHIP_CURRENCY,
+      amount: charge.amountCents,
+      currency: charge.currency,
       // Card-only: no redirect-based methods, no wallet/klarna activation
       // warnings, and a single clean flow at the expo.
       payment_method_types: ['card'],
-      metadata: { purpose: PAYMENT_PURPOSE, userId: req.user.id },
+      // Stripe emails an automatic receipt to this address on success.
+      receipt_email: user.email || undefined,
+      description: charge.includesShirt ? 'AUSS membership + t-shirt' : 'AUSS membership',
+      metadata: {
+        purpose: PAYMENT_PURPOSE,
+        userId: req.user.id,
+        includesShirt: charge.includesShirt ? 'true' : 'false',
+        shirtSize: charge.shirtSize || '',
+        // Split recorded so the order-history rows can be rebuilt at confirm/webhook.
+        membershipCents: String(charge.pricing.membership.nowCents),
+        shirtCents: String(charge.includesShirt ? charge.pricing.shirt.addonCents : 0),
+      },
     });
 
     return res.json({
       clientSecret: paymentIntent.client_secret,
-      amount: MEMBERSHIP_PRICE_CENTS,
-      currency: MEMBERSHIP_CURRENCY,
+      amount: charge.amountCents,
+      currency: charge.currency,
+      includesShirt: charge.includesShirt,
+      shirtSize: charge.shirtSize,
+      pricing: charge.pricing,
     });
   } catch (error) {
     logger.error({ err: error }, 'Failed to create membership PaymentIntent');
@@ -243,6 +313,153 @@ export async function confirmMembershipPayment(req, res) {
 }
 
 /**
+ * Record a standalone shirt purchase: ledger row + SHIRT order (READY_FOR_PICKUP)
+ * + the member's latest shirt size. Idempotent on the PaymentIntent id.
+ */
+async function recordShirtPayment({ stripe, paymentIntent, userId }) {
+  const [details, user] = await Promise.all([
+    extractPaymentDetails(stripe, paymentIntent),
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+  ]);
+  const shirtSize = paymentIntent.metadata?.shirtSize || null;
+  const amountCents = paymentIntent.amount_received ?? paymentIntent.amount;
+
+  await prisma.payment.upsert({
+    where: { stripePaymentIntentId: paymentIntent.id },
+    update: {},
+    create: {
+      userId,
+      payerEmail: user?.email || paymentIntent.receipt_email || 'unknown',
+      stripePaymentIntentId: paymentIntent.id,
+      amountCents,
+      currency: paymentIntent.currency,
+      method: details.method,
+      cardBrand: details.cardBrand,
+      cardLast4: details.cardLast4,
+      includesShirt: true,
+      shirtSize,
+      paidAt: details.paidAt,
+    },
+  });
+
+  if (shirtSize) {
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { shirtSize } });
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'Failed to record member shirt size after shirt payment');
+    }
+  }
+
+  try {
+    const rows = buildShirtOrder({
+      shirtCents: amountCents,
+      shirtSize,
+      currency: paymentIntent.currency,
+      paymentMethod: ORDER_PAYMENT_METHOD.CARD,
+      reference: paymentIntent.id,
+      paid: true,
+      paidAt: details.paidAt,
+    });
+    await createOrders({ userId, reference: paymentIntent.id, rows });
+  } catch (error) {
+    logger.warn({ err: error, userId, paymentIntentId: paymentIntent.id }, 'Failed to create shirt order row');
+  }
+}
+
+/**
+ * POST /api/payments/shirt-intent  (authenticated, VERIFIED members only)
+ * Lets an existing member buy a t-shirt on its own (independent of membership).
+ */
+export async function createShirtPaymentIntent(req, res) {
+  const stripe = getStripe();
+  if (!stripe) {
+    return res.status(503).json({ error: 'Payments are not configured' });
+  }
+
+  try {
+    const pricing = await getMembershipPricing();
+    if (!pricing.shirtTierEnabled) {
+      return res.status(409).json({ error: 'Shirt purchases are not available right now.' });
+    }
+    const size = req.body?.shirtSize;
+    if (!isValidShirtSize(size)) {
+      return res.status(400).json({ error: 'A valid shirt size (XS, S, M, L, XL or XXL) is required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { membershipStatus: true, email: true },
+    });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (user.membershipStatus !== MEMBERSHIP_STATUS.VERIFIED) {
+      return res.status(409).json({ error: 'Activate your membership before buying a shirt.' });
+    }
+
+    const normalizedSize = String(size).trim().toUpperCase();
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: pricing.shirt.addonCents,
+      currency: pricing.currency,
+      payment_method_types: ['card'],
+      receipt_email: user.email || undefined,
+      description: 'AUSS t-shirt',
+      metadata: { purpose: SHIRT_PURPOSE, userId: req.user.id, shirtSize: normalizedSize },
+    });
+
+    return res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount: pricing.shirt.addonCents,
+      currency: pricing.currency,
+      shirtSize: normalizedSize,
+    });
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to create shirt PaymentIntent');
+    return res.status(502).json({ error: 'Failed to start payment' });
+  }
+}
+
+/**
+ * POST /api/payments/shirt-confirm  (authenticated)
+ * Confirms a standalone shirt payment and records the ledger row + SHIRT order.
+ */
+export async function confirmShirtPayment(req, res) {
+  const stripe = getStripe();
+  if (!stripe) {
+    return res.status(503).json({ error: 'Payments are not configured' });
+  }
+
+  const { paymentIntentId } = req.body || {};
+  if (!paymentIntentId || typeof paymentIntentId !== 'string') {
+    return res.status(400).json({ error: 'A paymentIntentId is required' });
+  }
+
+  let paymentIntent;
+  try {
+    paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] });
+  } catch (error) {
+    logger.warn({ err: error, paymentIntentId }, 'Failed to retrieve shirt PaymentIntent');
+    return res.status(404).json({ error: 'Payment not found' });
+  }
+
+  if (paymentIntent.metadata?.purpose !== SHIRT_PURPOSE || paymentIntent.metadata?.userId !== req.user.id) {
+    return res.status(403).json({ error: 'This payment does not belong to your account' });
+  }
+  if (paymentIntent.status !== 'succeeded') {
+    return res.status(402).json({ error: 'Payment has not completed', status: paymentIntent.status });
+  }
+
+  try {
+    await recordShirtPayment({ stripe, paymentIntent, userId: req.user.id });
+  } catch (error) {
+    logger.error({ err: error, userId: req.user.id }, 'Failed to record shirt payment');
+    return res.status(500).json({ error: 'Payment succeeded but recording failed' });
+  }
+
+  return res.json({ ok: true, shirtSize: paymentIntent.metadata?.shirtSize || null });
+}
+
+/**
  * POST /api/payments/webhook  (no auth — verified via Stripe signature)
  * Durable source of truth: activates membership when Stripe confirms the
  * payment, even if the user closed the tab before /confirm ran. Requires the
@@ -292,6 +509,13 @@ export async function handleStripeWebhook(req, res) {
         // 500 so Stripe retries the delivery.
         return res.status(500).json({ received: false });
       }
+    } else if (paymentIntent.metadata?.purpose === SHIRT_PURPOSE && userId) {
+      try {
+        await recordShirtPayment({ stripe, paymentIntent, userId });
+      } catch (error) {
+        logger.error({ err: error, userId }, 'Failed to record shirt payment from webhook');
+        return res.status(500).json({ received: false });
+      }
     }
   }
 
@@ -301,5 +525,7 @@ export async function handleStripeWebhook(req, res) {
 export default {
   createMembershipPaymentIntent,
   confirmMembershipPayment,
+  createShirtPaymentIntent,
+  confirmShirtPayment,
   handleStripeWebhook,
 };

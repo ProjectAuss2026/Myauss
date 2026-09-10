@@ -1,5 +1,6 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
+import { getMembershipPricing } from '../services/membershipPricing.js';
 
 const DEFAULTS = {
   email: 'uoastrengthsociety@gmail.com',
@@ -27,7 +28,7 @@ function pickLink(links, platform, fallback) {
 
 const getPublicConfigController = async (_req, res) => {
   try {
-    const [communicationLinks, sponsorshipPage, mediaEntry] = await Promise.all([
+    const [communicationLinks, sponsorshipPage, mediaEntry, membershipPricing] = await Promise.all([
       prisma.communicationLink.findMany({ orderBy: { platform: 'asc' } }),
       prisma.sponsorshipPage.findFirst({
         include: { sponsors: { orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }] } },
@@ -36,6 +37,7 @@ const getPublicConfigController = async (_req, res) => {
       prisma.mediaEntry.findFirst({
         orderBy: [{ activity: { startTime: 'desc' } }, { id: 'desc' }],
       }),
+      getMembershipPricing(),
     ]);
 
     return res.status(200).json({
@@ -63,6 +65,7 @@ const getPublicConfigController = async (_req, res) => {
           website: sponsor.websiteUrl || '',
         })),
       },
+      membership: membershipPricing,
     });
   } catch (error) {
     logger.error({ err: error }, '[getPublicConfigController] Error fetching public config:');
