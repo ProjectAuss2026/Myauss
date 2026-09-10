@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "npm run test:node && npm run test:ui",
-    "test:node": "node --test src/lib/safeUrl.test.js",
+    "test:node": "node --test src/lib/safeUrl.test.js src/lib/datetime.test.js",
     "test:ui": "vitest run",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview"
