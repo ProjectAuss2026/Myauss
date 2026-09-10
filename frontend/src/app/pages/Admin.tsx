@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { fetchWithAuth } from "../lib/authFetch";
+import { datetimeLocalToISO, formatToDatetimeLocal } from "../../lib/datetime";
 import {
   type AdminMembersPagination,
   getMemberPaymentProofFile,
@@ -41,6 +42,8 @@ import {
   AlertCircle,
   HelpCircle,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   GripVertical,
   Link as LinkIcon,
   CheckCircle2,
@@ -349,6 +352,215 @@ function CustomSelect({
   );
 }
 
+// ── Custom Date + Time Picker (AUSS-styled, replaces native datetime-local) ──
+// Value contract is identical to <input type="datetime-local">: a local
+// wall-clock string "YYYY-MM-DDTHH:mm". datetimeLocalToISO() converts it to a
+// UTC instant on submit, so it round-trips correctly whatever timezone the
+// server runs in. A 12-hour time UI (with an explicit AM/PM toggle) fixes the
+// "can't set PM" problem on 24-hour-locale browsers.
+const DTP_WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const DTP_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const DTP_HOUR_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
+  value: i + 1,
+  label: String(i + 1),
+}));
+const DTP_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => ({
+  value: i,
+  label: String(i).padStart(2, "0"),
+}));
+
+type ParsedLocal = {
+  year: number; month: number; day: number; hour: number; minute: number;
+};
+
+function parseLocalValue(value: string): ParsedLocal | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value || "");
+  if (!m) return null;
+  return {
+    year: Number(m[1]), month: Number(m[2]) - 1, day: Number(m[3]),
+    hour: Number(m[4]), minute: Number(m[5]),
+  };
+}
+
+function composeLocalValue(p: ParsedLocal): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month + 1)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
+}
+
+function DateTimePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+
+  const parsed = parseLocalValue(value);
+  const now = new Date();
+
+  const [viewYear, setViewYear] = useState(parsed?.year ?? now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed?.month ?? now.getMonth());
+
+  // Follow the value into view when it changes externally (e.g. opening Edit).
+  useEffect(() => {
+    const p = parseLocalValue(value);
+    if (p) { setViewYear(p.year); setViewMonth(p.month); }
+  }, [value]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const hour24 = parsed?.hour ?? 9;
+  const minute = parsed?.minute ?? 0;
+  const ampm: "AM" | "PM" = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+
+  // Emit a full value, defaulting any not-yet-chosen part to a sane baseline.
+  const emit = (patch: Partial<ParsedLocal>) => {
+    const base: ParsedLocal = parsed ?? {
+      year: now.getFullYear(), month: now.getMonth(), day: now.getDate(),
+      hour: 9, minute: 0,
+    };
+    onChange(composeLocalValue({ ...base, ...patch }));
+  };
+
+  const setHour12 = (h12: number) =>
+    emit({ hour: ampm === "PM" ? (h12 % 12) + 12 : h12 % 12 });
+  const setAmPm = (ap: "AM" | "PM") =>
+    emit({ hour: ap === "PM" ? (hour12 % 12) + 12 : hour12 % 12 });
+
+  // Calendar grid, Monday-first.
+  const startOffset = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array(startOffset).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
+    else setViewMonth((m) => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
+    else setViewMonth((m) => m + 1);
+  };
+
+  const isSelected = (day: number) =>
+    !!parsed && parsed.year === viewYear && parsed.month === viewMonth && parsed.day === day;
+  const isToday = (day: number) =>
+    now.getFullYear() === viewYear && now.getMonth() === viewMonth && now.getDate() === day;
+
+  const label = parsed
+    ? `${DTP_MONTHS[parsed.month].slice(0, 3)} ${parsed.day}, ${parsed.year} · ${hour12}:${String(minute).padStart(2, "0")} ${ampm}`
+    : "Select date & time";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-[#eb7524]/50 focus:bg-white/[0.06] transition-all cursor-pointer"
+        style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
+      >
+        <span className={`flex items-center gap-2 ${parsed ? "text-white" : "text-white/30"}`}>
+          <Calendar className="w-4 h-4 text-white/40 flex-shrink-0" />
+          {label}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-white/40 transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-2 w-[300px] bg-[#111] border border-white/10 rounded-2xl shadow-2xl p-4">
+          {/* Month navigation */}
+          <div className="flex items-center justify-between mb-3">
+            <button type="button" onClick={prevMonth} aria-label="Previous month"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.06] hover:text-white transition-all cursor-pointer">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-white" style={{ fontSize: "14px", fontFamily: "Outfit, sans-serif", fontWeight: 600 }}>
+              {DTP_MONTHS[viewMonth]} {viewYear}
+            </span>
+            <button type="button" onClick={nextMonth} aria-label="Next month"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.06] hover:text-white transition-all cursor-pointer">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Weekday header */}
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {DTP_WEEKDAYS.map((w) => (
+              <div key={w} className="text-center text-white/30" style={{ fontSize: "11px", fontFamily: "Inter, sans-serif" }}>{w}</div>
+            ))}
+          </div>
+
+          {/* Day grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => day === null ? (
+              <div key={`empty-${i}`} />
+            ) : (
+              <button
+                key={day}
+                type="button"
+                onClick={() => emit({ year: viewYear, month: viewMonth, day })}
+                className={`h-8 rounded-lg text-center transition-all cursor-pointer ${
+                  isSelected(day)
+                    ? "bg-[#eb7524] text-white font-semibold"
+                    : isToday(day)
+                    ? "text-[#eb7524] hover:bg-white/[0.06]"
+                    : "text-white/80 hover:bg-white/[0.06] hover:text-white"
+                }`}
+                style={{ fontSize: "13px", fontFamily: "Inter, sans-serif" }}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+
+          {/* Time row */}
+          <div className="mt-4 pt-3 border-t border-white/10">
+            <div className="flex items-center gap-2 mb-2 text-white/60">
+              <Clock className="w-3.5 h-3.5" />
+              <span style={{ fontSize: "12px", fontFamily: "Inter, sans-serif" }}>Time</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <CustomSelect value={hour12} onChange={(v) => setHour12(Number(v))} options={DTP_HOUR_OPTIONS} />
+              </div>
+              <span className="text-white/40">:</span>
+              <div className="flex-1">
+                <CustomSelect value={minute} onChange={(v) => emit({ minute: Number(v) })} options={DTP_MINUTE_OPTIONS} />
+              </div>
+              <div className="flex rounded-lg overflow-hidden border border-white/10">
+                {(["AM", "PM"] as const).map((ap) => (
+                  <button
+                    key={ap}
+                    type="button"
+                    onClick={() => setAmPm(ap)}
+                    className={`px-3 py-2 transition-all cursor-pointer ${ampm === ap ? "bg-[#eb7524] text-white" : "text-white/60 hover:bg-white/[0.06]"}`}
+                    style={{ fontSize: "13px", fontFamily: "Inter, sans-serif", fontWeight: 500 }}
+                  >{ap}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Shared validation helpers ──
 function isHttpUrl(value: string): boolean {
   return isSafeLinkHref(value);
@@ -503,25 +715,16 @@ function mapActivity(activity: any): Activity {
 }
 
 /**
- * Format ISO datetime string for datetime-local input (YYYY-MM-DDTHH:mm)
+ * Extract the human-readable error the backend returned (its JSON `error` /
+ * `message`), falling back to the HTTP status. Surfaces the real reason
+ * (e.g. a validation message) instead of a generic "Bad Request".
  */
-function formatToDatetimeLocal(dateStr?: string): string {
-  if (!dateStr) return "";
-  const date = new Date(dateStr);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-/**
- * Convert datetime-local format to ISO string
- */
-function datetimeLocalToISO(datetimeLocal: string): string {
-  if (!datetimeLocal) return "";
-  return `${datetimeLocal}:00`; // Convert YYYY-MM-DDTHH:mm to YYYY-MM-DDTHH:mm:00
+async function extractApiError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  const body = await response.json().catch(() => null);
+  return body?.error || body?.message || `${fallback} (${response.status})`;
 }
 
 function getCapacityError(value: string): string | null {
@@ -1545,7 +1748,7 @@ export function Admin() {
           body: JSON.stringify(payload),
         });
         if (!response.ok) {
-          throw new Error(`Failed to update activity: ${response.statusText}`);
+          throw new Error(await extractApiError(response, "Failed to update activity"));
         }
         const data = await response.json();
         const updated = mapActivity(data);
@@ -1562,7 +1765,7 @@ export function Admin() {
           body: JSON.stringify(payload),
         });
         if (!response.ok) {
-          throw new Error(`Failed to create activity: ${response.statusText}`);
+          throw new Error(await extractApiError(response, "Failed to create activity"));
         }
         const data = await response.json();
         const created = mapActivity(data);
@@ -1580,6 +1783,10 @@ export function Admin() {
         err instanceof Error ? err.message : "Failed to save activity";
       setActivityError(errMsg);
       showToast(errMsg, "error");
+      // Re-throw so the ActivityForm's own submit handler sees the failure and
+      // does NOT show a false "created successfully" message (the parent's catch
+      // used to swallow the error, so the child always thought it succeeded).
+      throw err;
     }
   };
 
@@ -5742,7 +5949,6 @@ function ActivityForm({
           ? "Activity updated successfully."
           : "Activity created successfully.",
       );
-      setConfirmOpen(false);
     } catch (err) {
       setSubmitError(
         err instanceof Error
@@ -5750,6 +5956,9 @@ function ActivityForm({
           : "Failed to save activity. Please try again.",
       );
     } finally {
+      // Always close the confirm dialog so the form's inline success/error
+      // message is visible — on failure the user stays on the form to retry.
+      setConfirmOpen(false);
       setIsSubmitting(false);
     }
   };
@@ -5840,13 +6049,7 @@ function ActivityForm({
             <label className="block text-white/60 mb-1.5" style={labelStyle}>
               Start Date/Time *
             </label>
-            <input
-              type="datetime-local"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className={inputCls}
-              style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
-            />
+            <DateTimePicker value={startTime} onChange={setStartTime} />
             {errors.startTime && (
               <p className={fieldErrorCls} style={fieldErrorStyle}>
                 {errors.startTime}
@@ -5857,13 +6060,7 @@ function ActivityForm({
             <label className="block text-white/60 mb-1.5" style={labelStyle}>
               End Date/Time *
             </label>
-            <input
-              type="datetime-local"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className={inputCls}
-              style={{ fontSize: "14px", fontFamily: "Inter, sans-serif" }}
-            />
+            <DateTimePicker value={endTime} onChange={setEndTime} />
             {errors.endTime && (
               <p className={fieldErrorCls} style={fieldErrorStyle}>
                 {errors.endTime}

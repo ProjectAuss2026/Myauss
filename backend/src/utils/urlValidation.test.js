@@ -5,6 +5,7 @@ import {
   UrlValidationError,
   validateCommunicationImageUrl,
   validateOptionalPublicHttpUrl,
+  validateOptionalPublicImageUrl,
   validatePublicHttpUrl,
   validatePublicImageUrl,
 } from './urlValidation.js';
@@ -141,4 +142,34 @@ test('validatePublicImageUrl rejects hostnames when DNS verification fails', asy
 test('validateCommunicationImageUrl preserves builtin icons but rejects unsafe icon URLs', async () => {
   assert.equal(await validateCommunicationImageUrl('__builtin__'), '__builtin__');
   await assertInvalidUrl(validateCommunicationImageUrl('/admin'));
+});
+
+// Regression: POST /api/upload returns /api/upload/<uuid> (DB-backed blobs), but
+// validatePublicImageUrl only allowlisted the legacy /uploads/ prefix, so every
+// newly uploaded image was rejected with a 400 on activity/config/media save.
+test('validatePublicImageUrl accepts /api/upload/<uuid> paths returned by the upload endpoint', async () => {
+  const uploadPath = '/api/upload/6f1c2d34-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
+  assert.equal(await validatePublicImageUrl(uploadPath), uploadPath);
+  assert.equal(
+    await validatePublicImageUrl('  /api/upload/6F1C2D34-5A6B-4C7D-8E9F-0A1B2C3D4E5F  '),
+    '/api/upload/6F1C2D34-5A6B-4C7D-8E9F-0A1B2C3D4E5F'
+  );
+  assert.equal(await validateOptionalPublicImageUrl(uploadPath), uploadPath);
+});
+
+test('validatePublicImageUrl rejects /api/upload paths that are not a bare uuid', async () => {
+  const invalidUploadPaths = [
+    '/api/upload/',
+    '/api/upload/not-a-uuid',
+    '/api/upload/../../etc/passwd',
+    '/api/upload/6f1c2d34-5a6b-4c7d-8e9f-0a1b2c3d4e5f/../../admin',
+    '/api/upload/6f1c2d34-5a6b-4c7d-8e9f-0a1b2c3d4e5f?x=1',
+    '/api/upload/6f1c2d34-5a6b-4c7d-8e9f-0a1b2c3d4e5f#f',
+    '/api/uploadx/6f1c2d34-5a6b-4c7d-8e9f-0a1b2c3d4e5f',
+    '\\api\\upload\\6f1c2d34-5a6b-4c7d-8e9f-0a1b2c3d4e5f',
+  ];
+
+  for (const url of invalidUploadPaths) {
+    await assertInvalidUrl(validatePublicImageUrl(url, { resolveHostname: publicResolver }));
+  }
 });
