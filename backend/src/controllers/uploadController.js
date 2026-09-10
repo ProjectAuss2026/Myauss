@@ -120,7 +120,17 @@ export async function serveUploadedImage(req, res) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
-    return res.send(image.fileBytes);
+    // Prisma returns Bytes as a Uint8Array, NOT a Node Buffer. res.send() only
+    // writes raw bytes for Buffers — anything else goes through res.json() and
+    // is JSON-stringified into {"0":137,"1":80,...}, which the browser cannot
+    // decode, so every uploaded image rendered as a broken image (200 OK with
+    // undecodable bytes). Same guard as the payment-proof download in
+    // auth.controller.js. Do not "simplify" this back to res.send(image.fileBytes).
+    const fileBytes = Buffer.isBuffer(image.fileBytes)
+      ? image.fileBytes
+      : Buffer.from(image.fileBytes ?? []);
+
+    return res.send(fileBytes);
   } catch (_err) {
     return res.status(500).json({ error: "Internal server error" });
   }
