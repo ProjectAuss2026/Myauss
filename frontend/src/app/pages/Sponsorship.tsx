@@ -54,68 +54,78 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
-// ─── Sponsor card: homepage screenshot background, logo revealed on hover ────
+// ─── Sponsor card: blurred website screenshot behind a translucent glass logo pill
+// The logo is always visible on the glass pill in its real colours (the glass
+// handles both light/white and coloured logos); the sponsor's website screenshot
+// sits behind it, blurred + dimmed. Whole card links to the sponsor site.
+// Images can be external URLs (link rot risk), so both the logo and the hero
+// degrade gracefully on load error: a dead logo falls back to the sponsor name,
+// a dead hero falls back to the dark gradient — never a broken-image icon.
 function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
   const safeWebsiteUrl = getSafeLinkHref(sponsor.websiteUrl);
   const safeHeroImageUrl = getSafeImageSrc(sponsor.heroImageUrl);
   const safeLogoUrl = getSafeImageSrc(sponsor.logoUrl);
-  const className = `group block relative h-[260px] rounded-2xl overflow-hidden ${safeWebsiteUrl ? 'cursor-pointer' : ''}`;
+  const [logoFailed, setLogoFailed] = useState(false);
+  const [heroFailed, setHeroFailed] = useState(false);
+  const showHero = safeHeroImageUrl && !heroFailed;
+  const showLogo = safeLogoUrl && !logoFailed;
+  const className = `group block relative h-[260px] rounded-2xl overflow-hidden border border-white/10 transition-all duration-500 hover:border-[#eb7524]/50 hover:shadow-[0_0_34px_rgba(235,117,36,0.28)] ${safeWebsiteUrl ? 'cursor-pointer' : ''}`;
 
   const content = (
     <>
-      {/* Background: homepage screenshot */}
-      {safeHeroImageUrl ? (
+      {/* Blurred website screenshot background (scaled up so blurred edges don't show) */}
+      {showHero ? (
         <img
           src={safeHeroImageUrl}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover object-top transition-transform duration-700 group-hover:scale-105"
           loading="lazy"
+          decoding="async"
+          onError={() => setHeroFailed(true)}
+          className="absolute inset-0 w-full h-full object-cover object-top scale-110 blur-md transition-transform duration-700 group-hover:scale-125"
         />
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]" />
       )}
 
-      {/* Persistent gradient at bottom for name legibility */}
-      <div
-        className="absolute inset-0 transition-opacity duration-500 group-hover:opacity-0"
-        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.18) 55%, transparent 100%)' }}
-      />
+      {/* Dim for contrast; lifts slightly on hover */}
+      <div className="absolute inset-0 bg-black/45 group-hover:bg-black/30 transition-colors duration-500" />
 
-      {/* Hover: full dark overlay */}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-500" />
-
-      {/* Hover: glass pill slides up from below — never opacity:0 so backdrop-blur is always composited */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        {safeLogoUrl ? (
-          <div
-            className="bg-white/15 backdrop-blur-md rounded-2xl px-7 py-5 max-w-[220px] flex items-center justify-center shadow-[0_0_24px_rgba(235,117,36,0.45)] translate-y-[300px] group-hover:translate-y-0 transition-transform duration-500 ease-out"
-          >
+      {/* Glass logo pill (the original "before" treatment) — kept always-visible
+          over the blurred site. Translucent glass handles both light/white and
+          coloured logos without recolouring them or boxing white-bg logos. */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5">
+        <div className="bg-white/15 backdrop-blur-md rounded-2xl px-7 py-5 flex items-center justify-center border border-white/20 shadow-[0_0_28px_rgba(235,117,36,0.45)] transition-transform duration-500 group-hover:scale-105">
+          {showLogo ? (
             <img
               src={safeLogoUrl}
               alt={sponsor.name}
-              className="h-[52px] max-w-[180px] w-auto object-contain drop-shadow-2xl"
+              loading="lazy"
+              decoding="async"
+              onError={() => setLogoFailed(true)}
+              className="h-[64px] max-w-[190px] w-auto object-contain drop-shadow-2xl"
             />
-          </div>
-        ) : (
-          <span
-            className="text-white drop-shadow-2xl translate-y-[300px] group-hover:translate-y-0 transition-transform duration-500 ease-out"
-            style={{ fontSize: '52px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
-          >
-            {sponsor.name.charAt(0)}
-          </span>
-        )}
-      </div>
-
-      {/* Default bottom: name + link icon — slides out on hover */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 flex items-end justify-between transition-all duration-400 group-hover:translate-y-full group-hover:opacity-0 pointer-events-none">
+          ) : (
+            <span
+              className="text-white leading-none drop-shadow-2xl"
+              style={{ fontSize: '28px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
+            >
+              {sponsor.name}
+            </span>
+          )}
+        </div>
+        {/* Name kept visible for symbol-only logos / sighted identification */}
         <p
-          className="text-white leading-tight"
-          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+          className="text-white text-center drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
         >
           {sponsor.name}
         </p>
-        <ExternalLink className="w-4 h-4 text-white/50 flex-shrink-0" />
       </div>
+
+      {/* Link affordance */}
+      {safeWebsiteUrl && (
+        <ExternalLink className="absolute top-4 right-4 w-4 h-4 text-white/70 group-hover:text-[#eb7524] transition-colors duration-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]" />
+      )}
     </>
   );
 
