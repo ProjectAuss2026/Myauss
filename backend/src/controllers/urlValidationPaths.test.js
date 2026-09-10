@@ -234,6 +234,23 @@ test('createActivity accepts valid payloads after Zod normalization', async () =
   assert.equal(createCall.args.data.capacity, 40);
 });
 
+// Regression: the upload endpoint returns /api/upload/<uuid>, not /uploads/<file>.
+// The fixtures above only ever exercised the legacy shape, so the validator could
+// reject every real upload while this suite stayed green.
+test('createActivity accepts the /api/upload/<uuid> path the upload endpoint returns', async () => {
+  resetCalls();
+
+  const uploadPath = '/api/upload/6f1c2d34-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
+  const { res, nextCalled } = await runValidated(createActivitySchema, createActivity, {
+    body: activityBody({ imageUrl: uploadPath }),
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.statusCode, 201);
+  const createCall = calls.find((call) => call.name === 'activity.create');
+  assert.equal(createCall.args.data.imageUrl, uploadPath);
+});
+
 test('createActivity rejects unsafe externalLink and imageUrl through Zod before saving', async () => {
   resetCalls();
   const externalLinkResult = await runValidated(createActivitySchema, createActivity, {
