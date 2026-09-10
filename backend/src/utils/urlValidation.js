@@ -11,6 +11,13 @@ const BLOCKED_HOST_SUFFIXES = Object.freeze([
   '.lan',
 ]);
 
+// Images are stored as blobs in UploadedImage and served from /api/upload/:id
+// (see uploadController). The id is a v4 UUID, so match it exactly rather than
+// using a loose prefix check — a bare startsWith would admit strings like
+// "/api/upload/../../secret" into the branch before the traversal guard runs.
+const API_UPLOAD_PATH_RE =
+  /^\/api\/upload\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export class UrlValidationError extends Error {
   constructor(message) {
     super(message);
@@ -236,7 +243,10 @@ export async function validatePublicImageUrl(value, options = {}) {
   }
 
   const trimmed = value.trim();
-  if (trimmed.startsWith('/uploads/')) {
+  // Two shapes of first-party image path are accepted:
+  //   /uploads/<file>        legacy disk-backed uploads, kept so existing rows validate
+  //   /api/upload/<uuid>     current DB-backed uploads returned by POST /api/upload
+  if (trimmed.startsWith('/uploads/') || API_UPLOAD_PATH_RE.test(trimmed)) {
     if (trimmed.includes('\\') || hasPathTraversal(trimmed)) {
       throw new UrlValidationError(`${fieldName} must be a valid uploaded image path.`);
     }
