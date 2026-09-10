@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { fetchWithAuth } from "../lib/authFetch";
+import { datetimeLocalToISO, formatToDatetimeLocal } from "../../lib/datetime";
 import {
   type AdminMembersPagination,
   getMemberPaymentProofFile,
@@ -711,37 +712,6 @@ function mapActivity(activity: any): Activity {
     ...activity,
     status: deriveActivityStatus(activity),
   };
-}
-
-/**
- * Format ISO datetime string for datetime-local input (YYYY-MM-DDTHH:mm)
- */
-function formatToDatetimeLocal(dateStr?: string): string {
-  if (!dateStr) return "";
-  const date = new Date(dateStr);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-/**
- * Convert a datetime-local wall-clock string ("YYYY-MM-DDTHH:mm", in the
- * admin's own timezone) to an absolute UTC instant ("...Z").
- *
- * The old version just appended ":00" with no timezone, so the server parsed it
- * in ITS timezone. On Railway (UTC) that shifted every time by the admin's
- * offset (~13h for NZ) — it only looked correct in local dev because the dev
- * machine's timezone matched the admin's. `new Date(local).toISOString()`
- * anchors the instant to UTC, so it round-trips regardless of server timezone.
- */
-function datetimeLocalToISO(datetimeLocal: string): string {
-  if (!datetimeLocal) return "";
-  const date = new Date(datetimeLocal); // parsed as the browser's local time
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString();
 }
 
 /**

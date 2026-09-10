@@ -75,8 +75,13 @@ jobs:
       - name: Build
         run: npm --workspace=frontend run build
 
-      # Run the frontend node:test suite (safeUrl utility tests). The vitest
-      # suite (test:ui) is skipped here — it needs DOM stubs (localStorage)
+      # Run the frontend node:test suite (safeUrl + datetime utilities). The
+      # vitest suite (test:ui) is skipped here — it needs DOM stubs (localStorage)
       # that are not wired up in Node; that's a separate task.
+      #
+      # Pinned to TZ=UTC (matching the Railway server) so the datetime tests prove
+      # no hidden dependency on the runner's timezone being New Zealand.
       - name: Tests (node)
         run: npm --workspace=frontend run test:node
+        env:
+          TZ: UTC
