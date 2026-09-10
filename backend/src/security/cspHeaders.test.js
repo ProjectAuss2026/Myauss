@@ -19,6 +19,7 @@ process.env.STUDENT_ID_PEPPER ||= 'csp-header-test-pepper';
 globalThis.prisma = {};
 
 const { createApp } = await import('../app.js');
+const { getCspDirectives } = await import('../../../shared/securityHeaders.mjs');
 
 // Must be a route that returns 200: Express's finalhandler replaces the CSP
 // with "default-src 'none'" on a 404, which would mask the header under test.
@@ -66,4 +67,33 @@ test('allowing the scanner worker does not widen script-src to blob:', async () 
   assert.ok(scriptSrc, `script-src missing from CSP: ${csp}`);
   assert.ok(!scriptSrc.includes('blob:'), `script-src must not allow blob:, got: ${scriptSrc}`);
   assert.ok(!scriptSrc.includes("'unsafe-eval'"), `script-src must not allow unsafe-eval, got: ${scriptSrc}`);
+});
+
+function parseCsp(csp) {
+  return Object.fromEntries(
+    csp
+      .split(';')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .map((d) => {
+        const [name, ...values] = d.split(/\s+/);
+        return [name, values];
+      }),
+  );
+}
+
+// Guards the whole class of bug, not just worker-src: someone adding a directive
+// (media-src for a video feature, say) will edit shared/securityHeaders.mjs, see
+// it work on the Vite dev server, and never touch app.js. This fails if the
+// served header adds, drops or changes anything relative to the shared policy —
+// a directive hand-written back into app.js, or helmet defaults merged in again.
+test('the served CSP is exactly the shared policy, directive for directive', async () => {
+  const served = parseCsp(await cspHeaderFor('/api/test'));
+  const expected = getCspDirectives({
+    env: process.env,
+    allowWebSockets: process.env.NODE_ENV !== 'production',
+    upgradeInsecureRequests: true,
+  });
+
+  assert.deepEqual(served, expected);
 });

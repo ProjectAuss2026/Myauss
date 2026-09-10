@@ -19,13 +19,7 @@ import memberRoutes from './routes/memberRoutes.js';
 import { handleStripeWebhook } from './controllers/paymentController.js';
 import { setUploadStaticHeaders, UPLOADS_DIR } from './controllers/uploadController.js';
 import logger from './utils/logger.js';
-import {
-  getConfiguredCspConnectSrcValues,
-  getConfiguredCspImageSrcValues,
-  getConfiguredCspScriptSrcValues,
-  getConfiguredCspFrameSrcValues,
-  getConfiguredCspWorkerSrcValues,
-} from '../../shared/securityHeaders.mjs';
+import { getCspDirectives } from '../../shared/securityHeaders.mjs';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,23 +46,15 @@ function getAllowedCorsOrigins() {
 function createHelmetMiddleware() {
   return helmet({
     contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", ...getConfiguredCspScriptSrcValues()],
-        styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
-        imgSrc: getConfiguredCspImageSrcValues(process.env),
-        fontSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: getConfiguredCspConnectSrcValues({
-          env: process.env,
-          allowWebSockets: process.env.NODE_ENV !== 'production',
-        }),
-        frameSrc: getConfiguredCspFrameSrcValues(),
-        workerSrc: getConfiguredCspWorkerSrcValues(),
-        frameAncestors: ["'none'"],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-      },
+      // The policy comes whole from shared/securityHeaders.mjs, which the Vite
+      // dev/preview servers use too. useDefaults: false stops helmet merging in
+      // directives of its own, so the served header is exactly the shared policy.
+      useDefaults: false,
+      directives: getCspDirectives({
+        env: process.env,
+        allowWebSockets: process.env.NODE_ENV !== 'production',
+        upgradeInsecureRequests: true,
+      }),
     },
     referrerPolicy: {
       policy: 'strict-origin-when-cross-origin',
