@@ -12,8 +12,30 @@ const HOUR = 60 * 60 * 1000;
 
 let activity = { id: 1, title: 'Deadlift Night', capacity: 2, startTime: new Date(Date.now() + 48 * HOUR) };
 let rows = [];
-let confirmedCount = 0;
 let updated = [];
+
+// Hooks for the concurrency tests, one per write, because WHICH write the
+// competing transaction lands before is the whole point. `beforeClaim` fires
+// between our read of the queue head and our claim on it — the window the race
+// lives in. A single shared hook fired on the delete instead, landing before the
+// queue was ever read, and the race test then passed against the unfixed code.
+let beforeClaim = null;
+let beforeDelete = null;
+let alwaysLoseRace = false;
+let writeAttempts = 0;
+
+// Deliberately derives every read from `rows` rather than returning canned
+// values. The previous mock answered `count` from a fixed variable, so a
+// simulated concurrent write was invisible to the next read and no test could
+// express contention at all — which is how the unconditional promotion write
+// got through review (#84).
+function matches(row, where) {
+  if (where.id !== undefined && row.id !== where.id) return false;
+  if (where.status !== undefined && row.status !== where.status) return false;
+  if (where.countsTowardCapacity !== undefined
+      && row.countsTowardCapacity !== where.countsTowardCapacity) return false;
+  return true;
+}
 
 globalThis.prisma = {
   $transaction: async (fn) => fn(globalThis.prisma),
@@ -21,22 +43,30 @@ globalThis.prisma = {
   rsvp: {
     findUnique: async ({ where }) =>
       rows.find((r) => r.userId === where.activityId_userId.userId) ?? null,
-    findFirst: async ({ where, orderBy }) => {
-      const waiting = rows
-        .filter((r) => r.status === where.status)
-        .sort((a, b) => a.createdAt - b.createdAt);
-      return orderBy?.createdAt === 'asc' ? (waiting[0] ?? null) : (waiting[0] ?? null);
+    findFirst: async ({ where }) =>
+      rows
+        .filter((r) => matches(r, where))
+        .sort((a, b) => a.createdAt - b.createdAt)[0] ?? null,
+    count: async ({ where }) => rows.filter((r) => matches(r, where)).length,
+    deleteMany: async ({ where }) => {
+      if (beforeDelete) beforeDelete();
+      const before = rows.length;
+      rows = rows.filter((r) => !matches(r, where));
+      return { count: before - rows.length };
     },
-    count: async () => confirmedCount,
-    delete: async ({ where }) => {
-      rows = rows.filter((r) => r.id !== where.id);
-      return { id: where.id };
-    },
-    update: async ({ where, data }) => {
+    // Mirrors Postgres' behaviour on a contended row: the loser blocks on the
+    // lock, then re-evaluates its WHERE against the row the winner committed. A
+    // status that has moved on since our read matches nothing, so we claim
+    // nothing — that re-evaluation is the entire safety property here.
+    updateMany: async ({ where, data }) => {
+      writeAttempts += 1;
+      if (beforeClaim) beforeClaim();
+      if (alwaysLoseRace) return { count: 0 };
+      const row = rows.find((r) => matches(r, where));
+      if (!row) return { count: 0 };
+      Object.assign(row, data);
       updated.push({ id: where.id, ...data });
-      const row = rows.find((r) => r.id === where.id);
-      if (row) Object.assign(row, data);
-      return row;
+      return { count: 1 };
     },
   },
 };
@@ -44,14 +74,30 @@ globalThis.prisma = {
 const { releaseRsvpPlace, notifyPromotion, buildPromotionEmail, getPromotionCutoffHours } =
   await import('./rsvpPlaces.js');
 
+function row(id, userId, status, createdAtMs, countsTowardCapacity = true) {
+  return {
+    id,
+    userId,
+    status,
+    countsTowardCapacity,
+    createdAt: new Date(createdAtMs),
+    name: userId,
+    email: `${userId}@x.test`,
+  };
+}
+
 function seed() {
+  // Capacity 2, one counting place taken. Cancelling `holder` frees it.
   rows = [
-    { id: 1, userId: 'holder', status: 'CONFIRMED', createdAt: new Date(1), name: 'Holder', email: 'h@x.test' },
-    { id: 2, userId: 'first', status: 'WAITLISTED', createdAt: new Date(2), name: 'First', email: 'f@x.test' },
-    { id: 3, userId: 'second', status: 'WAITLISTED', createdAt: new Date(3), name: 'Second', email: 's@x.test' },
+    row(1, 'holder', 'CONFIRMED', 1),
+    row(2, 'first', 'WAITLISTED', 2),
+    row(3, 'second', 'WAITLISTED', 3),
   ];
-  confirmedCount = 1; // after the delete, one place is free of capacity 2
   updated = [];
+  beforeClaim = null;
+  beforeDelete = null;
+  alwaysLoseRace = false;
+  writeAttempts = 0;
 }
 
 // Cleared per-test rather than once at the top: importing prismaClient runs
@@ -99,6 +145,22 @@ test('the cutoff is configurable', async () => {
   assert.equal(res.promoted?.userId, 'first', 'a 1h cutoff should allow a 2h-away event');
 });
 
+test('an invalid cutoff falls back to the default instead of disabling itself', async () => {
+  // A mistyped value in Railway must not silently change promotion behaviour.
+  for (const bad of ['-1', 'abc', 'twelve']) {
+    process.env.WAITLIST_PROMOTION_CUTOFF_HOURS = bad;
+    assert.equal(getPromotionCutoffHours(), 12, `${bad} should fall back`);
+  }
+  // An empty value reads as unset, not as 0. Number('') is 0, so this used to
+  // turn the cutoff off entirely — the one fallback that changes behaviour
+  // rather than preserving it.
+  process.env.WAITLIST_PROMOTION_CUTOFF_HOURS = '';
+  assert.equal(getPromotionCutoffHours(), 12);
+  // 0 stays valid and meaningful: promote right up to the start time.
+  process.env.WAITLIST_PROMOTION_CUTOFF_HOURS = '0';
+  assert.equal(getPromotionCutoffHours(), 0);
+});
+
 test('an uncapped event never promotes — it has no waitlist', async () => {
   activity = { ...activity, capacity: null };
   const res = await releaseRsvpPlace({ activityId: 1, userId: 'holder' });
@@ -106,9 +168,99 @@ test('an uncapped event never promotes — it has no waitlist', async () => {
 });
 
 test('no promotion when the event is still at capacity', async () => {
-  confirmedCount = 2; // capacity 2 — the freed place was an exec's, say
+  // The freed place was an exec's, which never counted toward capacity, so
+  // vacating it leaves the event just as full as it was.
+  rows = [
+    row(1, 'holder', 'CONFIRMED', 1, false),
+    row(4, 'memberA', 'CONFIRMED', 4),
+    row(5, 'memberB', 'CONFIRMED', 5),
+    row(2, 'first', 'WAITLISTED', 2),
+  ];
   const res = await releaseRsvpPlace({ activityId: 1, userId: 'holder' });
   assert.equal(res.promoted, null);
+  assert.deepEqual(updated, []);
+});
+
+// --- Concurrency (review, #84) ------------------------------------------------
+// Read Committed means two simultaneous cancellations each see a free place and
+// the same member at the head of the queue. These simulate the competing
+// transaction committing in the window between our read and our write, which is
+// exactly where the unconditional update used to lose.
+
+test('a member claimed by a concurrent cancellation is skipped, not promoted twice', async () => {
+  // Capacity 2, both places taken, two waiting. We cancel `holder`; another
+  // request cancels `other` at the same moment and promotes `first`.
+  rows = [
+    row(1, 'holder', 'CONFIRMED', 1),
+    row(6, 'other', 'CONFIRMED', 6),
+    row(2, 'first', 'WAITLISTED', 2),
+    row(3, 'second', 'WAITLISTED', 3),
+  ];
+
+  let landed = false;
+  beforeClaim = () => {
+    if (landed) return;
+    landed = true;
+    // The competing transaction commits in the window after we read `first` as
+    // the queue head and before we claim them: its holder is gone and `first` is
+    // already CONFIRMED. Our claim must therefore match nothing.
+    rows = rows.filter((r) => r.userId !== 'other');
+    rows.find((r) => r.userId === 'first').status = 'CONFIRMED';
+  };
+
+  const res = await releaseRsvpPlace({ activityId: 1, userId: 'holder' });
+
+  // Two places were freed, so two different members must end up with one each.
+  assert.equal(res.promoted?.userId, 'second', 'must not re-promote the member already claimed');
+  assert.deepEqual(updated, [{ id: 3, status: 'CONFIRMED' }], 'exactly one claim, and not on `first`');
+  assert.equal(rows.filter((r) => r.status === 'CONFIRMED').length, 2, 'neither place left unfilled');
+});
+
+test('losing every claim promotes nobody rather than reporting an unclaimed member', async () => {
+  // The pathological case: the queue always reads as WAITLISTED but every claim
+  // is taken first. Returning `first` here would email someone a place they do
+  // not hold, which is worse than leaving it to the exec at the desk.
+  alwaysLoseRace = true;
+
+  const res = await releaseRsvpPlace({ activityId: 1, userId: 'holder' });
+
+  assert.equal(res.promoted, null, 'never report a promotion that was not claimed');
+  assert.deepEqual(updated, []);
+  assert.equal(writeAttempts, 5, 'retries are bounded — no unbounded spin under contention');
+});
+
+test('the claim is conditional on WAITLISTED, so it cannot re-confirm a taken place', async () => {
+  // Guards the shape itself: a future edit back to an unconditional
+  // update({ where: { id } }) reintroduces the double promotion silently.
+  const seen = [];
+  const realUpdateMany = globalThis.prisma.rsvp.updateMany;
+  globalThis.prisma.rsvp.updateMany = async (args) => {
+    seen.push(args.where);
+    return realUpdateMany(args);
+  };
+  try {
+    await releaseRsvpPlace({ activityId: 1, userId: 'holder' });
+  } finally {
+    globalThis.prisma.rsvp.updateMany = realUpdateMany;
+  }
+  assert.deepEqual(seen, [{ id: 2, status: 'WAITLISTED' }]);
+});
+
+test('two cancellations of the SAME place free it once and promote once', async () => {
+  // A double-clicked Cancel. The loser must not also promote — only one place
+  // was actually freed — and must read as "not registered", not a 500.
+  let landed = false;
+  beforeDelete = () => {
+    if (landed) return;
+    landed = true;
+    rows = rows.filter((r) => r.userId !== 'holder'); // the other request got there first
+  };
+
+  await assert.rejects(
+    () => releaseRsvpPlace({ activityId: 1, userId: 'holder' }),
+    (err) => err.code === 'RSVP_NOT_FOUND',
+  );
+  assert.deepEqual(updated, [], 'the losing cancellation must not promote anyone');
 });
 
 test('cancelling when not registered throws rather than promoting anyone', async () => {

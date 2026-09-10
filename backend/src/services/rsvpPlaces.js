@@ -5,11 +5,20 @@ import { sendMail, escapeHtml } from '../utils/mailer.js';
 /**
  * Releasing and reallocating event places (KAN-191 + KAN-189).
  *
- * A single seam: both member-initiated cancellation and admin removal vacate a
- * place through here, so promotion lives in one place rather than at every call
- * site. It takes an optional transaction client because the vacate and the
- * promotion must be atomic — two simultaneous cancellations must not promote the
- * same person twice or skip anyone.
+ * The seam for member-initiated cancellation, so promotion lives in one place
+ * rather than at every call site. It takes an optional transaction client
+ * because the vacate and the promotion must be atomic — two simultaneous
+ * cancellations must not promote the same person twice or skip anyone.
+ *
+ * NOT yet used by admin removal (deleteRsvp), which still deletes directly and
+ * therefore promotes nobody — an exec removing someone from a full event leaves
+ * that place unfilled. Raised in review rather than fixed here; this comment
+ * previously claimed otherwise.
+ *
+ * That guarantee is enforced by the conditional writes in releaseRsvpPlace and
+ * promoteNextWaitlisted, NOT by the transaction: Prisma runs at Read Committed,
+ * where a transaction alone doesn't stop two callers acting on the same row they
+ * both read. See promoteNextWaitlisted for the full reasoning.
  */
 
 // Past this point automatic promotion stops and the remaining queue is handed to
@@ -19,9 +28,33 @@ import { sendMail, escapeHtml } from '../utils/mailer.js';
 const DEFAULT_PROMOTION_CUTOFF_HOURS = 12;
 const MS_PER_HOUR = 60 * 60 * 1000;
 
+// How many times we re-read the queue after losing a claim to a concurrent
+// cancellation. Each lost race means another transaction promoted the member we
+// had picked, so retrying takes the next one. Losing this many in a row needs
+// that many simultaneous cancellations on one event; past it we stop rather than
+// loop, and the remaining queue passes to the exec at the desk.
+const MAX_PROMOTION_CLAIM_ATTEMPTS = 5;
+
 export function getPromotionCutoffHours() {
-  const parsed = Number(process.env.WAITLIST_PROMOTION_CUTOFF_HOURS);
+  const raw = process.env.WAITLIST_PROMOTION_CUTOFF_HOURS;
+
+  // Unset, or set to an empty string, means "use the default". Worth spelling
+  // out: Number('') is 0, so an empty value used to read as a valid 0 and
+  // silently disable the cutoff entirely.
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return DEFAULT_PROMOTION_CUTOFF_HOURS;
+  }
+
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) {
+    // 0 is legitimate (promote right up to the start). Negatives and typos are
+    // not, and falling back silently means a mistyped value in Railway looks
+    // exactly like a correct one — the deploy that sets it is the only chance
+    // anyone has to notice.
+    logger.warn(
+      { configured: raw, using: DEFAULT_PROMOTION_CUTOFF_HOURS },
+      'WAITLIST_PROMOTION_CUTOFF_HOURS must be a non-negative number; using the default',
+    );
     return DEFAULT_PROMOTION_CUTOFF_HOURS;
   }
   return parsed;
@@ -80,6 +113,20 @@ function buildActivityUrl(activityId) {
  * the promoted row (or null) rather than emailing directly — the notification is
  * sent by the caller AFTER the transaction commits, so a failing mailer can
  * never roll back a completed promotion.
+ *
+ * Concurrency (review, #84). Prisma's $transaction does not raise the isolation
+ * level, so this runs at Postgres' default Read Committed: two simultaneous
+ * cancellations each take their own snapshot, both see a place free and both see
+ * the same member at the head of the queue. Picking the member with a read and
+ * then writing them unconditionally is therefore not safe — the loser's UPDATE
+ * blocks on the row lock, and once the winner commits it applies anyway, so one
+ * member is promoted twice (two emails) and one freed place is never filled.
+ *
+ * The claim is an atomic conditional write instead: `status: 'WAITLISTED'` in
+ * the WHERE is re-evaluated against the committed row, so exactly one caller can
+ * take a given member. Zero rows means we lost, and we re-read the queue — that
+ * re-read is now correct rather than racy, because blocking on the lock means
+ * the winner has already committed. Same shape as the checkedInAt claim in #65.
  */
 async function promoteNextWaitlisted({ activityId, tx, now = new Date() }) {
   const activity = await tx.activity.findUnique({
@@ -97,23 +144,46 @@ async function promoteNextWaitlisted({ activityId, tx, now = new Date() }) {
     return null;
   }
 
-  const confirmed = await tx.rsvp.count({
-    where: { activityId, status: 'CONFIRMED', countsTowardCapacity: true },
-  });
-  if (confirmed >= activity.capacity) return null;
+  for (let attempt = 1; attempt <= MAX_PROMOTION_CLAIM_ATTEMPTS; attempt += 1) {
+    // Re-counted every attempt, not once before the loop: losing a claim means a
+    // concurrent promotion committed, which may have just filled the last place.
+    const confirmed = await tx.rsvp.count({
+      where: { activityId, status: 'CONFIRMED', countsTowardCapacity: true },
+    });
+    if (confirmed >= activity.capacity) return null;
 
-  // Earliest first — ordering comes from createdAt, so nothing needs renumbering
-  // when a row is removed from the middle of the queue.
-  const next = await tx.rsvp.findFirst({
-    where: { activityId, status: 'WAITLISTED' },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true, name: true, email: true, userId: true },
-  });
-  if (!next) return null;
+    // Earliest first — ordering comes from createdAt, so nothing needs
+    // renumbering when a row is removed from the middle of the queue.
+    const next = await tx.rsvp.findFirst({
+      where: { activityId, status: 'WAITLISTED' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, email: true, userId: true },
+    });
+    if (!next) return null;
 
-  await tx.rsvp.update({ where: { id: next.id }, data: { status: 'CONFIRMED' } });
+    const claimed = await tx.rsvp.updateMany({
+      where: { id: next.id, status: 'WAITLISTED' },
+      data: { status: 'CONFIRMED' },
+    });
 
-  return { ...next, activityTitle: activity.title, startTime: activity.startTime };
+    if (claimed.count > 0) {
+      return { ...next, activityTitle: activity.title, startTime: activity.startTime };
+    }
+
+    logger.info(
+      { activityId, contendedRsvpId: next.id, attempt },
+      'Waitlist promotion lost a claim to a concurrent cancellation; re-reading the queue',
+    );
+  }
+
+  // Returning null (rather than the member we failed to claim) is the point: the
+  // caller emails whoever comes back, so reporting an unclaimed promotion would
+  // tell someone they have a place that another transaction gave away.
+  logger.warn(
+    { activityId, attempts: MAX_PROMOTION_CLAIM_ATTEMPTS },
+    'Gave up promoting from the waitlist after repeated claim contention; place left for the exec at the desk',
+  );
+  return null;
 }
 
 /**
@@ -139,7 +209,16 @@ export async function releaseRsvpPlace({ activityId, userId, tx }) {
       throw new RsvpNotFoundError();
     }
 
-    await client.rsvp.delete({ where: { id: rsvp.id } });
+    // Conditional delete for the same reason the promotion claim is conditional:
+    // two cancellations of the SAME place (a double-click, a retried request)
+    // both read the row, and the loser's delete would otherwise throw P2025 and
+    // surface as a 500 on what is really "already cancelled". Zero rows means
+    // someone else released it, so we stop here — crucially before promoting,
+    // since only one of the two callers actually freed a place.
+    const released = await client.rsvp.deleteMany({ where: { id: rsvp.id } });
+    if (released.count === 0) {
+      throw new RsvpNotFoundError();
+    }
 
     // Leaving the waitlist doesn't free a place, so there is nothing to promote.
     const promoted =
