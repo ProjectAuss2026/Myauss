@@ -54,45 +54,77 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
-// ─── Sponsor card: logo always visible; whole card links to the sponsor site ──
+// ─── Sponsor card: blurred website screenshot behind a translucent glass logo pill
+// The logo is always visible on the glass pill in its real colours (the glass
+// handles both light/white and coloured logos); the sponsor's website screenshot
+// sits behind it, blurred + dimmed. Whole card links to the sponsor site.
+// Images can be external URLs (link rot risk), so both the logo and the hero
+// degrade gracefully on load error: a dead logo falls back to the sponsor name,
+// a dead hero falls back to the dark gradient — never a broken-image icon.
 function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
   const safeWebsiteUrl = getSafeLinkHref(sponsor.websiteUrl);
+  const safeHeroImageUrl = getSafeImageSrc(sponsor.heroImageUrl);
   const safeLogoUrl = getSafeImageSrc(sponsor.logoUrl);
-  const className = `group relative flex items-center justify-center h-[240px] rounded-2xl overflow-hidden bg-gradient-to-br from-[#181818] to-[#0b0b0b] border border-white/10 transition-all duration-500 hover:border-[#eb7524]/50 hover:shadow-[0_0_34px_rgba(235,117,36,0.28)] ${safeWebsiteUrl ? 'cursor-pointer' : ''}`;
+  const [logoFailed, setLogoFailed] = useState(false);
+  const [heroFailed, setHeroFailed] = useState(false);
+  const showHero = safeHeroImageUrl && !heroFailed;
+  const showLogo = safeLogoUrl && !logoFailed;
+  const className = `group block relative h-[260px] rounded-2xl overflow-hidden border border-white/10 transition-all duration-500 hover:border-[#eb7524]/50 hover:shadow-[0_0_34px_rgba(235,117,36,0.28)] ${safeWebsiteUrl ? 'cursor-pointer' : ''}`;
 
   const content = (
     <>
-      {/* Brand glow on hover */}
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-        style={{ background: 'radial-gradient(circle at center, rgba(235,117,36,0.14), transparent 70%)' }}
-      />
+      {/* Blurred website screenshot background (scaled up so blurred edges don't show) */}
+      {showHero ? (
+        <img
+          src={safeHeroImageUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setHeroFailed(true)}
+          className="absolute inset-0 w-full h-full object-cover object-top scale-110 blur-md transition-transform duration-700 group-hover:scale-125"
+        />
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]" />
+      )}
 
-      {/* Logo — always visible, rendered white so it stands out on the dark card.
-          To keep original brand colours instead, delete the `filter` line below. */}
-      <div className="relative flex items-center justify-center px-8">
-        {safeLogoUrl ? (
-          <img
-            src={safeLogoUrl}
-            alt={sponsor.name}
-            loading="lazy"
-            decoding="async"
-            className="h-[92px] max-w-[230px] w-auto object-contain transition-transform duration-500 group-hover:scale-105"
-            style={{ filter: 'brightness(0) invert(1) drop-shadow(0 2px 12px rgba(0,0,0,0.45))' }}
-          />
-        ) : (
-          <span
-            className="text-white text-center leading-tight transition-transform duration-500 group-hover:scale-105"
-            style={{ fontSize: '34px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
-          >
-            {sponsor.name}
-          </span>
-        )}
+      {/* Dim for contrast; lifts slightly on hover */}
+      <div className="absolute inset-0 bg-black/45 group-hover:bg-black/30 transition-colors duration-500" />
+
+      {/* Glass logo pill (the original "before" treatment) — kept always-visible
+          over the blurred site. Translucent glass handles both light/white and
+          coloured logos without recolouring them or boxing white-bg logos. */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5">
+        <div className="bg-white/15 backdrop-blur-md rounded-2xl px-7 py-5 flex items-center justify-center border border-white/20 shadow-[0_0_28px_rgba(235,117,36,0.45)] transition-transform duration-500 group-hover:scale-105">
+          {showLogo ? (
+            <img
+              src={safeLogoUrl}
+              alt={sponsor.name}
+              loading="lazy"
+              decoding="async"
+              onError={() => setLogoFailed(true)}
+              className="h-[64px] max-w-[190px] w-auto object-contain drop-shadow-2xl"
+            />
+          ) : (
+            <span
+              className="text-white leading-none drop-shadow-2xl"
+              style={{ fontSize: '28px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
+            >
+              {sponsor.name}
+            </span>
+          )}
+        </div>
+        {/* Name kept visible for symbol-only logos / sighted identification */}
+        <p
+          className="text-white text-center drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+          style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
+        >
+          {sponsor.name}
+        </p>
       </div>
 
       {/* Link affordance */}
       {safeWebsiteUrl && (
-        <ExternalLink className="absolute top-4 right-4 w-4 h-4 text-white/25 group-hover:text-[#eb7524] transition-colors duration-300" />
+        <ExternalLink className="absolute top-4 right-4 w-4 h-4 text-white/70 group-hover:text-[#eb7524] transition-colors duration-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]" />
       )}
     </>
   );
