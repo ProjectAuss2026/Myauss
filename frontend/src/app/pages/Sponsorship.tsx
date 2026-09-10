@@ -54,68 +54,46 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
-// ─── Sponsor card: homepage screenshot background, logo revealed on hover ────
+// ─── Sponsor card: logo always visible; whole card links to the sponsor site ──
 function SponsorCard({ sponsor }: { sponsor: ApiSponsor }) {
   const safeWebsiteUrl = getSafeLinkHref(sponsor.websiteUrl);
-  const safeHeroImageUrl = getSafeImageSrc(sponsor.heroImageUrl);
   const safeLogoUrl = getSafeImageSrc(sponsor.logoUrl);
-  const className = `group block relative h-[260px] rounded-2xl overflow-hidden ${safeWebsiteUrl ? 'cursor-pointer' : ''}`;
+  const className = `group relative flex items-center justify-center h-[240px] rounded-2xl overflow-hidden bg-gradient-to-br from-[#181818] to-[#0b0b0b] border border-white/10 transition-all duration-500 hover:border-[#eb7524]/50 hover:shadow-[0_0_34px_rgba(235,117,36,0.28)] ${safeWebsiteUrl ? 'cursor-pointer' : ''}`;
 
   const content = (
     <>
-      {/* Background: homepage screenshot */}
-      {safeHeroImageUrl ? (
-        <img
-          src={safeHeroImageUrl}
-          alt=""
-          className="absolute inset-0 w-full h-full object-cover object-top transition-transform duration-700 group-hover:scale-105"
-          loading="lazy"
-        />
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]" />
-      )}
-
-      {/* Persistent gradient at bottom for name legibility */}
+      {/* Brand glow on hover */}
       <div
-        className="absolute inset-0 transition-opacity duration-500 group-hover:opacity-0"
-        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.18) 55%, transparent 100%)' }}
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+        style={{ background: 'radial-gradient(circle at center, rgba(235,117,36,0.14), transparent 70%)' }}
       />
 
-      {/* Hover: full dark overlay */}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-500" />
-
-      {/* Hover: glass pill slides up from below — never opacity:0 so backdrop-blur is always composited */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {/* Logo — always visible, rendered white so it stands out on the dark card.
+          To keep original brand colours instead, delete the `filter` line below. */}
+      <div className="relative flex items-center justify-center px-8">
         {safeLogoUrl ? (
-          <div
-            className="bg-white/15 backdrop-blur-md rounded-2xl px-7 py-5 max-w-[220px] flex items-center justify-center shadow-[0_0_24px_rgba(235,117,36,0.45)] translate-y-[300px] group-hover:translate-y-0 transition-transform duration-500 ease-out"
-          >
-            <img
-              src={safeLogoUrl}
-              alt={sponsor.name}
-              className="h-[52px] max-w-[180px] w-auto object-contain drop-shadow-2xl"
-            />
-          </div>
+          <img
+            src={safeLogoUrl}
+            alt={sponsor.name}
+            loading="lazy"
+            decoding="async"
+            className="h-[92px] max-w-[230px] w-auto object-contain transition-transform duration-500 group-hover:scale-105"
+            style={{ filter: 'brightness(0) invert(1) drop-shadow(0 2px 12px rgba(0,0,0,0.45))' }}
+          />
         ) : (
           <span
-            className="text-white drop-shadow-2xl translate-y-[300px] group-hover:translate-y-0 transition-transform duration-500 ease-out"
-            style={{ fontSize: '52px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
+            className="text-white text-center leading-tight transition-transform duration-500 group-hover:scale-105"
+            style={{ fontSize: '34px', fontWeight: 700, fontFamily: 'Outfit, sans-serif' }}
           >
-            {sponsor.name.charAt(0)}
+            {sponsor.name}
           </span>
         )}
       </div>
 
-      {/* Default bottom: name + link icon — slides out on hover */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 flex items-end justify-between transition-all duration-400 group-hover:translate-y-full group-hover:opacity-0 pointer-events-none">
-        <p
-          className="text-white leading-tight"
-          style={{ fontSize: '15px', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}
-        >
-          {sponsor.name}
-        </p>
-        <ExternalLink className="w-4 h-4 text-white/50 flex-shrink-0" />
-      </div>
+      {/* Link affordance */}
+      {safeWebsiteUrl && (
+        <ExternalLink className="absolute top-4 right-4 w-4 h-4 text-white/25 group-hover:text-[#eb7524] transition-colors duration-300" />
+      )}
     </>
   );
 
