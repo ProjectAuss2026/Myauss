@@ -280,7 +280,7 @@ async function main() {
         },
         {
           question: 'Is there a membership fee?',
-          answer: 'AUSS membership costs $10 for the year, or $20 for a year of membership including an official AUSS shirt. This is separate from gym membership.',
+          answer: 'AUSS membership is 50% off until the end of Semester 2: $5, or $15 including an official AUSS shirt (normally $10 / $20). This is separate from gym membership.',
         },
         {
           question: "I've never lifted before. Can I still join?",
