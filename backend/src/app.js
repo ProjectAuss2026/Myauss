@@ -53,7 +53,10 @@ function createHelmetMiddleware() {
       directives: getCspDirectives({
         env: process.env,
         allowWebSockets: process.env.NODE_ENV !== 'production',
-        upgradeInsecureRequests: true,
+        // Production only, like HSTS. Over http://localhost (the backend serving
+        // the built dist) Safari upgrades every request to https and the page
+        // breaks, and Safari is the browser that reproduces the KAN-180 worker path.
+        upgradeInsecureRequests: process.env.NODE_ENV === 'production',
       }),
     },
     referrerPolicy: {

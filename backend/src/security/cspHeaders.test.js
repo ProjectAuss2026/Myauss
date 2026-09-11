@@ -23,14 +23,14 @@ const { getCspDirectives } = await import('../../../shared/securityHeaders.mjs')
 
 // Must be a route that returns 200: Express's finalhandler replaces the CSP
 // with "default-src 'none'" on a 404, which would mask the header under test.
-async function cspHeaderFor(path) {
+async function cspHeaderFor(path, extraHeaders = {}) {
   const server = http.createServer(createApp());
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
   try {
     return await new Promise((resolve, reject) => {
       const req = http.request(
-        { hostname: '127.0.0.1', port, path, method: 'GET', headers: { Host: 'example.com' } },
+        { hostname: '127.0.0.1', port, path, method: 'GET', headers: { Host: 'example.com', ...extraHeaders } },
         (res) => {
           res.resume();
           res.on('end', () => resolve(res.headers['content-security-policy'] ?? ''));
@@ -92,8 +92,41 @@ test('the served CSP is exactly the shared policy, directive for directive', asy
   const expected = getCspDirectives({
     env: process.env,
     allowWebSockets: process.env.NODE_ENV !== 'production',
-    upgradeInsecureRequests: true,
+    upgradeInsecureRequests: process.env.NODE_ENV === 'production',
   });
 
   assert.deepEqual(served, expected);
+});
+
+// The equality test proves the served header matches the shared policy, not that
+// the policy is right: a weakening made in the single source reaches both sides at
+// once and still passes it. These pin the directives whose loss would matter,
+// independently of the shared file — changing one should mean editing this test.
+test('the served CSP keeps its security floor', async () => {
+  const csp = parseCsp(await cspHeaderFor('/api/test'));
+
+  assert.deepEqual(csp['default-src'], ["'self'"]);
+  assert.deepEqual(csp['object-src'], ["'none'"]);
+  assert.deepEqual(csp['base-uri'], ["'self'"]);
+  assert.deepEqual(csp['frame-ancestors'], ["'none'"]);
+  assert.deepEqual(csp['script-src-attr'], ["'none'"]);
+  for (const unsafe of ["'unsafe-inline'", "'unsafe-eval'", 'blob:', 'data:']) {
+    assert.ok(!csp['script-src'].includes(unsafe), `script-src must not allow ${unsafe}: ${csp['script-src']}`);
+  }
+});
+
+// Asserted absolutely because the equality test derives its expectation from the
+// same NODE_ENV check it would be testing. In production mode the HTTPS redirect
+// runs first, so the request must arrive as already-HTTPS or there is no CSP.
+test('upgrade-insecure-requests is sent in production and nowhere else', async () => {
+  assert.equal(parseCsp(await cspHeaderFor('/api/test'))['upgrade-insecure-requests'], undefined);
+
+  const original = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  try {
+    const csp = parseCsp(await cspHeaderFor('/api/test', { 'X-Forwarded-Proto': 'https' }));
+    assert.deepEqual(csp['upgrade-insecure-requests'], []);
+  } finally {
+    process.env.NODE_ENV = original;
+  }
 });

@@ -126,7 +126,7 @@ export function getCspDirectives({
   allowInlineScripts = false,
   allowWebSockets = false,
   // Off by default: Safari upgrades http://localhost requests and breaks the
-  // dev and preview servers. The Express app turns it on.
+  // dev and preview servers. The Express app turns it on in production.
   upgradeInsecureRequests = false,
 } = {}) {
   return {
