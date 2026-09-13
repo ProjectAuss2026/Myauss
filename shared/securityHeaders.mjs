@@ -104,6 +104,17 @@ export function getConfiguredCspFrameSrcValues() {
   return unique([...STRIPE_FRAME_SRC_VALUES]);
 }
 
+// The event check-in scanner (KAN-180) decodes QR frames in a worker that
+// qr-scanner creates from a blob URL. worker-src falls back to child-src and
+// then script-src when unset, and script-src has no blob:, so without this the
+// worker is blocked and scanning silently never produces a result.
+// Exported so the Express (helmet) policy and the Vite dev/preview policy stay
+// in step — they are built separately, and drift here is invisible until
+// production.
+export function getConfiguredCspWorkerSrcValues() {
+  return unique(["'self'", 'blob:']);
+}
+
 export function createContentSecurityPolicy({
   env = DEFAULT_ENV,
   allowEval = false,
@@ -118,11 +129,9 @@ export function createContentSecurityPolicy({
     "font-src 'self' data: https:",
     `connect-src ${getConfiguredCspConnectSrcValues({ env, allowWebSockets }).join(' ')}`,
     `frame-src ${getConfiguredCspFrameSrcValues().join(' ')}`,
-    // The event check-in scanner (KAN-180) runs QR decoding in a worker created
-    // from a blob URL. Without an explicit worker-src this falls back to
-    // script-src and is blocked. Scoped to workers only — script-src is
-    // unchanged, so this does not widen where scripts may be loaded from.
-    "worker-src 'self' blob:",
+    // Scoped to workers only — script-src is unchanged, so this does not widen
+    // where scripts may be loaded from. See getConfiguredCspWorkerSrcValues.
+    `worker-src ${getConfiguredCspWorkerSrcValues().join(' ')}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

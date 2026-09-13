@@ -24,6 +24,7 @@ import {
   getConfiguredCspImageSrcValues,
   getConfiguredCspScriptSrcValues,
   getConfiguredCspFrameSrcValues,
+  getConfiguredCspWorkerSrcValues,
 } from '../../shared/securityHeaders.mjs';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -62,6 +63,7 @@ function createHelmetMiddleware() {
           allowWebSockets: process.env.NODE_ENV !== 'production',
         }),
         frameSrc: getConfiguredCspFrameSrcValues(),
+        workerSrc: getConfiguredCspWorkerSrcValues(),
         frameAncestors: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],

@@ -381,6 +381,7 @@ export function Verify() {
                           }}
                           type="text"
                           inputMode="numeric"
+                          autoComplete={i === 0 ? "one-time-code" : "off"}
                           maxLength={1}
                           value={digit}
                           onChange={(e) => handleChange(i, e.target.value)}
