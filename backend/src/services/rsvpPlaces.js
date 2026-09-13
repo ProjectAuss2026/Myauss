@@ -5,15 +5,15 @@ import { sendMail, escapeHtml } from '../utils/mailer.js';
 /**
  * Releasing and reallocating event places (KAN-191 + KAN-189).
  *
- * The seam for member-initiated cancellation, so promotion lives in one place
- * rather than at every call site. It takes an optional transaction client
- * because the vacate and the promotion must be atomic — two simultaneous
- * cancellations must not promote the same person twice or skip anyone.
+ * The single seam for freeing a place: member cancellation (cancelOwnRsvp) and
+ * admin removal (deleteRsvp) both go through releaseRsvpPlace, and raising an
+ * activity's capacity goes through fillFreedPlaces. Every path that frees a
+ * place must promote from here, or the place silently goes to whoever registers
+ * next instead of to the front of the queue (review, #84).
  *
- * NOT yet used by admin removal (deleteRsvp), which still deletes directly and
- * therefore promotes nobody — an exec removing someone from a full event leaves
- * that place unfilled. Raised in review rather than fixed here; this comment
- * previously claimed otherwise.
+ * It takes an optional transaction client because the vacate and the promotion
+ * must be atomic — two simultaneous cancellations must not promote the same
+ * person twice or skip anyone.
  *
  * That guarantee is enforced by the conditional writes in releaseRsvpPlace and
  * promoteNextWaitlisted, NOT by the transaction: Prisma runs at Read Committed,
@@ -60,6 +60,24 @@ export function getPromotionCutoffHours() {
   return parsed;
 }
 
+/**
+ * Is anyone queued for this activity?
+ *
+ * A free place does NOT mean a place is available to a newcomer: several paths
+ * free one without promoting (a cancellation inside the cutoff, a promotion that
+ * gives up under contention). Registration has to ask this rather than compare
+ * the confirmed count with capacity, or the next person to open the page takes a
+ * place the queue has been waiting for — which defeats the whole feature
+ * (review, #84).
+ */
+export async function hasWaitlist({ activityId, tx }) {
+  const client = tx ?? prisma;
+  const queued = await client.rsvp.count({
+    where: { activityId, status: 'WAITLISTED' },
+  });
+  return queued > 0;
+}
+
 export class RsvpNotFoundError extends Error {
   constructor(message = 'RSVP not found') {
     super(message);
@@ -77,6 +95,10 @@ export function buildPromotionEmail({ name, activityTitle, activityUrl, startTim
   const subject = `AUSS - You're in: ${activityTitle}`;
   const when = startTime
     ? new Date(startTime).toLocaleString('en-NZ', {
+        // Railway runs in UTC, so without an explicit zone a 7pm event is
+        // emailed as 7am and the member turns up twelve hours out (review, #84).
+        // The club is in Auckland; the locale alone does not set the zone.
+        timeZone: 'Pacific/Auckland',
         weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
       })
     : null;
@@ -202,29 +224,44 @@ export async function releaseRsvpPlace({ activityId, userId, tx }) {
   const run = async (client) => {
     const rsvp = await client.rsvp.findUnique({
       where: { activityId_userId: { activityId, userId } },
-      select: { id: true, status: true },
+      select: { id: true },
     });
 
     if (!rsvp) {
       throw new RsvpNotFoundError();
     }
 
-    // Conditional delete for the same reason the promotion claim is conditional:
-    // two cancellations of the SAME place (a double-click, a retried request)
-    // both read the row, and the loser's delete would otherwise throw P2025 and
-    // surface as a 500 on what is really "already cancelled". Zero rows means
-    // someone else released it, so we stop here — crucially before promoting,
-    // since only one of the two callers actually freed a place.
-    const released = await client.rsvp.deleteMany({ where: { id: rsvp.id } });
-    if (released.count === 0) {
+    // Whether this cancellation frees a place is decided by the WRITE, not by a
+    // status read beforehand (review, #84). A waitlisted member cancelling at the
+    // moment another cancellation promotes them would otherwise act on the stale
+    // WAITLISTED it read: the row is CONFIRMED by the time the delete lands, the
+    // place it held goes to nobody, and they get a "you're in" email for a place
+    // they just gave up.
+    //
+    // Status only ever moves WAITLISTED → CONFIRMED, never back, so trying the
+    // deletes in that order cannot miss the row: if the queue delete matches, we
+    // were still queued and freed nothing; if it doesn't, either we were already
+    // confirmed (the second delete matches and we freed a place) or someone else
+    // removed the row entirely.
+    const leftQueue = await client.rsvp.deleteMany({
+      where: { id: rsvp.id, status: 'WAITLISTED' },
+    });
+    const freedPlace = leftQueue.count
+      ? { count: 0 }
+      : await client.rsvp.deleteMany({ where: { id: rsvp.id, status: 'CONFIRMED' } });
+
+    if (!leftQueue.count && !freedPlace.count) {
+      // Nothing deleted: a concurrent cancellation (or a double-click) already
+      // released it. Reads as "not registered" rather than a P2025-driven 500,
+      // and crucially stops before promoting — only the caller that actually
+      // freed a place may promote.
       throw new RsvpNotFoundError();
     }
 
     // Leaving the waitlist doesn't free a place, so there is nothing to promote.
-    const promoted =
-      rsvp.status === 'CONFIRMED'
-        ? await promoteNextWaitlisted({ activityId, tx: client })
-        : null;
+    const promoted = freedPlace.count
+      ? await promoteNextWaitlisted({ activityId, tx: client })
+      : null;
 
     return { releasedRsvpId: rsvp.id, promoted };
   };
@@ -235,6 +272,40 @@ export async function releaseRsvpPlace({ activityId, userId, tx }) {
   // transaction timeout (P2028) — rolling back both the cancellation and the
   // promotion. Callers send it via notifyPromotion() once their transaction has
   // committed.
+  return tx ? run(tx) : prisma.$transaction(run);
+}
+
+/**
+ * Fill every place currently available from the queue, earliest first.
+ *
+ * For events where places appear in bulk rather than one at a time — raising an
+ * activity's capacity, above all. Before this, raising capacity from 20 to 30
+ * left the queue sitting there and handed the ten new places to whoever
+ * registered next (review, #84).
+ *
+ * Returns the promoted members for the caller to notify AFTER committing, same
+ * contract as releaseRsvpPlace: no mail inside the transaction.
+ */
+export async function fillFreedPlaces({ activityId, tx }) {
+  const run = async (client) => {
+    // Bounded by the queue length rather than looping until null: each iteration
+    // consumes at most one queue entry, so this can't outrun the queue even if a
+    // concurrent registration adds to it while we work.
+    const queued = await client.rsvp.count({
+      where: { activityId, status: 'WAITLISTED' },
+    });
+
+    const promoted = [];
+    for (let i = 0; i < queued; i += 1) {
+      // Re-checks capacity and the cutoff on every call, so this stops as soon
+      // as the new places are used up.
+      const next = await promoteNextWaitlisted({ activityId, tx: client });
+      if (!next) break;
+      promoted.push(next);
+    }
+    return promoted;
+  };
+
   return tx ? run(tx) : prisma.$transaction(run);
 }
 

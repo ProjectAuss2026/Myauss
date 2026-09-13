@@ -4,6 +4,7 @@ import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import logger from '../utils/logger.js';
 import { isUrlValidationError, validateActivityUrlFields } from '../utils/urlValidation.js';
+import { fillFreedPlaces, notifyPromotion } from '../services/rsvpPlaces.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = resolve(__dirname, '../../uploads');
@@ -226,6 +227,37 @@ export const updateActivity = async (req, res) => {
     }
 
     const activity = await prisma.activity.update({ where: { id }, data });
+
+    // Raising capacity creates places, so the queue drains into them straight
+    // away. Without this the new places went to whoever registered next rather
+    // than to the people already waiting (review, #84) — the exec who raised
+    // capacity *because* of the queue would watch it get jumped.
+    //
+    // Only on an increase: lowering capacity must not touch existing bookings,
+    // and an uncapped event has no queue to drain.
+    const raisedCapacity =
+      data.capacity !== undefined &&
+      data.capacity !== null &&
+      (existing.capacity === null || data.capacity > existing.capacity);
+
+    if (raisedCapacity) {
+      // Failing to promote must not fail the capacity change the exec asked for:
+      // the capacity is already committed, and the queue can still be worked
+      // through at the desk. Logged loudly rather than swallowed.
+      try {
+        const promoted = await fillFreedPlaces({ activityId: id });
+        // After the promotion transaction has committed, never inside it.
+        for (const member of promoted) {
+          await notifyPromotion({ activityId: id, promoted: member });
+        }
+      } catch (err) {
+        logger.error(
+          { err, activityId: id },
+          'Capacity raised but promoting the waitlist into the new places failed',
+        );
+      }
+    }
+
     return res.json(activity);
   } catch (err) {
     if (isUrlValidationError(err)) {

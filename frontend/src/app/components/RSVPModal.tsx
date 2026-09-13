@@ -85,7 +85,13 @@ export function RSVPModal({ open, activityId, activityTitle, onClose, onSuccess 
       });
 
       if (res.ok) {
-        setJoinedWaitlist(joinWaitlist);
+        // What we ASKED for is not what we got. If a place frees up between the
+        // EVENT_FULL response and this click, the server confirms us outright —
+        // and telling the member they're queued when they actually hold a place
+        // is a lie no later email ever corrects, because no promotion happens
+        // (review, #84). Trust the server's status, not our own request flag.
+        const created = await res.json().catch(() => null);
+        setJoinedWaitlist(created?.status === 'WAITLISTED');
         setSuccess(true);
         if (onSuccess) onSuccess();
         return;

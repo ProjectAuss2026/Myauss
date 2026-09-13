@@ -1,6 +1,11 @@
 import prisma from '../prismaClient.js';
 import logger from '../utils/logger.js';
-import { releaseRsvpPlace, notifyPromotion, isRsvpNotFoundError } from '../services/rsvpPlaces.js';
+import {
+  releaseRsvpPlace,
+  notifyPromotion,
+  isRsvpNotFoundError,
+  hasWaitlist,
+} from '../services/rsvpPlaces.js';
 
 /**
  * POST /api/activities/:id/rsvp — signed-in VERIFIED members only (KAN-178)
@@ -58,18 +63,32 @@ export const createRsvp = async (req, res) => {
       // joined live, so a later promotion/demotion can't rewrite past headcounts.
       const countsTowardCapacity = !(req.user.role === 'ADMIN' || req.user.role === 'OWNER');
 
-      // Full means full *for this person*: capacity counts only CONFIRMED places
-      // that count toward it, and an exec is never blocked by it.
+      // "Full" means "no place is available to this person", which is NOT the
+      // same as count >= capacity. A place can be free while a queue exists:
+      // a cancellation inside the promotion cutoff frees one without promoting,
+      // and so does a promotion that gives up under contention. Taking that
+      // place because the count happens to be low hands it to whoever opens the
+      // page next, ahead of everyone already waiting — which defeats the point
+      // of having a queue at all (review, #84).
+      //
+      // So a newcomer joins the back of the queue whenever a queue exists, even
+      // with room on paper. Execs are exempt: they never consume capacity, so
+      // they were never competing for the place the queue is waiting for.
       let isFull = false;
-      if (
-        countsTowardCapacity &&
-        activity.capacity !== null &&
-        activity.capacity !== undefined
-      ) {
-        const count = await tx.rsvp.count({
-          where: { activityId, status: 'CONFIRMED', countsTowardCapacity: true },
-        });
-        isFull = count >= activity.capacity;
+      if (countsTowardCapacity) {
+        const capped = activity.capacity !== null && activity.capacity !== undefined;
+        if (capped) {
+          const count = await tx.rsvp.count({
+            where: { activityId, status: 'CONFIRMED', countsTowardCapacity: true },
+          });
+          isFull = count >= activity.capacity;
+        }
+        // Checked even when there is room, and even on an uncapped event: an
+        // uncapped event should have no queue, but if one exists (capacity was
+        // lowered, say) it must still drain in order rather than be jumped.
+        if (!isFull) {
+          isFull = await hasWaitlist({ activityId, tx });
+        }
       }
 
       // Waitlisting is explicit (KAN-189): a full event reports EVENT_FULL with a
@@ -142,7 +161,13 @@ export const getRsvpCount = async (req, res) => {
       where: { activityId, status: 'CONFIRMED', countsTowardCapacity: true },
     });
     const capacity = activity.capacity ?? null;
-    const isSoldOut = capacity !== null && count >= capacity;
+    // Mirrors createRsvp exactly, including the queue check: isSoldOut means
+    // "a member registering now cannot get a confirmed place", not "count >=
+    // capacity". If these two disagree the page offers "Register Now" and the
+    // server queues them instead — the UI lying about what will happen, which
+    // is the failure this predicate being shared exists to prevent (review, #84).
+    const isSoldOut =
+      (capacity !== null && count >= capacity) || (await hasWaitlist({ activityId }));
 
     // The route stays public, but when a signed-in member calls it we also say
     // whether *they* hold a place (KAN-191) — otherwise the UI has no way to
@@ -187,8 +212,13 @@ export const listRsvps = async (req, res) => {
       return res.status(404).json({ error: 'Activity not found' });
     }
 
+    // Attendees only. Waitlisted members hold a queue position, not a place, and
+    // this feeds the Attendees modal execs work from — counting the queue as
+    // attending overstates the headcount for the event they're about to run
+    // (review, #84). The queue is deliberately a separate list, ordered by
+    // position, in the check-in view.
     const rsvps = await prisma.rsvp.findMany({
-      where: { activityId },
+      where: { activityId, status: 'CONFIRMED' },
       orderBy: { createdAt: 'asc' },
     });
     return res.json(rsvps);
@@ -280,7 +310,27 @@ export const deleteRsvp = async (req, res) => {
       return res.status(404).json({ error: 'RSVP not found' });
     }
 
-    await prisma.rsvp.delete({ where: { id: rsvpId } });
+    // Admin removal frees a place and must promote, exactly like a member
+    // cancelling (review, #84). Deleting directly didn't just leave the place
+    // empty — combined with the queue check in createRsvp it handed that place
+    // to whoever registered next rather than to the front of the queue.
+    //
+    // Legacy rows from before KAN-178 can have a null userId and can't go
+    // through the seam, which keys on (activityId, userId). They predate the
+    // waitlist entirely, so a plain delete is still correct for them.
+    if (!rsvp.userId) {
+      await prisma.rsvp.delete({ where: { id: rsvpId } });
+      return res.status(204).send();
+    }
+
+    const { promoted } = await prisma.$transaction((tx) =>
+      releaseRsvpPlace({ activityId, userId: rsvp.userId, tx }),
+    );
+
+    // After commit, never inside the transaction — an email there blows Prisma's
+    // 5s interactive-transaction limit and rolls the removal back.
+    await notifyPromotion({ activityId, promoted });
+
     return res.status(204).send();
   } catch (err) {
     logger.error({ err }, 'deleteRsvp error:');
@@ -319,8 +369,11 @@ export const exportRsvpsCsv = async (req, res) => {
       return res.status(404).json({ error: 'Activity not found' });
     }
 
+    // Confirmed places only — this is the door list. A waitlisted member has no
+    // place, and a CSV that doesn't distinguish them is one an exec prints and
+    // ticks people off against (review, #84).
     const rsvps = await prisma.rsvp.findMany({
-      where: { activityId },
+      where: { activityId, status: 'CONFIRMED' },
       orderBy: { createdAt: 'asc' },
     });
 

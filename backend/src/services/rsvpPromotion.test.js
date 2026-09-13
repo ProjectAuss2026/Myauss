@@ -71,8 +71,9 @@ globalThis.prisma = {
   },
 };
 
-const { releaseRsvpPlace, notifyPromotion, buildPromotionEmail, getPromotionCutoffHours } =
-  await import('./rsvpPlaces.js');
+const {
+  releaseRsvpPlace, notifyPromotion, buildPromotionEmail, getPromotionCutoffHours, fillFreedPlaces,
+} = await import('./rsvpPlaces.js');
 
 function row(id, userId, status, createdAtMs, countsTowardCapacity = true) {
   return {
@@ -261,6 +262,81 @@ test('two cancellations of the SAME place free it once and promote once', async 
     (err) => err.code === 'RSVP_NOT_FOUND',
   );
   assert.deepEqual(updated, [], 'the losing cancellation must not promote anyone');
+});
+
+test('a member promoted mid-cancel frees their NEW place, not their old queue slot', async () => {
+  // Review #84, item 2. `second` is queued and cancels. At the same moment
+  // another cancellation promotes them to CONFIRMED. Reading the status before
+  // the delete would act on the stale WAITLISTED: the place they now hold goes
+  // to nobody, and they'd be emailed "you're in" for a place they just gave up.
+  rows = [
+    row(1, 'holder', 'CONFIRMED', 1),
+    row(2, 'first', 'WAITLISTED', 2),
+    row(3, 'second', 'WAITLISTED', 3),
+  ];
+
+  let landed = false;
+  beforeDelete = () => {
+    if (landed) return;
+    landed = true;
+    // The competing promotion commits between our read and our delete.
+    rows.find((r) => r.userId === 'second').status = 'CONFIRMED';
+  };
+
+  const res = await releaseRsvpPlace({ activityId: 1, userId: 'second' });
+
+  assert.equal(res.promoted?.userId, 'first', 'the place they were promoted into must be refilled');
+  assert.equal(rows.find((r) => r.userId === 'second'), undefined, 'their row is gone either way');
+});
+
+test('leaving the queue while still queued frees nothing, even under a racing read', async () => {
+  // The mirror case: nothing promotes them, so the delete must take the
+  // WAITLISTED branch and promote nobody.
+  const res = await releaseRsvpPlace({ activityId: 1, userId: 'second' });
+  assert.equal(res.promoted, null);
+  assert.deepEqual(updated, []);
+});
+
+test('fillFreedPlaces drains the queue into places freed in bulk', async () => {
+  // Raising capacity 2 → 4 with two queued: both get in, earliest first.
+  activity = { ...activity, capacity: 4 };
+  rows = [
+    row(1, 'holder', 'CONFIRMED', 1),
+    row(2, 'first', 'WAITLISTED', 2),
+    row(3, 'second', 'WAITLISTED', 3),
+  ];
+
+  const promoted = await fillFreedPlaces({ activityId: 1 });
+
+  assert.deepEqual(promoted.map((p) => p.userId), ['first', 'second'], 'earliest first');
+  assert.equal(rows.filter((r) => r.status === 'WAITLISTED').length, 0);
+});
+
+test('fillFreedPlaces stops at capacity rather than draining the whole queue', async () => {
+  // Capacity 2, one confirmed: exactly one new place, two waiting.
+  const promoted = await fillFreedPlaces({ activityId: 1 });
+
+  assert.deepEqual(promoted.map((p) => p.userId), ['first']);
+  assert.equal(rows.find((r) => r.userId === 'second').status, 'WAITLISTED');
+});
+
+test('fillFreedPlaces promotes nobody when there is no queue', async () => {
+  rows = [row(1, 'holder', 'CONFIRMED', 1)];
+  assert.deepEqual(await fillFreedPlaces({ activityId: 1 }), []);
+});
+
+test('the promotion email shows Auckland time, not the server\'s UTC', async () => {
+  // Review #84, item 5. Railway runs in UTC, so without an explicit zone a 7pm
+  // NZ event was emailed as the UTC instant and members were told the wrong
+  // hour entirely.
+  const startTime = new Date('2026-10-01T06:00:00Z'); // 7pm NZDT (UTC+13)
+  const email = buildPromotionEmail({
+    name: 'Ada', activityTitle: 'Deadlift Night',
+    activityUrl: 'https://auss.test/activities/42', startTime,
+  });
+
+  assert.match(email.text, /7:00\s*pm/i, `expected 7pm Auckland, got: ${email.text}`);
+  assert.ok(!/6:00\s*am/i.test(email.text), 'must not render the raw UTC hour');
 });
 
 test('cancelling when not registered throws rather than promoting anyone', async () => {

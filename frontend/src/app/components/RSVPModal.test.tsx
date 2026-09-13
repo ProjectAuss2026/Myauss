@@ -90,6 +90,49 @@ describe('RSVPModal — members-only gating (KAN-178)', () => {
     expect(JSON.parse(String(init.body))).toEqual({ joinWaitlist: false });
   });
 
+  it('says "registered" when the queue opt-in is answered with a confirmed place', async () => {
+    // Review #84, item 4. The member sees EVENT_FULL, opts into the queue, and a
+    // place frees up in between — so the server confirms them outright. Trusting
+    // our own request flag told them they were queued while they actually held a
+    // place, and no promotion email ever corrects it because nothing was promoted.
+    mockAuth = { user: verifiedUser, isAdmin: false };
+    fetchWithAuthMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ code: 'EVENT_FULL' }), { status: 409 }),
+    );
+    open();
+
+    fireEvent.click(screen.getByRole('button', { name: /Confirm RSVP/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Join waitlist/i })).toBeTruthy());
+
+    // A place opened up between the 409 and this click.
+    fetchWithAuthMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'CONFIRMED' }), { status: 201 }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Join waitlist/i }));
+
+    await waitFor(() => expect(screen.getByText(/registered!/i)).toBeTruthy());
+    // Neither the heading nor the body may suggest a queue they aren't in.
+    expect(screen.queryByText(/waitlist|queue/i)).toBeNull();
+  });
+
+  it('says "waitlist" when the opt-in really did queue them', async () => {
+    mockAuth = { user: verifiedUser, isAdmin: false };
+    fetchWithAuthMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ code: 'EVENT_FULL' }), { status: 409 }),
+    );
+    open();
+
+    fireEvent.click(screen.getByRole('button', { name: /Confirm RSVP/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Join waitlist/i })).toBeTruthy());
+
+    fetchWithAuthMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'WAITLISTED' }), { status: 201 }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Join waitlist/i }));
+
+    await waitFor(() => expect(screen.getByText(/waitlist/i)).toBeTruthy());
+  });
+
   it('surfaces a membership rejection using the machine-readable code', async () => {
     mockAuth = { user: verifiedUser, isAdmin: false };
     fetchWithAuthMock.mockResolvedValue(
