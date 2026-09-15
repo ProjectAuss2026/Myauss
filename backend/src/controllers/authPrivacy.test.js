@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import express from "express";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 import { hashStudentId } from "../utils/studentIdHash.js";
 import {
   CURRENT_MEMBERSHIP_AGREEMENT_VERSION,
@@ -605,4 +606,75 @@ test("forgot-password deletes a newly created reset row when email delivery fail
   assert.ok(calls.find((call) => call.name === "passwordReset.create"));
   assert.ok(calls.find((call) => call.name === "passwordReset.deleteMany"));
   assert.equal(passwordResetsById.size, 0);
+});
+
+// ── Login failure reasons ────────────────────────────────────────────
+// The handler now returns a distinct message per cause and logs the reason,
+// after the 2026-09-15 owner-lockout proved a single generic 401 with no log
+// line makes auth failures undiagnosable.
+
+function realHash(password) {
+  return bcrypt.hashSync(password, 10);
+}
+
+test("login returns a distinct 'no account' error for an unknown email", async () => {
+  resetState();
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/login",
+    body: { email: "nobody@example.com", password: "SomePassword!123" },
+  });
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json.error, "No account found with this email.");
+  assert.equal(response.json.reason, "no_account");
+});
+
+test("login returns a distinct 'incorrect password' error for a wrong password", async () => {
+  resetState();
+  storeUser(
+    makeUser({
+      email: "member-login@example.com",
+      passwordHash: realHash(STRONG_TEST_PASSWORD),
+      isVerified: true,
+    }),
+  );
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/login",
+    body: { email: "member-login@example.com", password: "WrongPassword!999" },
+  });
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json.error, "Incorrect password.");
+  assert.equal(response.json.reason, "bad_password");
+});
+
+test("login returns a distinct 'unverified' error for an unverified account", async () => {
+  resetState();
+  storeUser(
+    makeUser({
+      email: "unverified-login@example.com",
+      passwordHash: realHash(STRONG_TEST_PASSWORD),
+      isVerified: false,
+    }),
+  );
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/login",
+    body: { email: "unverified-login@example.com", password: STRONG_TEST_PASSWORD },
+  });
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json.error, "Please verify your email before signing in.");
+  assert.equal(response.json.reason, "unverified");
+});
+
+test("forgot-password returns 404 with a clear message for an unknown email", async () => {
+  resetState();
+  const response = await requestApp(createApp(), {
+    method: "POST",
+    path: "/api/auth/forgot-password",
+    body: { email: "ghost@example.com" },
+  });
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.json.error, "No account found with this email.");
+  assert.equal(response.json.reason, "no_account");
 });

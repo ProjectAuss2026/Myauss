@@ -8,7 +8,12 @@ const {
   getRetentionDays,
   getWarningDays,
   buildInactiveWarningEmail,
+  PRIVILEGED_ROLES,
 } = await import('./cleanupInactiveMembers.js');
+
+test('PRIVILEGED_ROLES excludes OWNER and ADMIN from inactive retention', () => {
+  assert.deepEqual(PRIVILEGED_ROLES, ['OWNER', 'ADMIN']);
+});
 
 test('getRetentionDays defaults to 21 when unset', () => {
   delete process.env.MEMBERSHIP_INACTIVE_RETENTION_DAYS;
