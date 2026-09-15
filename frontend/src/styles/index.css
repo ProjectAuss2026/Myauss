@@ -116,4 +116,17 @@
     font-size: var(--font-size);
     scroll-behavior: smooth;
   }
+
+  /* iOS Safari zooms the viewport when a focused input's font is < 16px, which
+     shoves the register / verify / payment forms off-centre on expo-day phones.
+     Force every text-entry control to 16px on small viewports so focus never
+     triggers that zoom-jump. Uses !important because several inputs set their
+     font size via inline styles (KAN-156 AC3). */
+  @media (max-width: 640px) {
+    input:not([type='checkbox']):not([type='radio']),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
 }
