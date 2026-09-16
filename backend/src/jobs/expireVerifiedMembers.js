@@ -9,6 +9,11 @@ import { changeMembershipStatus } from '../services/membershipStatus.js';
 // member is emailed to renew. Overridable via MEMBERSHIP_VERIFIED_DURATION_DAYS.
 const DEFAULT_VERIFIED_DURATION_DAYS = 91;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// Privileged roles are exempt from automatic membership expiry: an OWNER/ADMIN
+// must never be pushed back to INACTIVE (which then starts the deletion clock).
+// See the 2026-09-15 owner-lockout incident.
+export const PRIVILEGED_ROLES = ['OWNER', 'ADMIN'];
 const EXPIRY_REASON = 'Semester ended — membership expired';
 
 export function getVerifiedDurationDays() {
@@ -55,6 +60,7 @@ export async function expireVerifiedMembers(now = new Date()) {
 
   const expired = await prisma.user.findMany({
     where: {
+      role: { notIn: PRIVILEGED_ROLES },
       membershipStatus: 'VERIFIED',
       membershipStatusUpdatedAt: { lt: cutoff },
     },
