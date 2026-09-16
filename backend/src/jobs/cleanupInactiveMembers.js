@@ -13,6 +13,12 @@ const DEFAULT_RETENTION_DAYS = 21;
 const DEFAULT_WARNING_DAYS = 7;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+// Privileged roles are NEVER swept by the member-retention lifecycle. An
+// OWNER/ADMIN account defaults to membershipStatus=INACTIVE (schema default)
+// and would otherwise be warned then hard-deleted after ~21 days, which is
+// exactly how the production OWNER account was destroyed (2026-09-15 incident).
+export const PRIVILEGED_ROLES = ['OWNER', 'ADMIN'];
+
 export function getRetentionDays() {
   const parsed = Number(process.env.MEMBERSHIP_INACTIVE_RETENTION_DAYS);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -72,6 +78,7 @@ export async function warnInactiveMembers(now = new Date()) {
 
   const due = await prisma.user.findMany({
     where: {
+      role: { notIn: PRIVILEGED_ROLES },
       membershipStatus: 'INACTIVE',
       inactiveWarnedAt: null,
       membershipStatusUpdatedAt: { lt: warnCutoff },
@@ -122,6 +129,7 @@ export async function deleteInactiveMembers(now = new Date()) {
 
   const result = await prisma.user.deleteMany({
     where: {
+      role: { notIn: PRIVILEGED_ROLES },
       membershipStatus: 'INACTIVE',
       membershipStatusUpdatedAt: { lt: deleteCutoff },
       inactiveWarnedAt: { not: null, lt: warnedBefore },

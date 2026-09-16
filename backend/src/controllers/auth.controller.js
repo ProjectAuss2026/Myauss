@@ -98,7 +98,6 @@ const REGISTER_GENERIC_MESSAGE =
   "If your email is eligible, a verification code has been sent.";
 const RESEND_GENERIC_MESSAGE =
   "If your email has a pending verification, a new code has been sent.";
-const LOGIN_GENERIC_ERROR = "Invalid email or password.";
 const FORGOT_PASSWORD_GENERIC_MESSAGE =
   "If your email is registered, a password reset link has been sent.";
 const RESET_TOKEN_ERROR = "Invalid or expired password reset token.";
@@ -911,7 +910,18 @@ router.post(
         where: { email: normalisedEmail },
       });
 
-      if (user?.isVerified) {
+      if (!user) {
+        logger.warn(
+          { email: normalisedEmail, reason: "no_account" },
+          "Password reset requested for an unknown email",
+        );
+        return res.status(404).json({
+          error: "No account found with this email.",
+          reason: "no_account",
+        });
+      }
+
+      if (user.isVerified) {
         const now = new Date();
         const activeReset = await prisma.passwordReset.findFirst({
           where: {
@@ -1229,8 +1239,34 @@ router.post(
       if (!match && normalizedPassword !== rawPassword) {
         match = await bcrypt.compare(rawPassword, passwordHash);
       }
-      if (!user || !match || !user.isVerified) {
-        return res.status(401).json({ error: LOGIN_GENERIC_ERROR });
+
+      // Distinct, logged failure reasons. The old single "Invalid email or
+      // password" made the 2026-09-15 owner-lockout undiagnosable (no log line,
+      // three causes collapsed into one message). This trades a small
+      // account-enumeration surface — already exposed by /auth/register's 409,
+      // and rate-limited per email + per IP — for actionable errors, and always
+      // runs the bcrypt compare above (DUMMY hash when no user) so the code path
+      // stays timing-flat.
+      let failure = null;
+      if (!user) {
+        failure = { reason: "no_account", error: "No account found with this email." };
+      } else if (!match) {
+        failure = { reason: "bad_password", error: "Incorrect password." };
+      } else if (!user.isVerified) {
+        failure = {
+          reason: "unverified",
+          error: "Please verify your email before signing in.",
+        };
+      }
+
+      if (failure) {
+        logger.warn(
+          { email: normalisedEmail, reason: failure.reason },
+          "Login failed",
+        );
+        return res
+          .status(401)
+          .json({ error: failure.error, reason: failure.reason });
       }
 
       const token = await issueTokensForUser(res, user);

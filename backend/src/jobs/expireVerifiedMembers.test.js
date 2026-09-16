@@ -7,7 +7,12 @@ process.env.DATABASE_URL ||= 'postgresql://user:pass@localhost:5432/test';
 const {
   getVerifiedDurationDays,
   buildMembershipExpiredEmail,
+  PRIVILEGED_ROLES,
 } = await import('./expireVerifiedMembers.js');
+
+test('PRIVILEGED_ROLES excludes OWNER and ADMIN from membership expiry', () => {
+  assert.deepEqual(PRIVILEGED_ROLES, ['OWNER', 'ADMIN']);
+});
 
 test('getVerifiedDurationDays defaults to 91 when unset', () => {
   delete process.env.MEMBERSHIP_VERIFIED_DURATION_DAYS;
