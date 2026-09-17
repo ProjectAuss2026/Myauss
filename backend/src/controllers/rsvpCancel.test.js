@@ -15,6 +15,7 @@ let activity = { id: 1, endTime: FUTURE };
 let rsvpRow = { id: 10 };
 let deletedIds = [];
 let lookupArgs = [];
+let deletedRowCount = 1; // 0 simulates a concurrent cancellation winning the row
 
 globalThis.prisma = {
   $transaction: async (fn) => fn(globalThis.prisma),
@@ -24,9 +25,12 @@ globalThis.prisma = {
       lookupArgs.push(args?.where);
       return rsvpRow;
     },
-    delete: async (args) => {
+    // Conditional delete (review, #84): the release claims the row rather than
+    // deleting it unconditionally, so a second cancellation of the same place
+    // reads as "not registered" instead of a P2025-driven 500.
+    deleteMany: async (args) => {
       deletedIds.push(args.where.id);
-      return { id: args.where.id };
+      return { count: deletedRowCount };
     },
   },
 };
@@ -54,6 +58,7 @@ test.beforeEach(() => {
   rsvpRow = { id: 10 };
   deletedIds = [];
   lookupArgs = [];
+  deletedRowCount = 1;
 });
 
 test('a member can cancel their own place (204)', async () => {
@@ -80,6 +85,16 @@ test('returns 404 when the member holds no place — not a silent success', asyn
   assert.equal(res.code, 404);
   assert.match(res.body.error, /not registered/i);
   assert.deepEqual(deletedIds, []);
+});
+
+test('a double-clicked cancel reads as "not registered", not a 500', async () => {
+  // Both requests read the row, then one wins the delete. The loser used to hit
+  // Prisma's P2025 on an unconditional delete and surface as an internal error
+  // on what is really "already cancelled" (review, #84).
+  deletedRowCount = 0;
+  const res = await cancel();
+  assert.equal(res.code, 404);
+  assert.match(res.body.error, /not registered/i);
 });
 
 test('returns 404 when the activity does not exist', async () => {

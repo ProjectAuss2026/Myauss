@@ -24,12 +24,23 @@ import { fetchWithAuth } from '../lib/authFetch';
  * localStorage — and cleared when the event changes or the page unmounts.
  */
 
-type Verdict = 'CHECKED_IN' | 'ALREADY_CHECKED_IN' | 'NOT_REGISTERED' | 'INVALID_PASS';
+type Verdict =
+  | 'CHECKED_IN'
+  | 'ALREADY_CHECKED_IN'
+  | 'NOT_REGISTERED'
+  | 'WAITLISTED'
+  | 'INVALID_PASS';
 
 interface Attendee {
   userId: string;
   name: string;
   checkedInAt: string | null;
+}
+
+interface WaitlistEntry {
+  userId: string;
+  name: string;
+  position: number;
 }
 
 interface ActivityOption {
@@ -67,6 +78,9 @@ export function CheckIn() {
   const [activities, setActivities] = useState<ActivityOption[]>([]);
   const [activityId, setActivityId] = useState<number | null>(null);
   const [attendees, setAttendees] = useState<Map<string, Attendee>>(new Map());
+  // Past the promotion cutoff the queue is the exec's to work from, so it is
+  // shown at the desk in order (KAN-189).
+  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -120,6 +134,7 @@ export function CheckIn() {
       if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       setAttendees(new Map((data.attendees as Attendee[]).map((a) => [a.userId, a])));
+      setWaitlist((data.waitlist as WaitlistEntry[]) ?? []);
     } catch {
       setListError('Could not pre-load the attendee list. Verification needs a connection.');
     }
@@ -128,7 +143,10 @@ export function CheckIn() {
   useEffect(() => {
     if (activityId != null) loadAttendees(activityId);
     // Don't retain member names for an event we're no longer running.
-    return () => setAttendees(new Map());
+    return () => {
+      setAttendees(new Map());
+      setWaitlist([]);
+    };
   }, [activityId, loadAttendees]);
 
   const submitScan = useCallback(
@@ -179,7 +197,12 @@ export function CheckIn() {
       // Verify locally first so a verdict appears instantly, even with no signal.
       const localMatch = attendees.get(parts[0]);
       if (!localMatch) {
-        setResult({ verdict: 'NOT_REGISTERED' });
+        const queued = waitlist.find((w) => w.userId === parts[0]);
+        setResult(
+          queued
+            ? { verdict: 'WAITLISTED', name: queued.name }
+            : { verdict: 'NOT_REGISTERED' },
+        );
         return;
       }
       if (localMatch.checkedInAt) {
@@ -207,7 +230,7 @@ export function CheckIn() {
         setResult({ verdict: 'CHECKED_IN', name: localMatch.name, pending: true });
       }
     },
-    [activityId, attendees, submitScan],
+    [activityId, attendees, waitlist, submitScan],
   );
 
   // Keep the camera effect stable: handleScan changes whenever the attendee map
@@ -332,6 +355,11 @@ export function CheckIn() {
         cls: 'bg-red-500/15 border-red-500/40 text-red-300',
         title: 'Not registered',
       },
+      WAITLISTED: {
+        icon: <AlertTriangle className="w-16 h-16" />,
+        cls: 'bg-[#eb7524]/15 border-[#eb7524]/40 text-[#eb7524]',
+        title: 'On the waitlist',
+      },
       INVALID_PASS: {
         icon: <XCircle className="w-16 h-16" />,
         cls: 'bg-red-500/15 border-red-500/40 text-red-300',
@@ -359,6 +387,11 @@ export function CheckIn() {
         {r.membershipStatus && r.membershipStatus !== 'VERIFIED' && (
           <p className="mt-2 text-white/70" style={{ fontSize: '14px' }}>
             Membership: {r.membershipStatus}
+          </p>
+        )}
+        {r.verdict === 'WAITLISTED' && (
+          <p className="mt-2 text-white/70" style={{ fontSize: '14px', lineHeight: 1.5 }}>
+            Next in line, but doesn&rsquo;t hold a place. Your call whether there&rsquo;s room.
           </p>
         )}
         {r.verdict === 'NOT_REGISTERED' && (
@@ -465,6 +498,21 @@ export function CheckIn() {
             </div>
 
             {result && verdictView(result)}
+
+            {waitlist.length > 0 && (
+              <div className="mt-5 rounded-xl bg-white/[0.03] border border-white/10 p-4">
+                <p className="text-white/50 mb-2" style={{ fontSize: '12px', letterSpacing: '0.05em' }}>
+                  WAITLIST ({waitlist.length})
+                </p>
+                <ol className="space-y-1">
+                  {waitlist.map((w) => (
+                    <li key={w.userId} className="text-white/70" style={{ fontSize: '13px' }}>
+                      {w.position}. {w.name}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </>
         )}
       </div>
