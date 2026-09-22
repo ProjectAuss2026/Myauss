@@ -108,35 +108,56 @@ export function getConfiguredCspFrameSrcValues() {
 // qr-scanner creates from a blob URL. worker-src falls back to child-src and
 // then script-src when unset, and script-src has no blob:, so without this the
 // worker is blocked and scanning silently never produces a result.
-// Exported so the Express (helmet) policy and the Vite dev/preview policy stay
-// in step — they are built separately, and drift here is invisible until
-// production.
 export function getConfiguredCspWorkerSrcValues() {
   return unique(["'self'", 'blob:']);
 }
 
-export function createContentSecurityPolicy({
+// The single source of truth for the Content-Security-Policy. The Vite dev and
+// preview servers serialize it with createContentSecurityPolicy, and the Express
+// app (which serves the built SPA in production) hands the same object to helmet
+// with useDefaults: false. Neither side lists directives of its own, so a
+// directive added here reaches production without editing anything else — before
+// this, each side restated the policy by hand and helmet merged in its own
+// defaults, and a directive present only in dev (worker-src, KAN-180) shipped
+// broken. Options cover the only intended environment differences.
+export function getCspDirectives({
   env = DEFAULT_ENV,
   allowEval = false,
   allowInlineScripts = false,
   allowWebSockets = false,
+  // Off by default: Safari upgrades http://localhost requests and breaks the
+  // dev and preview servers. The Express app turns it on in production.
+  upgradeInsecureRequests = false,
 } = {}) {
-  return [
-    "default-src 'self'",
-    `script-src 'self' ${getConfiguredCspScriptSrcValues().join(' ')}${allowInlineScripts ? " 'unsafe-inline'" : ''}${allowEval ? " 'unsafe-eval'" : ''}`,
-    "style-src 'self' 'unsafe-inline' https:",
-    `img-src ${getConfiguredCspImageSrcValues(env).join(' ')}`,
-    "font-src 'self' data: https:",
-    `connect-src ${getConfiguredCspConnectSrcValues({ env, allowWebSockets }).join(' ')}`,
-    `frame-src ${getConfiguredCspFrameSrcValues().join(' ')}`,
+  return {
+    'default-src': ["'self'"],
+    'script-src': [
+      "'self'",
+      ...getConfiguredCspScriptSrcValues(),
+      ...(allowInlineScripts ? ["'unsafe-inline'"] : []),
+      ...(allowEval ? ["'unsafe-eval'"] : []),
+    ],
+    'script-src-attr': ["'none'"],
+    'style-src': ["'self'", "'unsafe-inline'", 'https:'],
+    'img-src': getConfiguredCspImageSrcValues(env),
+    'font-src': ["'self'", 'data:', 'https:'],
+    'connect-src': getConfiguredCspConnectSrcValues({ env, allowWebSockets }),
+    'frame-src': getConfiguredCspFrameSrcValues(),
     // Scoped to workers only — script-src is unchanged, so this does not widen
     // where scripts may be loaded from. See getConfiguredCspWorkerSrcValues.
-    `worker-src ${getConfiguredCspWorkerSrcValues().join(' ')}`,
-    "frame-ancestors 'none'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ].join('; ');
+    'worker-src': getConfiguredCspWorkerSrcValues(),
+    'frame-ancestors': ["'none'"],
+    'object-src': ["'none'"],
+    'base-uri': ["'self'"],
+    'form-action': ["'self'"],
+    ...(upgradeInsecureRequests ? { 'upgrade-insecure-requests': [] } : {}),
+  };
+}
+
+export function createContentSecurityPolicy(options = {}) {
+  return Object.entries(getCspDirectives(options))
+    .map(([name, values]) => [name, ...values].join(' '))
+    .join('; ');
 }
 
 function sourceAllowsUrl(source, parsedUrl) {
