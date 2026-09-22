@@ -11,12 +11,18 @@ import { parseMemberPass, verifyMemberPass, isMemberPassError } from '../utils/m
  *   ALREADY_CHECKED_IN — with the time of the first scan
  *   NOT_REGISTERED    — no RSVP for this event; no override (events are
  *                       members-only with no walk-ins)
+ *   WAITLISTED        — holds a waitlist place, not a confirmed one (KAN-189).
+ *                       Same outcome as NOT_REGISTERED (no entry without an exec
+ *                       override), but it tells the exec this person was
+ *                       legitimately next in line rather than a stranger — which
+ *                       is the information they need to make the call.
  *   INVALID_PASS      — forged, tampered, reset, or unreadable
  */
 export const CHECK_IN_VERDICT = Object.freeze({
   CHECKED_IN: 'CHECKED_IN',
   ALREADY_CHECKED_IN: 'ALREADY_CHECKED_IN',
   NOT_REGISTERED: 'NOT_REGISTERED',
+  WAITLISTED: 'WAITLISTED',
   INVALID_PASS: 'INVALID_PASS',
 });
 
@@ -63,7 +69,7 @@ export const checkInByPass = async (req, res) => {
 
     let rsvp = await prisma.rsvp.findUnique({
       where: { activityId_userId: { activityId, userId: member.id } },
-      select: { id: true, name: true, checkedInAt: true },
+      select: { id: true, name: true, checkedInAt: true, status: true },
     });
 
     // Heal-on-scan (KAN-180 Decision 3), scoped to pre-KAN-178 rows: legacy
@@ -75,7 +81,7 @@ export const checkInByPass = async (req, res) => {
     if (!rsvp) {
       const legacy = await prisma.rsvp.findFirst({
         where: { activityId, userId: null, email: member.email },
-        select: { id: true, name: true, checkedInAt: true },
+        select: { id: true, name: true, checkedInAt: true, status: true },
       });
       if (legacy) {
         await prisma.rsvp.update({
@@ -94,6 +100,16 @@ export const checkInByPass = async (req, res) => {
       return res.status(200).json({
         verdict: CHECK_IN_VERDICT.NOT_REGISTERED,
         membershipStatus: member.membershipStatus,
+      });
+    }
+
+    // A waitlisted member holds a queue position, not a place. No entry without
+    // an exec override, but say so distinctly rather than calling them a
+    // stranger (KAN-189 Decision 5).
+    if (rsvp.status === 'WAITLISTED') {
+      return res.status(200).json({
+        verdict: CHECK_IN_VERDICT.WAITLISTED,
+        ...attendeeSummary(rsvp, member.membershipStatus),
       });
     }
 
@@ -163,18 +179,32 @@ export const listCheckInAttendees = async (req, res) => {
 
     const rsvps = await prisma.rsvp.findMany({
       where: { activityId },
-      select: { userId: true, name: true, checkedInAt: true },
+      select: { userId: true, name: true, checkedInAt: true, status: true, createdAt: true },
       orderBy: { name: 'asc' },
     });
+
+    const confirmed = rsvps.filter((r) => r.status === 'CONFIRMED');
+
+    // Past the promotion cutoff, automatic reallocation stops and the remaining
+    // queue is handed to the exec at the desk (KAN-189 Gap 1) — they can see both
+    // the waitlist and the room, so the judgement sits with the person present.
+    // Ordered by createdAt: this is a queue, not an alphabetical list.
+    const waitlist = rsvps
+      .filter((r) => r.status === 'WAITLISTED')
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
     return res.status(200).json({
       activity: { id: activity.id, title: activity.title },
       fetchedAt: new Date(),
-      attendees: rsvps
+      attendees: confirmed
         .filter((r) => r.userId)
         .map((r) => ({ userId: r.userId, name: r.name, checkedInAt: r.checkedInAt })),
-      checkedInCount: rsvps.filter((r) => r.checkedInAt).length,
-      totalCount: rsvps.length,
+      // Name only — the desk screen is visible across a busy table.
+      waitlist: waitlist
+        .filter((r) => r.userId)
+        .map((r, i) => ({ userId: r.userId, name: r.name, position: i + 1 })),
+      checkedInCount: confirmed.filter((r) => r.checkedInAt).length,
+      totalCount: confirmed.length,
     });
   } catch (err) {
     logger.error({ err, activityId }, 'listCheckInAttendees error:');

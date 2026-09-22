@@ -11,6 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { RSVPModal } from '../components/RSVPModal';
+import { useAuth } from '../contexts/AuthContext';
 import { fetchWithAuth } from '../lib/authFetch';
 import { getSafeImageSrc, getSafeLinkHref } from '../../lib/safeUrl';
 
@@ -31,6 +32,8 @@ interface RsvpCount {
   isSoldOut: boolean;
   /** Only meaningful when signed in; the endpoint is public (KAN-191). */
   isRegistered?: boolean;
+  /** CONFIRMED | WAITLISTED — a queue position is not a place (KAN-189). */
+  myStatus?: 'CONFIRMED' | 'WAITLISTED' | null;
 }
 
 function deriveStatus(activity: Activity): 'upcoming' | 'ongoing' | 'archived' {
@@ -62,6 +65,7 @@ function formatTime(dateStr: string) {
 export function ActivityDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
 
   const activityId = id ? parseInt(id, 10) : NaN;
   const validId = !Number.isNaN(activityId);
@@ -209,18 +213,25 @@ export function ActivityDetails() {
   const isArchived = status === 'archived';
   const isSoldOut = rsvp?.isSoldOut ?? false;
   const isRegistered = rsvp?.isRegistered ?? false;
+  const isWaitlisted = rsvp?.myStatus === 'WAITLISTED';
   // A registered member sees "Cancel my place" instead of a register button.
   // Cancellation stays available right up to the event ending (KAN-191): the
   // reallocation limit belongs on promotion, not on the member doing the
   // honest thing.
-  const rsvpDisabled = isArchived || isSoldOut || rsvpLoading || !!rsvpError;
+  // NOT disabled when sold out: a full event is how a member reaches the
+  // join-waitlist flow (KAN-189). Disabling here would make the waitlist
+  // unreachable from the UI.
+  const rsvpDisabled = isArchived || rsvpLoading || !!rsvpError;
   const safeImageSrc = getSafeImageSrc(activity.imageUrl);
   const safeExternalLink = getSafeLinkHref(activity.externalLink);
 
+  // Execs never join a queue — they don't consume capacity, so a full event is
+  // never full *for them* (KAN-190). Offering them "Join waitlist" would
+  // contradict what the server actually does, which is confirm them outright.
   let buttonText = 'Register Now';
   if (isArchived) buttonText = 'Event Ended';
   else if (rsvpLoading) buttonText = 'Loading...';
-  else if (isSoldOut) buttonText = 'Sold Out';
+  else if (isSoldOut && !isAdmin) buttonText = 'Join waitlist';
 
   return (
     <div className="bg-black min-h-screen">
@@ -325,11 +336,13 @@ export function ActivityDetails() {
 
                 {isRegistered && (
                   <p
-                    className="mt-3 inline-flex items-center gap-1.5 text-green-400"
+                    className={`mt-3 inline-flex items-center gap-1.5 ${isWaitlisted ? 'text-[#eb7524]' : 'text-green-400'}`}
                     style={{ fontSize: '13px', fontFamily: 'Inter, sans-serif' }}
                   >
                     <Check className="w-3.5 h-3.5 shrink-0" />
-                    You have a place at this event.
+                    {isWaitlisted
+                      ? "You're on the waitlist. You do not have a place yet — we'll email you if one frees up."
+                      : 'You have a place at this event.'}
                   </p>
                 )}
 
@@ -351,7 +364,11 @@ export function ActivityDetails() {
                       className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white/70 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{ fontSize: '14px', fontFamily: 'Outfit, sans-serif', fontWeight: 600 }}
                     >
-                      {cancelling ? 'Cancelling...' : 'Cancel my place'}
+                      {cancelling
+                        ? 'Cancelling...'
+                        : isWaitlisted
+                          ? 'Leave waitlist'
+                          : 'Cancel my place'}
                     </button>
                   ) : (
                     <button
