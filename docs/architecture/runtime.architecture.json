@@ -1,0 +1,422 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AUSS Member Platform: Runtime Architecture",
+    "output": "docs/architecture/runtime.architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/ProjectAuss2026/Myauss",
+      "revision": "aace5f7e9dfe4ccdb45e0260c573ac6f7e3dc325"
+    },
+    "views": [
+      {
+        "id": "request-path",
+        "label": "Request path",
+        "focus": [
+          "users",
+          "spa",
+          "pipeline",
+          "api",
+          "prisma",
+          "postgres"
+        ],
+        "note": "Every API call passes one security pipeline before reaching the Express routes and PostgreSQL."
+      },
+      {
+        "id": "payments",
+        "label": "Card payments",
+        "focus": [
+          "spa",
+          "api",
+          "stripe",
+          "postgres"
+        ],
+        "note": "Membership payments use Stripe PaymentIntents; a signed webhook confirms them."
+      },
+      {
+        "id": "background",
+        "label": "Background jobs",
+        "focus": [
+          "jobs",
+          "prisma",
+          "postgres"
+        ],
+        "note": "node-cron jobs in the API process expire memberships and clean up stale accounts, emailing members via Brevo first."
+      }
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "cols": 6,
+    "cellW": 130,
+    "cellH": 64,
+    "gapX": 70,
+    "gapY": 100
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "Members & execs",
+      "sublabel": "in the browser",
+      "row": 1,
+      "col": 0
+    },
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "React SPA",
+      "sublabel": "Vite · React Router",
+      "row": 1,
+      "col": 1,
+      "sources": [
+        {
+          "path": "frontend/src/app/routes.tsx",
+          "line": 25,
+          "end_line": 49,
+          "label": "SPA routes"
+        },
+        {
+          "path": "frontend/src/app/lib/authFetch.ts",
+          "line": 66,
+          "label": "API client"
+        }
+      ]
+    },
+    {
+      "id": "pipeline",
+      "type": "security",
+      "label": "Security pipeline",
+      "sublabel": "CSP · CORS · limits",
+      "row": 1,
+      "col": 2,
+      "sources": [
+        {
+          "path": "backend/src/app.js",
+          "line": 134,
+          "end_line": 145,
+          "label": "Middleware order"
+        },
+        {
+          "path": "backend/src/app.js",
+          "line": 175,
+          "label": "API rate limit"
+        },
+        {
+          "path": "backend/src/middleware/rateLimiters.js",
+          "line": 133,
+          "label": "Limiters"
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Express API",
+      "sublabel": "/api + built SPA",
+      "row": 1,
+      "col": 3,
+      "sources": [
+        {
+          "path": "backend/src/app.js",
+          "line": 177,
+          "end_line": 205,
+          "label": "Route mounts"
+        },
+        {
+          "path": "backend/src/app.js",
+          "line": 216,
+          "end_line": 219,
+          "label": "SPA serving"
+        },
+        {
+          "path": "backend/src/index.js",
+          "line": 72,
+          "label": "Server start"
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "Auth & roles",
+      "sublabel": "JWT · roles",
+      "row": 2,
+      "col": 3,
+      "sources": [
+        {
+          "path": "backend/src/middleware/authMiddleware.js",
+          "line": 29,
+          "label": "authenticate"
+        },
+        {
+          "path": "backend/src/middleware/authMiddleware.js",
+          "line": 143,
+          "label": "authorise"
+        },
+        {
+          "path": "backend/src/utils/authTokens.js",
+          "line": 101,
+          "label": "Refresh cookie"
+        }
+      ]
+    },
+    {
+      "id": "prisma",
+      "type": "backend",
+      "label": "Prisma ORM",
+      "sublabel": "pg adapter",
+      "row": 1,
+      "col": 4,
+      "sources": [
+        {
+          "path": "backend/src/prismaClient.js",
+          "line": 24,
+          "end_line": 29,
+          "label": "Client + adapter"
+        }
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "incl. file bytes",
+      "row": 1,
+      "col": 5,
+      "sources": [
+        {
+          "path": "backend/prisma/schema.prisma",
+          "line": 42,
+          "label": "User model"
+        },
+        {
+          "path": "backend/prisma/schema.prisma",
+          "line": 193,
+          "label": "Payment-proof bytes"
+        },
+        {
+          "path": "backend/prisma/schema.prisma",
+          "line": 215,
+          "label": "Image bytes"
+        }
+      ]
+    },
+    {
+      "id": "jobs",
+      "type": "backend",
+      "label": "Scheduled jobs",
+      "sublabel": "node-cron schedules",
+      "row": 2,
+      "col": 4,
+      "sources": [
+        {
+          "path": "backend/src/jobs/expireVerifiedMembers.js",
+          "line": 96,
+          "label": "Expiry 03:30"
+        },
+        {
+          "path": "backend/src/jobs/cleanupInactiveMembers.js",
+          "line": 158,
+          "label": "Retention 03:15"
+        },
+        {
+          "path": "backend/src/jobs/cleanupUnverified.js",
+          "line": 9,
+          "label": "Unverified hourly"
+        }
+      ]
+    },
+    {
+      "id": "stripe",
+      "type": "external",
+      "label": "Stripe",
+      "sublabel": "card payments",
+      "row": 0,
+      "col": 4,
+      "sources": [
+        {
+          "path": "backend/src/controllers/paymentController.js",
+          "line": 33,
+          "label": "Stripe client"
+        },
+        {
+          "path": "backend/src/app.js",
+          "line": 149,
+          "end_line": 151,
+          "label": "Webhook route"
+        },
+        {
+          "path": "backend/src/controllers/paymentController.js",
+          "line": 479,
+          "label": "Signature check"
+        }
+      ]
+    },
+    {
+      "id": "brevo",
+      "type": "external",
+      "label": "Brevo",
+      "sublabel": "email API",
+      "row": 0,
+      "col": 3,
+      "sources": [
+        {
+          "path": "backend/src/utils/emailProvider.js",
+          "line": 12,
+          "label": "Brevo endpoint"
+        }
+      ]
+    },
+    {
+      "id": "sentry",
+      "type": "external",
+      "label": "Sentry",
+      "sublabel": "error monitoring",
+      "row": 0,
+      "col": 1,
+      "sources": [
+        {
+          "path": "backend/src/index.js",
+          "line": 40,
+          "label": "Backend init"
+        },
+        {
+          "path": "frontend/src/instrument.ts",
+          "line": 6,
+          "label": "Frontend init"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Client device",
+      "wraps": [
+        "users",
+        "spa"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Railway · production",
+      "wraps": [
+        "pipeline",
+        "api",
+        "auth",
+        "prisma",
+        "postgres",
+        "jobs"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "open-site",
+      "from": "users",
+      "to": "spa",
+      "label": "HTTPS"
+    },
+    {
+      "id": "api-call",
+      "from": "spa",
+      "to": "pipeline",
+      "label": "fetch /api",
+      "variant": "emphasis"
+    },
+    {
+      "id": "admitted",
+      "from": "pipeline",
+      "to": "api",
+      "variant": "emphasis"
+    },
+    {
+      "id": "orm",
+      "from": "api",
+      "to": "prisma",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sql",
+      "from": "prisma",
+      "to": "postgres",
+      "label": "SQL",
+      "variant": "emphasis"
+    },
+    {
+      "id": "check-auth",
+      "from": "api",
+      "to": "auth",
+      "label": "JWT + role",
+      "labelDy": 24
+    },
+    {
+      "id": "intents",
+      "from": "api",
+      "to": "stripe",
+      "label": "PaymentIntents",
+      "labelDx": -46
+    },
+    {
+      "id": "webhook",
+      "from": "stripe",
+      "to": "api",
+      "label": "signed webhook",
+      "variant": "dashed",
+      "labelDx": 46
+    },
+    {
+      "id": "email",
+      "from": "api",
+      "to": "brevo",
+      "label": "OTP · resets"
+    },
+    {
+      "id": "cron-db",
+      "from": "jobs",
+      "to": "prisma",
+      "label": "daily writes"
+    },
+    {
+      "id": "spa-errors",
+      "from": "spa",
+      "to": "sentry",
+      "variant": "dashed"
+    },
+    {
+      "id": "api-errors",
+      "from": "api",
+      "to": "sentry",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One service",
+      "items": [
+        "Express serves the built React app and /api from one Railway service",
+        "Locally, Vite serves the app on :5174 and proxies /api to :3001"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Data",
+      "items": [
+        "Uploaded images and payment-proof files are stored as bytes in PostgreSQL, never on disk",
+        "Production runs Railway PostgreSQL 18; local Docker runs 16"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Security",
+      "items": [
+        "HTTPS redirect, HSTS and a Helmet CSP in production",
+        "Per-route rate limits on login, sign-up, codes, uploads and check-in",
+        "Short-lived Bearer token plus an httpOnly refresh cookie"
+      ]
+    }
+  ]
+}
