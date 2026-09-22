@@ -1,0 +1,8 @@
+# CodeQL configuration, loaded by .github/workflows/codeql.yml.
+paths-ignore:
+  # Generated Archify diagram viewers, committed as documentation (see
+  # docs/architecture/README.md). They are never built or served by the app,
+  # and their bundled viewer JavaScript is third-party output, so scanning it
+  # only reports alerts on code we don't own. Application code is still
+  # scanned in full.
+  - docs/architecture/**/*.html
