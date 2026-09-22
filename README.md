@@ -68,14 +68,12 @@
 
 In production, one Express service serves both the built React app and the `/api` routes.
 
-```mermaid
-flowchart LR
-  B[Browser] -->|HTTPS| E["Express app<br/>built SPA + /api"]
-  E --> P[(PostgreSQL)]
-  E --> S[Stripe]
-  E --> M[Email: Brevo]
-  E -.->|errors| Y[Sentry]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/runtime.architecture.dark.png" />
+  <img src="docs/architecture/runtime.architecture.light.png" alt="AUSS runtime architecture: members' browsers run the React SPA, which calls /api through a security pipeline to the Express API, then Prisma and PostgreSQL. Auth, scheduled jobs and PostgreSQL run on Railway; Stripe, Brevo and Sentry are external services." />
+</picture>
+
+An interactive version is in [`docs/architecture`](docs/architecture/README.md). It links every component to the exact source lines it was drawn from.
 
 In development, Vite serves the frontend on port 5174 and proxies `/api` to the backend on port 3001.
 
